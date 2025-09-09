@@ -32,10 +32,14 @@ First, download and install Ollama, the platform that runs the language models l
 [Download Ollama from here](https://ollama.com/download)
 #### Step 2: Download the Models
 
-Open your terminal or command prompt and pull the necessary models. These are small enough to run on your laptop.
+Open your terminal or command prompt and pull the necessary models. 
+These are small enough to run on your laptop.
 
 Download the model from the server
-`ollama pull llama3.2:3b`
+`ollama pull qwen3:0.6b`
+this is a lightweight model but you can also use other models 
+('gpt-oss:20b', 'llama3.1:8b', 'deepseek-r1:1.5b', 'qwen3:0.6b', 'gemma3:270m')
+but they may require more processing power
 
 Download the embedding Model (for document understanding)
 `ollama pull nomic-embed-text`

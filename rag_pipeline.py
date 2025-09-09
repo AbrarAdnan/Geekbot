@@ -35,8 +35,9 @@ Instructions:
 - **Handling conflicting information:** If the Local Context and Web Context provide different answers, note the discrepancy and state the source of each. For example: "According to [Local Source...], but a recent web search suggests [Web Source...]."
 """
 
-# You can also try "llama3" 'gpt-oss:20b' 'llama3.1:8b' 
-DEFAULT_MODEL = 'llama3.2:3b' 
+# You can also try "llama3" 'gpt-oss:20b' 
+# 'llama3.1:8b' 'deepseek-r1:1.5b' 'qwen3:0.6b' 'gemma3:270m'
+DEFAULT_MODEL = 'qwen3:0.6b' 
 
 
 def rerank_documents(query: str, documents, embedder):
