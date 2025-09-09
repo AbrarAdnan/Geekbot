@@ -1,8 +1,10 @@
-Geekbot: Your Personal AI Document Assistant 🤖
+# Geekbot: Your Personal AI Document Assistant
 
 This project is a powerful, locally-run AI chatbot designed to answer questions using your private documents. By running entirely on your laptop (16GB RAM or less, no GPU required!), it provides fast, secure, and private access to information from your own files.
 
 This is my starting project dive into the world of LLMs(large language model) to learn about Retrieval-Augmented Generation (RAG), a key technique for building intelligent chatbots that use external data.
+
+![image](https://gist.github.com/user-attachments/assets/2a770415-ce82-41ab-9444-ca3930851070)
 #### Features
 
     100% Local & Private: All processing happens on your machine. Your data and conversations are never sent to a cloud server.
@@ -48,10 +50,12 @@ Clone this repository and install the Python dependencies.
 
 #### Create a virtual environment and install dependencies
 Python 3.10 is recommended to use for this project
-`python -m venv venv`
+Initialize the virtualenv
+`virtualenv venv`
+Activate the virtualenv
 `source venv/bin/activate  ` For linux
 `venv\Scripts\activate` For Windows
-
+Install the dependencies
 `pip install -r requirements.txt`
 
 #### Step 4: Run the App
