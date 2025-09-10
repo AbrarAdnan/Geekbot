@@ -1,10 +1,10 @@
 # Geekbot: Your Personal AI Document Assistant
 
-This project is a powerful, locally-run AI chatbot designed to answer questions using your private documents. By running entirely on your laptop (16GB RAM or less, no GPU required!), it provides fast, secure, and private access to information from your own files.
+This project is a powerful, locally-run AI chatbot designed to answer questions using your private documents. By running entirely on your laptop/desktop (16GB RAM or less, no GPU required!), it provides fast, secure, and private access to information from your own files.
 
 This is my starting project dive into the world of LLMs(large language model) to learn about Retrieval-Augmented Generation (RAG), a key technique for building intelligent chatbots that use external data.
 
-![image](https://gist.github.com/user-attachments/assets/2a770415-ce82-41ab-9444-ca3930851070)
+![image](assets/screenshot.png)
 #### Features
 
     100% Local & Private: All processing happens on your machine. Your data and conversations are never sent to a cloud server.
@@ -37,9 +37,16 @@ These are small enough to run on your laptop.
 
 Download the model from the server
 `ollama pull qwen3:0.6b`
-this is a lightweight model but you can also use other models 
-('gpt-oss:20b', 'llama3.1:8b', 'deepseek-r1:1.5b', 'qwen3:0.6b', 'gemma3:270m')
-but they may require more processing power
+this is a lightweight model but you can also use other models below if your pc has a powerful GPU and more RAM because they require significant more processing power.
+
+##### gemma3:270m  
+    This model is very light and sometimes loses context.
+##### qwen3:0.6b 
+    That can get the work done in low end PCs.
+##### llama3.1:8b and deepseek-r1:1.5b
+    Models with more than 1.5b parameters which is good for reasoning
+##### gpt-oss:20b
+    One of the heaviest models and latest released by OpenAI. It requires significantly more processing power with minimum 16GB ram and a powerful GPU.
 
 Download the embedding Model (for document understanding)
 `ollama pull nomic-embed-text`
@@ -99,8 +106,6 @@ This project can be a solid foundation for more complex applications. Here are s
     storage_utils.py: Contains shared helper functions for document processing and database management.
 
     get_embedding_function.py: Defines the embedding model used for converting text into vectors.
-
-    watch.py: A background script that automatically indexes new files as you add them.
 
     chroma/: The directory where the vector database is stored.
 
