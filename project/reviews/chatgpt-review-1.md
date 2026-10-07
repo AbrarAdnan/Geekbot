@@ -960,4 +960,4 @@ The current repository is small enough that this rewrite can produce a genuinely
 | 20 | Narrative: three claims | **Adopted** | PLAN §3 |
 | 21 | Build order; "pick only 2" in Tier 2 | Order **adopted**. **Disagreed** with "pick only 2": it contradicts #19 (security eval + VRAM bench are Gate B evidence), so both are mandatory. Web fallback moved to Gate B so the security eval has a real egress channel | D-014, D-015 |
 | 22 | README matters more than features | **Adopted** (S5.5) | PLAN §11 |
-| 23 | Don't hide the v1/v2 history | **Adopted**: tag `v1.0`, `docs/evolution.md`, v1 latency baseline (S0.4) | D-029 |
+| 23 | Don't hide the v1/v2 history | **Adopted**: tag `v1.0`, `docs/evolution.md`, v1 latency baseline (S0.4). **Later changed** by the user: S0.4 was dropped and replaced by a one-time v1 reference run at checkpoint CP2, with the same model as v2 | D-029, D-031, D-034 |

@@ -472,8 +472,8 @@ The next risk is no longer "bad architecture." It is spending too much time impl
 | 5 | Formalize taint | **Adopted**: labels live in graph state (side table keyed by message ID), never on strings; `packing.py` is the single labeling point; union propagation; monotonic; per-step rules for condense / citations / streaming / serialization; client-supplied history = `UNKNOWN`; ADR-0004 | PLAN §8.2, D-023 |
 | 6 | Local corpus too small for broad claims | **Adopted**: "BEIR = standardized retrieval evidence; golden corpus = system-specific behavioral evaluation"; no general claims from golden | PLAN §9, D-025 |
 | 7 | One variable per ablation rung | **Adopted**: R0–R7, one change each, fixed order, plus leave-one-out. Two rungs are explicitly named single interventions (R2: template multi-query, whose re-sort was its merge step; R4: the chunking strategy) | PLAN §9, D-026 |
-| 8 | Gate A large but acceptable | **Accepted as is**; later split into ~20 small reviewed steps for the teaching format | PLAN §11, D-012 |
-| — | First checkpoint should be M2 with a real evaluation table | **Adopted**: ⛳ "first evidence" checkpoint (CP2) after S2.6, with the v1 latency baseline from S0.4 | PLAN §11, D-027 |
+| 8 | Gate A large but acceptable | **Accepted as is**; later split into small reviewed steps (S0.1–S4.4) for the teaching format | PLAN §11, D-012 |
+| — | First checkpoint should be M2 with a real evaluation table | **Adopted**: ⛳ "first evidence" checkpoint (CP2) after S2.6. The v1 latency baseline from S0.4 was later replaced by a one-time v1 reference run at CP2 itself | PLAN §11, D-027, D-031, D-034 |
 
 **Corrections Claude found in its own rev 3 while applying this review:**
 - Chunking and header rungs *do* apply to BEIR (docs have titles; the legacy splitter cuts abstracts at 800 chars).

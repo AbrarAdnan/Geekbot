@@ -10,6 +10,7 @@ These rules change only when the user says so. Any change is recorded in `projec
    - The only exception is a specific command the user explicitly allows in the current chat.
    - *Why:* this PC also runs the user's CSV-query project, and its GPU/CPU must not be disturbed.
 2. **Environment:** conda env `geekbot` (`environment.yml`, Python 3.12), with the project pip-installed from `pyproject.toml` and `requirements/lock-win.txt`. No uv, no venv.
+   - The only other env is `geekbot-v1`, for the one-time v1 reference run at checkpoint CP2 (`project/DECISIONS.md` D-034).
 3. **Stack:**
    - LangChain 1.x + LangGraph: an explicit `StateGraph`, **no ReAct/`create_agent` loop**.
    - Ollama.

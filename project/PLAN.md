@@ -1,11 +1,11 @@
-# Geekbot v2 — implementation plan (rev 7, final draft)
+# Geekbot v2 — implementation plan (rev 9)
 
 > **The measured results are the product; the architecture exists to make them credible.**
 > (This line also opens the v2 README.)
 
 ## 1. Context
 
-Geekbot (Sept 2025) is a 4-file Streamlit + LangChain 0.3 + Chroma + Ollama RAG chatbot. It has verified correctness bugs (§5), uses removed or deprecated LangChain APIs, makes README claims the code doesn't meet, and answers can take around a minute. v2 rebuilds it into a fast, measurable project the user can put on a resume and defend in a deep technical interview. **They will also learn every component as we build it together.**
+Geekbot (Sept 2025) is a 4-file Streamlit + LangChain 0.3 + Chroma + Ollama RAG chatbot. It has verified correctness bugs (§5), uses removed or deprecated LangChain APIs, makes README claims the code doesn't meet, and its answers can take around a minute (user-reported, never measured). v2 rebuilds it into a fast, measurable project the user can put on a resume and defend in a deep technical interview. **They will also learn every component as we build it together.**
 
 **User decisions**
 - **Stack:** LangChain 1.x + LangGraph.
@@ -26,7 +26,7 @@ Geekbot (Sept 2025) is a 4-file Streamlit + LangChain 0.3 + Chroma + Ollama RAG 
   - **Size:** 11.9B, Q4_K_M, 7.6 GB file.
   - **Capabilities:** tools, thinking, vision, audio.
   - **Attention layout:** 48 layers. 40 sliding-window layers (window 1,024; 8 KV heads × 256) and 8 global layers (1 KV head × 512).
-  - **KV cache estimate:** ≈0.45 GiB at 8k context (f16).
+  - **KV cache estimate:** ≈448 MiB (≈0.44 GiB) at 8k context (f16): 40 layers × 1,024 tokens × 8 KiB + 8 layers × 8,192 tokens × 2 KiB.
 - **Note:** my earlier `ollama list` check auto-started the Ollama desktop app. It was idle with no models loaded.
 
 ## 2. How we work together (applies to every step in §11)
@@ -80,7 +80,7 @@ project/
 | Pillar | Contents | README evidence |
 |---|---|---|
 | **Retrieval** | dense + BM25 → RRF → cross-encoder rerank → calibrated abstention | Δ nDCG@10 / Recall@5 with 95% CI and p, from a one-variable ablation; abstention accuracy |
-| **Systems** | 12B model 100% GPU-resident on a 10 GB consumer GPU, latency SLOs, no model swaps, incremental ingestion, single storage owner, crash recovery, non-blocking async | v1 → v2 latency, tok/s, VRAM budget table, re-ingest cost, repair test |
+| **Systems** | 12B model 100% GPU-resident on a 10 GB consumer GPU, latency SLOs, no model swaps, incremental ingestion, single storage owner, crash recovery, non-blocking async | latency vs the SLOs and vs the one-time v1 reference run (same model), tok/s, VRAM budget table, re-ingest cost, repair test |
 | **Security** | untrusted-source model, tool isolation, formal taint-gated egress, output sanitization, path sandbox | **Architectural guarantees** and, separately, the **empirical result** (*k/N planted attacks bypassed a control*) plus the hijack rate |
 
 ## 4. Revision history (condensed)
@@ -99,6 +99,12 @@ project/
   - One chat per task or phase
   - A committed central notes directory + root `CLAUDE.md` session protocol (§2.1)
   - New step **P0** bootstraps it
+- **rev 8** (P0 verification, before the Codex review):
+  - v1 is no longer run or benchmarked: S0.4 and all v1 → v2 comparisons are dropped (D-031)
+  - Blank templates for the test documents and questions under `evals/` (D-032)
+  - Eval-design questions deferred to S2.4–S2.6 (D-033)
+  - Factual corrections to §5, the KV estimate and command formatting (D-030)
+- **rev 9** (P0, user decision): a **one-time v1 reference run** at checkpoint CP2: the real v1 from tag `v1.0`, in its own `geekbot-v1` conda env, with `gemma4:12b`, measuring speed and search quality on the golden questions. Rung R0 stays as the ablation's starting point (D-034, partly reverses D-031)
 
 ## 5. v1 findings (verified; all fixed by v2)
 
@@ -110,17 +116,17 @@ project/
 | 4 | docx/xlsx/md/pptx/html loaders need `unstructured` (not in requirements); `JSONLoader` needs `jq_schema` + `jq`. They crash, and one bad file aborts a whole folder | app.py:77-112 |
 | 5 | Chat history is stored but never sent to the model, so follow-ups fail | rag_pipeline.py:141 |
 | 6 | Sources are wiped by `st.rerun()` (not persisted) and print as raw dicts | app.py:267-273 |
-| 7 | "Rerank" re-embeds chunks with the same bi-encoder (a no-op re-sort). "Multi-query" is 5 string templates: ~20 embedding calls per question | rag_pipeline.py:43-62 |
+| 7 | "Rerank" re-embeds the retrieved chunks and re-scores them with the same bi-encoder: no new relevance signal; it only merges the multi-query results. "Multi-query" is 5 string templates. Together: up to 21 embedding calls per question (5 searches + 1 query + up to 15 chunks) | rag_pipeline.py:43-62,78-97 |
 | 8 | `nomic-embed-text` is used without its required `search_query:` / `search_document:` prefixes | get_embedding_function.py |
-| 9 | No `num_ctx`, no token budget. The prompt reaches ~3k tokens with web results; overflow is truncated from the **front**, where the local document context sits | rag_pipeline.py:141-147 |
+| 9 | No `num_ctx`, no token budget. With web results the prompt grows to an estimated ~3k tokens (never measured); anything over the context window is truncated from the **front**, where the local document context sits | rag_pipeline.py:141-147 |
 | 10 | Deprecated `langchain_community` `Ollama` LLM with no reasoning control: thinking-capable models can think at length and emit `<think>…</think>` into answers. No streaming | rag_pipeline.py:147 |
 | 11 | PDF pages are 0-indexed; `line` is never set (dead branch); a small model formats citations itself | rag_pipeline.py:110-117 |
-| 12 | Untrusted web/doc text is pasted undelimited into the prompt; web results aren't de-duplicated | rag_pipeline.py:132-139 |
-| 13 | An empty "Index folder" input resolves to the cwd. The README creates `venv/` inside the repo, so one click indexes the virtualenv. `.gitignore` misses `venv/` | app.py:230-233, README |
-| 14 | Same-name uploads overwrite each other; directory prefix match (`/a/b` matches `/a/bc`); default L2 space | app.py:223, storage_utils.py:128 |
-| 15 | Dead branch `loader(...) if not callable else loader(...)`; unused `CHUNK_SIZE`; the `RESET_MARKER` hack exists only because a new Chroma client is opened per call | app.py:30-46,98 |
+| 12 | Untrusted web/doc text goes into the prompt with only plain separators (`---(Local)---`, `---(Web)---`); nothing marks it as untrusted data. Web results aren't de-duplicated | rag_pipeline.py:117-119,132-139 |
+| 13 | An empty "Index folder" input resolves to the cwd, so one click tries to index the whole repo, including the virtualenv (the README creates `venv/` inside the repo). With #4, the walk likely crashes before anything is embedded. `.gitignore` misses `venv/` | app.py:230-233, README |
+| 14 | Same-name uploads overwrite each other; directory prefix match (`/a/b` matches `/a/bc`); default L2 space (probably harmless: if Ollama returns unit-length vectors, L2 and cosine rank identically; checked at S1.5) | app.py:223, storage_utils.py:128 |
+| 15 | Dead branch `loader(...) if not callable else loader(...)`; unused `CHUNK_SIZE` and `CHUNK_OVERLAP`; the `RESET_MARKER` hack works around Windows file locks held by Chroma clients that are opened on every call and never closed | app.py:27-46,98,192-194 |
 | 16 | Raw `pip freeze` requirements missing actual deps; no tests, CI, config, license, logging or packaging; hard-coded models | repo |
-| 17 | **Latency compounds** (3 sequential web searches, ~20 embedding calls, default 5-minute `keep_alive` cold reloads, no thinking control, no streaming, likely embedder ↔ chat-model swapping or CPU offload on a 10 GB card). These are *hypotheses*, measured in step S0.4 | rag_pipeline.py |
+| 17 | **Latency compounds** (3 sequential web searches, up to 21 embedding calls, default 5-minute `keep_alive` cold reloads, no thinking control, no streaming; with a chat model much larger than the default `qwen3:0.6b`, possibly embedder ↔ chat-model swapping or CPU offload on a 10 GB card). These are *hypotheses*; the one-time v1 reference run at CP2 measures v1's speed with `gemma4:12b` (D-034) | rag_pipeline.py |
 
 ## 6. Architecture
 
@@ -196,7 +202,7 @@ Verified by a heartbeat test: `/healthz` p99 < 200 ms during a concurrent ingest
 | Total | 10,240 MiB |
 | Desktop / other apps (live value from `doctor`) | ~1,300 MiB |
 | `gemma4:12b` weights (Q4_K_M, incl. vision/audio towers) | ~7,250 MiB |
-| KV cache @ 8k, f16 (≈0.45 GiB est.) | ~450 MiB |
+| KV cache @ 8k, f16 (estimate, §1) | ~448 MiB |
 | Compute buffers (`num_batch` lever) | measured |
 | Embedder | 0 (CPU, `OllamaEmbeddings(num_gpu=0)`) |
 | Reranker | 0 (CPU ONNX) |
@@ -244,9 +250,9 @@ src/geekbot/
   tools/     web.py (Gate B) · tabular.py (Gate C)
   server/    app.py · routes/{openai,kb,threads,jobs,health}.py · security.py · mcp.py (Gate C)
   client/sdk.py · ui/ (chat · knowledge · settings · evals+labeling) · cli.py
-  evals/     datasets.py · metrics.py · stats.py · judge.py · injection.py · bench.py · legacy_bench.py · report.py
+  evals/     datasets.py · metrics.py · stats.py · judge.py · injection.py · bench.py · report.py
   testing/tabular_contract.py (Gate C)
-evals/ corpus/ · datasets/{golden,injection,human_labels}.jsonl · configs/*.toml · results/
+evals/ README.md · corpus/ · datasets/{golden,injection,human_labels}.jsonl + golden-questions.md · configs/*.toml · results/
 docs/ architecture.md · evolution.md · security.md · performance.md · adr/ · plugins.md      (product docs)
 project/ PLAN.md · STATUS.md · DECISIONS.md · steps/ · learn/ · reviews/                   (build process, §2.1)
 tests/ unit/ · integration/ · live/
@@ -326,7 +332,7 @@ A simulated user denies every approval. The report gives bypasses k/N (target 0)
   | Rung | Single change |
   |---|---|
   | R0 | legacy v1 replica |
-  | R1 | L2 → cosine space |
+  | R1 | L2 → cosine space (expected Δ≈0 if vectors are unit-length; checked at S1.5) |
   | R2 | remove template multi-query (its re-sort was the merge step, so it goes too) |
   | R3 | + prefixes |
   | R4 | new chunking strategy |
@@ -345,8 +351,12 @@ A simulated user denies every approval. The report gives bypasses k/N (target 0)
   - **3 CPU embedders:** `nomic-embed-text` with prefixes, `qwen3-embedding:0.6b`, `embeddinggemma`. Quality + query ms + ingest chunks/s are reported.
   - **2 CPU rerankers:** MiniLM-L-6 (Apache-2.0) and bge-reranker-base (MIT). jina-v2 is excluded (CC-BY-NC).
 - **gemma4 tuning sweep:** `num_ctx` {4k, 8k} × KV {f16, q8_0} × `num_batch` {256, 512} × top-k {3, 5}, plus thinking on/off as information. The default is the best quality that meets all SLOs at 100% residency.
-- **Bench and v1 baseline:**
-  - `legacy_bench.py` times the untouched v1 `query_rag` on 20 golden questions, with web on and off, recording the stage breakdown, model loads and residency.
+- **One-time v1 reference run** (at checkpoint CP2, D-034):
+  - The real v1 from tag `v1.0` (a `git worktree`, so S4.4's removal of the v1 files doesn't matter), in its own conda env `geekbot-v1` (Python 3.10 + v1's `requirements.txt`), because v1 needs LangChain 0.3.
+  - `gemma4:12b` is set at runtime (v1's files stay untouched) and web search is off, matching v2's default, so speed differences come from the pipeline, not the model.
+  - On the golden corpus and questions, it records speed per question and search quality (doc-level Recall@5). The search scores also check that rung R0 really replicates v1.
+  - How v1 handles the formats it can't load (§5 #4) is settled when the run is designed.
+- **Bench:**
   - `geekbot bench` records TTFT (first turn and follow-up), tok/s, end-to-end, retrieval/rerank ms, ingest chunks/s, peak VRAM, residency, load events, and **other GPU processes**. Official numbers are only recorded when the GPU is idle.
   - Every README number is regenerable with one command from `evals/configs/*.toml`.
 
@@ -355,9 +365,9 @@ A simulated user denies every approval. The report gives bypasses k/N (target 0)
 | Phase | Gate | Outcome |
 |---|---|---|
 | P0 Notes bootstrap | — | `project/` central notes + `CLAUDE.md`; the plan lives in the repo (this chat) |
-| 0 Setup & baseline | A | conda env, tooling, CI, `doctor`, **v1 latency baseline** |
+| 0 Setup | A | conda env, tooling, CI, `doctor` |
 | 1 Ingestion & storage | A | incremental, crash-safe indexing into SQLite + Chroma |
-| 2 Retrieval & first evidence | A | hybrid retrieval + rerank; ⛳ **first ablation table** |
+| 2 Retrieval & first evidence | A | hybrid retrieval + rerank; ⛳ **first ablation table** + the one-time v1 reference run |
 | 3 Answering with LangGraph | A | fast streaming answers with memory, citations, abstention |
 | 4 Server & UI | A | single-owner API, OpenAI-compatible endpoint, Streamlit client; ⛳ **Gate A review** |
 | 5 Evidence | B | bench/VRAM/latency, answer eval + judge, web + taint, injection eval, README; ⛳ **Gate B review** |
@@ -398,13 +408,13 @@ A simulated user denies every approval. The report gives bypasses k/N (target 0)
   The tag goes on current `main`. The exact message is given at the time.
 - Then **S0.1 starts in a new chat**, which reads `CLAUDE.md` → `project/STATUS.md`.
 
-### Phase 0 — Setup and baseline
+### Phase 0 — Setup
 | Step | 🧠 Learn | 🛠 Build | ▶ You run |
 |---|---|---|---|
 | **S0.1 Skeleton + conda env** | src layout, `pyproject`, entry points, conda vs pip, lockfiles, ruff/mypy/pytest | `environment.yml`, `pyproject.toml`, `src/geekbot/__init__.py`, smoke test, ruff/mypy/pytest config, pre-commit, MIT LICENSE, `.gitignore` (`venv/`, `.venv/`, `data/`, `.env`); v1 files untouched | `conda env create -f environment.yml` (bootstrap) → `pip-compile …` to create the lock → `conda env update -f environment.yml --prune` (from the lock) → `pytest` · `ruff check .` · `mypy src` |
 | **S0.2 Config, logging, CLI** | 12-factor config, pydantic-settings, typed CLIs | `config.py` (gemma4:12b defaults, SLOs, paths), logging, Typer `geekbot` with stub commands, `.env.example` | `geekbot --help` · `pytest` |
 | **S0.3 `doctor` + GPU introspection** 🎮 | how Ollama loads models, `keep_alive`, VRAM math (weights + KV + buffers), the gemma4 sliding-window KV calculation | `llm/vram.py` (parsers, unit-tested on recorded outputs), `llm/models.py` (warm-up), `geekbot doctor` | `pytest` · `geekbot doctor` (warm-up loads gemma4) |
-| **S0.4 v1 latency baseline** 🎮 | measuring latency properly (warm vs cold, percentiles, TTFT), why v1 is slow | `evals/legacy_bench.py` (imports v1 untouched), results writer | `python -m geekbot.evals.legacy_bench` → share the results file |
+| ~~S0.4 v1 latency baseline~~ | — | **Dropped** (D-031). v1 runs once instead, at checkpoint CP2 (D-034). The latency-measurement lesson moves to S3.3 | — |
 | **S0.5 CI** | CI pipelines, matrix builds, lock vs fresh resolution | `.github/workflows/ci.yml` (setup-miniconda) | `git push` to a branch, then check the Actions tab |
 
 ### Phase 1 — Ingestion and storage
@@ -414,8 +424,8 @@ A simulated user denies every approval. The report gives bypasses k/N (target 0)
 | **S1.2 Chunking** | chunking trade-offs, tokens vs characters, structure-aware splitting, contextual headers | `ingest/chunking.py` (header → token-recursive 512/64, code splitter, header text) | `pytest` |
 | **S1.3 IDs and hashing** ✋ | content addressing, identity vs fingerprint, idempotency, property-based testing | `ingest/ids.py` + hypothesis tests (duplicates get distinct IDs; an insert keeps unchanged IDs). ✋ write `occurrence` numbering yourself | `pytest` |
 | **S1.4 SQLite store + FTS5** | WAL, FTS5 and BM25 internals, migrations, single-writer thread | `index/sqlite.py` (schema, migrations, writer queue, read pool), `index/lock.py` | `pytest` |
-| **S1.5 Embeddings + Chroma** | embeddings, cosine vs L2, HNSW, CPU embedding, embedding cache, fingerprints | `index/dense.py`, `PrefixedEmbeddings` (CPU `num_gpu=0`), cache, fingerprint guard | `pytest` · a tiny live embed test (CPU only) |
-| **S1.6 Ingest pipeline** | the outbox pattern, consistency across two stores, crash recovery, process pools on Windows | `ingest/pipeline.py`, `jobs.py`, `consistency.py`, `geekbot ingest`, `doctor --repair` | `geekbot ingest evals/corpus` twice (2nd = 0 embeds) · crash/repair test |
+| **S1.5 Embeddings + Chroma** | embeddings, cosine vs L2, HNSW, CPU embedding, embedding cache, fingerprints | `index/dense.py`, `PrefixedEmbeddings` (CPU `num_gpu=0`), cache, fingerprint guard | `pytest` · a tiny live embed test (CPU only; also checks whether vectors are unit-length, which sets the R1 expectation) |
+| **S1.6 Ingest pipeline** | the outbox pattern, consistency across two stores, crash recovery, process pools on Windows | `ingest/pipeline.py`, `jobs.py`, `consistency.py`, `geekbot ingest`, `doctor --repair` | `geekbot ingest evals/corpus` twice (2nd = 0 embeds; needs the corpus, D-032) · crash/repair test |
 
 ### Phase 2 — Retrieval and first evidence
 | Step | 🧠 Learn | 🛠 Build | ▶ You run |
@@ -423,17 +433,17 @@ A simulated user denies every approval. The report gives bypasses k/N (target 0)
 | **S2.1 Dense retrieval** | asymmetric retrieval, task prefixes, the "ready-only" filter | `retrieval/dense.py`, `geekbot search` | `geekbot search "…"` |
 | **S2.2 BM25 + RRF** ✋ | lexical vs semantic retrieval, why fuse by rank not score | `retrieval/lexical.py`, `fusion.py`. ✋ implement RRF against my tests | `pytest` · `geekbot search --mode hybrid` |
 | **S2.3 Reranking** | bi-encoder vs cross-encoder, rerank depth vs latency | `retrieval/rerank.py` (fastembed CPU), latency timing | `geekbot search --mode hybrid_rerank` |
-| **S2.4 Eval datasets** | qrels, BEIR, building a golden set, unanswerable questions | `evals/datasets.py`, `eval generate`, golden-set format. **You curate ~100 items** (~1 h) | `geekbot eval generate` 🎮 → curate |
-| **S2.5 Metrics and statistics** ✋ | nDCG, Recall, MRR; bootstrap CI, permutation test, Holm | `evals/metrics.py`, `stats.py`. ✋ implement nDCG@k against hand-computed tests | `pytest` |
+| **S2.4 Eval datasets** | qrels, BEIR, building a golden set, unanswerable questions | `evals/datasets.py`, `eval generate`, golden-set format (from `evals/datasets/golden-questions.md`); settle the deferred eval questions (D-033). **You curate ~100 items** (~1 h) | `geekbot eval generate` 🎮 → curate |
+| **S2.5 Metrics and statistics** ✋ | nDCG, Recall, MRR; bootstrap CI, permutation test, Holm | `evals/metrics.py`, `stats.py`, the Holm test family (D-033). ✋ implement nDCG@k against hand-computed tests | `pytest` |
 | **S2.6 Ablation + bake-offs** | ablation design, confounds, leave-one-out, threshold calibration | rungs R0–R7, LOO, embedder/reranker bake-offs, `calibrate.py`, report writer | `geekbot eval retrieval --config evals/configs/ablation.toml` (CPU-heavy, long run) |
-| ⛳ **Checkpoint: first evidence** | — | draft README results section | We review the ablation table and v1 baseline together **before Phase 3** |
+| ⛳ **Checkpoint: first evidence** | — | one-time v1 reference run (D-034) + draft README results section | create the `geekbot-v1` env, then the v1 run 🎮 (commands given then); we review the ablation table and the v1 reference together **before Phase 3** |
 
 ### Phase 3 — Answering with LangGraph
 | Step | 🧠 Learn | 🛠 Build | ▶ You run |
 |---|---|---|---|
 | **S3.1 Graph basics** 🎮 | LangGraph state, nodes, edges, compile; `ChatOllama` options | minimal `retrieve → generate` graph, `geekbot ask` (non-streaming) | `geekbot ask "…"` |
 | **S3.2 Prompting, packing, citations** | context windows, token budgets, prefix-KV reuse, datamarking, citation validation | `prompts/*.md`, `packing.py` (+ label bookkeeping), `citations.py` | `pytest` · `geekbot ask` |
-| **S3.3 Streaming + speed** 🎮 | streaming, TTFT, thinking models, warm-up, `keep_alive` | streaming, think toggle, `RunStats` (TTFT, tok/s, loads) | `geekbot ask --stream` (watch TTFT) |
+| **S3.3 Streaming + speed** 🎮 | streaming, TTFT, measuring latency properly (warm vs cold, percentiles), thinking models, warm-up, `keep_alive` | streaming, think toggle, `RunStats` (TTFT, tok/s, loads) | `geekbot ask --stream` (watch TTFT) |
 | **S3.4 Memory and follow-ups** 🎮 | conversational RAG, checkpointers, structured output | `AsyncSqliteSaver` threads, `condense` node | multi-turn `geekbot ask --thread t1` |
 | **S3.5 Abstain, cite_check, sanitize** | abstention, relevance vs entailment, markdown-image exfiltration | grade/abstain, post-stream `cite_check`, `sanitize.py` (G3) | `pytest` · unanswerable question demo |
 | **S3.6 Parallelism + resilience** 🎮 | parallel branches, `RetryPolicy`, stream events, SLO smoke testing | dense ‖ lexical branches, retries, step events, live SLO smoke | `pytest -m live` |
@@ -464,7 +474,7 @@ A simulated user denies every approval. The report gives bypasses k/N (target 0)
 ### Phase 5 — Evidence
 | Step | 🧠 Learn | 🛠 Build | ▶ You run |
 |---|---|---|---|
-| **S5.1 Bench + tuning sweep** 🎮 | performance engineering, KV-cache quantization, flash attention, batch size vs VRAM | `evals/bench.py` (idle-GPU guard), sweep config, VRAM table, v1→v2 comparison | `geekbot bench --config evals/configs/bench.toml` (idle GPU) |
+| **S5.1 Bench + tuning sweep** 🎮 | performance engineering, KV-cache quantization, flash attention, batch size vs VRAM | `evals/bench.py` (idle-GPU guard), sweep config, VRAM table | `geekbot bench --config evals/configs/bench.toml` (idle GPU) |
 | **S5.2 Answer eval + judge** 🎮 | LLM-as-judge, self-preference bias, Cohen's κ | deterministic answer metrics, `judge.py`, labeling view. **You label ~60 answers** (~1 h) | `geekbot eval answers` → label → κ report |
 | **S5.3 Web tool + taint enforcement** | taint tracking, HITL interrupts, egress control | `tools/web.py`, `taint.py`, `EgressGate`, `UNKNOWN` labeling | `pytest` · approval-prompt demo |
 | **S5.4 Injection eval** | prompt-injection attack classes, measuring security | `evals/injection.py` + dataset | `geekbot eval injection` |
@@ -485,7 +495,7 @@ A simulated user denies every approval. The report gives bypasses k/N (target 0)
 | 1 | gemma4:12b not 100% GPU-resident on 10 GB | High | CPU embedder + reranker; `doctor` residency check; ordered levers (§6.5) |
 | 2 | Model swaps / cold loads mid-query | High | Warm-up, long `keep_alive`, `MAX_LOADED_MODELS ≥ 2`, load events in DoD |
 | 3 | **Shared PC: your CSV project competes for GPU/CPU, invalidating numbers** | High | Idle-GPU guard in `bench`; official numbers only on an idle machine; 🎮-marked steps |
-| 4 | Infrastructure before evidence | High | Phase 2 checkpoint with the first ablation table; v1 baseline in S0.4 |
+| 4 | Infrastructure before evidence | High | Phase 2 checkpoint with the first ablation table |
 | 5 | Taint stripped on some path | High | Graph-state labels; single labeling point; `EgressGate`; property and registry tests; `UNKNOWN` default |
 | 6 | Multiple storage writers | High | Writer lock + `workers=1` + import-linter |
 | 7 | Event loop blocked by sync I/O | Medium | §6.3 boundary + heartbeat test |
@@ -517,35 +527,37 @@ A simulated user denies every approval. The report gives bypasses k/N (target 0)
 - **Live** (`pytest -m live`, needs Ollama + GPU 🎮): smoke tests, residency assertion, SLO smoke.
 
 ## 14. Verification commands (you run them, in `conda activate geekbot`)
-1. Static checks and tests:
+1. Static checks and tests (one command per line; `&&` fails in Windows PowerShell 5.1):
    ```
-   ruff check . && mypy src && lint-imports && pytest
+   ruff check .
+   mypy src
+   lint-imports
+   pytest
    ```
 2. `geekbot doctor` 🎮: gemma4 at 100% GPU after warm-up, embedder on CPU, free VRAM shown, lock free.
-3. `python -m geekbot.evals.legacy_bench` 🎮: v1 baseline.
-4. Ingest:
+3. Ingest:
    - `geekbot ingest evals/corpus` twice: the second run does 0 embeddings.
    - Edit a section, then delete a file: incremental.
    - Kill mid-ingest, then `geekbot doctor --repair`: consistent.
    - Start a second `geekbot serve`: refused.
-5. `geekbot eval retrieval --config evals/configs/ablation.toml`: the Phase 2 checkpoint table.
-6. `geekbot up` 🎮, then in the browser:
+4. `geekbot eval retrieval --config evals/configs/ablation.toml`: the Phase 2 checkpoint table, plus the one-time v1 reference run 🎮 in the `geekbot-v1` env (D-034).
+5. `geekbot up` 🎮, then in the browser:
    - First token in ~2–3 s, warm.
    - No re-indexing or model loads.
    - Citations and the think-harder expander survive a reload.
    - Follow-up resolves; unanswerable abstains.
    - Web off: no egress.
    - A tainted web query shows the approval prompt.
-7. The API: the OpenAI SDK streams; a non-local bind without a key is refused; an out-of-allowlist ingest returns 403; a planted image is stripped.
-8. Evidence:
-   - `geekbot bench --config evals/configs/bench.toml` 🎮 on an idle GPU: SLO + VRAM + v1→v2 tables.
+6. The API: the OpenAI SDK streams; a non-local bind without a key is refused; an out-of-allowlist ingest returns 403; a planted image is stripped.
+7. Evidence:
+   - `geekbot bench --config evals/configs/bench.toml` 🎮 on an idle GPU: SLO + VRAM tables.
    - `geekbot eval injection`.
    - `geekbot eval answers` 🎮: κ rule.
-9. Gate C: `claude mcp add --transport http geekbot http://127.0.0.1:8000/mcp` → `search_knowledge_base`; the tabular contract passes.
+8. Gate C: `claude mcp add --transport http geekbot http://127.0.0.1:8000/mcp` → `search_knowledge_base`; the tabular contract passes.
 
 ## 15. Prerequisites and your effort
-- **Miniconda/Anaconda** installed; you run `conda env create -f environment.yml` in S0.1.
-- **Ollama:** 0.34.2 is fine. If you update to 0.40.0, everything is re-benched; versions are recorded.
+- **Miniconda/Anaconda** installed; you run `conda env create -f environment.yml` in S0.1, and create the separate `geekbot-v1` env once at CP2 (D-034).
+- **Ollama:** 0.34.2 is fine. If you update Ollama, everything is re-benched; versions are recorded.
 - **Model pulls (you run them):**
   - `qwen3-embedding:0.6b` and `embeddinggemma` (S2.6, ~1 GB, CPU use)
   - the judge, Qwen3 ~8B class (~5 GB, S5.2; tag verified first)
