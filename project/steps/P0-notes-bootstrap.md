@@ -3,7 +3,7 @@
 - **Phase / Gate:** pre-Phase 0 (no gate)
 - **Chat date(s):** 2026-10-07 (planning chat), 2026-10-07 (verification chat)
 - **Status:** green-lit (2026-10-07)
-- **Commit:** `f7c2100` (notes) + the verification commit (SHA to be reported by the user)
+- **Commit:** `f7c2100` (notes) + `b57696f` (verification; recorded at the start of the S0.1 chat)
 - **Lesson note:** none (setup step)
 
 ## Goal

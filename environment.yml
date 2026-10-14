@@ -1,0 +1,13 @@
+# The `geekbot` conda env (lesson: project/learn/01-packaging.md §4-6).
+# conda provides only Python + pip; every Python package comes from pip via the lock, so no
+# package has two installers (D-035). Create: conda env create -f environment.yml
+name: geekbot
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - -r requirements/lock-win.txt
+      - -e .

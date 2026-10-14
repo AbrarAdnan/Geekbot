@@ -1,0 +1,75 @@
+# Geekbot v2 packaging and tool config (lesson: project/learn/01-packaging.md).
+# Dependencies, extras and tool configs are added in the step that first uses them (D-035).
+
+[build-system]
+requires = ["hatchling>=1.27"]  # 1.27 added PEP 639 license metadata
+build-backend = "hatchling.build"
+
+[project]
+name = "geekbot"
+version = "2.0.0.dev0"
+description = "A local RAG engine that measures retrieval quality, controls inference cost, and treats retrieved content as untrusted data."
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Abrar Adnan" }]
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=2.4",
+    "pip-tools>=7.6.1",  # first release that supports pip 26.2
+    "pre-commit>=4.6",
+    "pytest>=9.1",
+    "ruff>=0.16",  # the config below relies on ruff 0.16's default rule set
+]
+
+[project.scripts]
+geekbot = "geekbot.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/geekbot"]
+
+[tool.ruff]
+# The target Python version is read from requires-python.
+line-length = 100
+# pre-commit passes file names explicitly; this makes ruff apply the excludes to them too.
+force-exclude = true
+extend-exclude = [
+    # v1 code stays untouched until step S4.4 removes it (D-029). The "./" anchors each
+    # pattern to the repo root: a bare "app.py" would match every app.py in the tree,
+    # including the planned src/geekbot/server/app.py.
+    "./app.py",
+    "./rag_pipeline.py",
+    "./storage_utils.py",
+    "./get_embedding_function.py",
+    # Test documents for the golden corpus (D-032), not our code.
+    "evals/corpus",
+    # ruff >= 0.16 also formats Python blocks inside Markdown; notes keep snippets as written.
+    "*.md",
+]
+
+# No `select`: we use ruff 0.16's curated default rule set (~413 rules).
+[tool.ruff.lint.per-file-ignores]
+# Literal numbers in test assertions are clearer than named constants.
+"tests/**" = ["PLR2004"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+files = ["src"]
+
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--import-mode=importlib",
+    # Tests that need Ollama or the GPU only run when asked for: `pytest -m live`.
+    "-m",
+    "not live",
+]
+markers = ["live: needs a running Ollama and/or the GPU; deselected by default"]

@@ -13,3 +13,5 @@ The overall tracker is [`../STATUS.md`](../STATUS.md).
 | Step | Log |
 |---|---|
 | P0 | [P0-notes-bootstrap.md](P0-notes-bootstrap.md) |
+| P1 | [P1-csv-integration-plan.md](P1-csv-integration-plan.md) |
+| S0.1 | [S0.1-skeleton.md](S0.1-skeleton.md) |
