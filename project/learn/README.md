@@ -10,7 +10,7 @@ Together they form a study guide for the whole project. Notes are written as eac
 | # | Topic | Step | Status |
 |---|---|---|---|
 | 01 | [Python packaging: src layout, pyproject, entry points, conda vs pip, lockfiles, linters/type checkers](01-packaging.md) | S0.1 | written |
-| 02 | 12-factor configuration, pydantic-settings, logging, typed CLIs | S0.2 | planned |
+| 02 | [12-factor configuration, pydantic-settings, logging, typed CLIs](02-config-cli.md) | S0.2 | written |
 | 03 | How Ollama loads models: keep_alive, residency, VRAM math (weights + KV cache + buffers), gemma4's sliding-window KV | S0.3 | planned |
 | 04 | CI pipelines: matrix builds, lock vs fresh resolution; branches and pull requests | S0.5 | planned |
 | 05 | Working in a codebase you didn't just write: vendoring vs packages vs git subtree, provenance, characterization tests, gradual typing; a guided tour of `csv_analyst` | C1 | planned |

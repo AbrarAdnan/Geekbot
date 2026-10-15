@@ -36,7 +36,7 @@ def test_console_script_is_registered() -> None:
 
 
 def test_version_flag_prints_the_version(capsys: pytest.CaptureFixture[str]) -> None:
-    # argparse's version action prints, then exits with code 0.
+    # The CLI prints the version, then exits with code 0 (Typer exits the process itself).
     with pytest.raises(SystemExit) as exit_info:
         main(["--version"])
     assert exit_info.value.code == 0

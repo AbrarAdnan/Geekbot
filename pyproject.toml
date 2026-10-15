@@ -13,7 +13,10 @@ license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Abrar Adnan" }]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "pydantic-settings>=2.6",  # typed settings from GEEKBOT_* env vars and .env (S0.2)
+    "typer>=0.15",  # the CLI (S0.2)
+]
 
 [project.optional-dependencies]
 dev = [

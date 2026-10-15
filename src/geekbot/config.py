@@ -1,0 +1,117 @@
+"""All Geekbot settings, in one typed place (lesson: project/learn/02-config-cli.md).
+
+Nothing else in the code base reads environment variables. Values come from ``GEEKBOT_*``
+environment variables or from a local ``.env`` file (git-ignored; ``.env.example`` documents
+the options), and pydantic rejects bad values at startup instead of halfway through a run.
+
+Model profiles (PLAN.md §6.5, D-042, D-043): ``proto`` = light models for fast building,
+``target`` = the models every reported number must come from. The default is ``proto`` because
+speed of iteration matters most while building; the price is that a result produced without
+setting ``GEEKBOT_PROFILE=target`` comes from the small models. Every report therefore records
+the resolved model names, which ``geekbot config show`` prints.
+"""
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Final, Literal
+
+from pydantic import SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+Profile = Literal["proto", "target"]
+LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
+
+@dataclass(frozen=True)
+class ModelSet:
+    """The chat model for RAG mode and the model for CSV mode (they never share the GPU)."""
+
+    chat: str
+    csv: str
+
+
+# Target = PLAN.md §1/§6.5 (D-007, D-037). Proto = D-042; the 3b is Gigalogy's own "fast" tier.
+PROFILES: Final[dict[Profile, ModelSet]] = {
+    "target": ModelSet(chat="gemma4:12b", csv="qwen2.5-coder:7b"),
+    "proto": ModelSet(chat="gemma3:4b", csv="qwen2.5-coder:3b"),
+}
+
+
+@dataclass(frozen=True)
+class Slos:
+    """Latency targets from PLAN.md §6.5. Targets until measured, and measured on ``target``."""
+
+    retrieval_rerank_p95_ms: int = 400
+    first_turn_ttft_p50_s: float = 2.5
+    first_turn_ttft_p95_s: float = 4.0
+    followup_ttft_p95_s: float = 5.0
+    end_to_end_p95_s: float = 15.0
+    model_loads_during_queries: int = 0
+
+
+# Fixed by the plan, so deliberately not environment-configurable: a bench that could be
+# tuned by an env var could be tuned until it passes.
+SLOS: Final = Slos()
+
+
+class Settings(BaseSettings):
+    """Geekbot's settings. Create it with ``Settings()``; it reads the environment itself.
+
+    ``extra="ignore"`` lets a shared ``.env`` hold other tools' variables. The cost is that a
+    typo such as ``GEEKBOT_PROFLE`` is silently ignored, which is why ``config show`` exists.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="GEEKBOT_",
+        env_file=".env",
+        extra="ignore",
+        frozen=True,
+    )
+
+    profile: Profile = "proto"
+    # Per-model overrides win over the profile.
+    chat_model: str | None = None
+    csv_model: str | None = None
+
+    ollama_host: str = "http://127.0.0.1:11434"
+    data_dir: Path = Path("data")
+    log_level: LogLevel = "INFO"
+    # Unused until the server's auth (S4.3). It exists now so secret masking has a real secret.
+    api_key: SecretStr | None = None
+
+    @property
+    def resolved_chat_model(self) -> str:
+        """The chat model in use: the override if set, else the profile's."""
+        return self.chat_model or PROFILES[self.profile].chat
+
+    @property
+    def resolved_csv_model(self) -> str:
+        """The CSV-mode model in use: the override if set, else the profile's."""
+        return self.csv_model or PROFILES[self.profile].csv
+
+
+def mask_settings(settings: Settings) -> dict[str, object]:
+    """What ``geekbot config show`` prints: every setting, safe to paste into a chat.
+
+    ✍️ YOUR PIECE (step S0.2). Return a dict with exactly these keys, in this order:
+
+    - ``profile``: the profile name (str)
+    - ``chat_model``: the *resolved* chat model, not the raw override (str)
+    - ``csv_model``: the *resolved* CSV model (str)
+    - ``ollama_host``: str
+    - ``data_dir``: the path as a str (JSON can't hold a ``Path``)
+    - ``log_level``: str
+    - ``api_key``: ``"********"`` if a secret is set, ``None`` if it is not
+
+    Why mask: ``SecretStr`` hides itself in ``repr``, but ``.get_secret_value()`` returns the
+    real text. The value must never reach this dict, a log line, or the screen.
+    """
+    return {
+        "profile": settings.profile,
+        "chat_model": settings.resolved_chat_model,
+        "csv_model": settings.resolved_csv_model,
+        "ollama_host": settings.ollama_host,
+        "data_dir": str(settings.data_dir),
+        "log_level": settings.log_level,
+        "api_key": "********" if settings.api_key is not None else None,
+    }

@@ -47,7 +47,7 @@ Status values: `todo → design → build → verify → green-lit`, or `blocked
 | P0 | Project notes bootstrap | — | green-lit | 2026-10-07 | `f7c2100` + `b57696f` | [P0](steps/P0-notes-bootstrap.md) |
 | P1 | CSV analyst integration plan (rev 11 + rev 12, notes only) | — | green-lit (2026-10-15; user skimmed and approved) | 2026-10-11 | | [P1](steps/P1-csv-integration-plan.md) |
 | S0.1 | Skeleton + conda env | A | green-lit (2026-10-15; all 4 checks green on the rebuilt env) | 2026-10-07 – 15 | | [S0.1](steps/S0.1-skeleton.md) |
-| S0.2 | Config, logging, CLI | A | todo | | | |
+| S0.2 | Config, logging, CLI | A | build (design approved 2026-10-15; waiting for the ✍️ piece) | 2026-10-15 | | [S0.2](steps/S0.2-config-cli.md) |
 | S0.3 | `doctor` + GPU introspection 🎮 | A | todo | | | |
 | S0.4 | ~~v1 latency baseline~~ | A | dropped (D-031) | | | |
 | S0.5 | CI (+ branch and pull request per step from here) | A | todo | | | |
