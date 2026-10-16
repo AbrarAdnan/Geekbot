@@ -33,7 +33,7 @@ These rules change only when the user says so. Any change is recorded in `projec
    - Never skip the green light. If the user's test output shows a failure, fix it and summarise the fix.
    - A ✍️ piece you write is marked "written by Claude (prototyping mode)" in the step log and added to the ✍️ backlog in `project/STATUS.md`. The user redoes backlog pieces later as exercises.
    - New lesson notes are deferred (marked "deferred" in `project/learn/README.md`); write one only if the user asks.
-   - Keep explanations in plain language; explain step IDs and jargon.
+   - **Chat replies use the caveman skill, level `full`, by default (D-050):** terse fragments, no filler, technical terms exact. Code, commit messages, PR text and the repo notes (`project/`, logs, docs) stay normal prose. Step IDs and jargon still get a few plain words of gloss. The user switches it off with "stop caveman" or "normal mode"; the skill drops to normal wording for irreversible actions and order-sensitive command sequences.
 7. **One step at a time.** Don't start the next step without the user's green light. Don't build anything from the Parked list in PLAN.md §10.
 8. **Claims discipline:**
    - BEIR is *standardized retrieval evidence*; the golden corpus is *system-specific behavioral evaluation*.
