@@ -1,4 +1,4 @@
-# Geekbot v2 — implementation plan (rev 16)
+# Geekbot v2 — implementation plan (rev 17)
 
 > **The measured results are the product; the architecture exists to make them credible.**
 > (This line also opens the v2 README.)
@@ -173,6 +173,10 @@ project/
   - The open question from rev 11 is settled. D-016's "row text for files up to 2,000 rows" is superseded: a CSV, TSV or Excel sheet becomes a card (columns, types, empty share, three example values per column) that points number questions to CSV mode
   - Reason: numbers read from embedded rows are exactly the guessing CSV mode avoids (the model there writes one SQL query and the answer's numbers are checked against the result)
   - The loader design (what each format yields, what is dropped on purpose) is recorded in D-052
+- **rev 17** (S1.2, 2026-10-16, user decision; D-053): **the chunker is hand-written, not LangChain's splitters** (§6.4, §11 S1.2):
+  - LangChain's splitters return text without positions, and the plan needs `char_start` / `char_end` for citations and an exact "no text is lost" property; a hand-written splitter makes every chunk an exact slice of the document text
+  - §6.4's "where LangChain is used" no longer lists splitters; `ingest/chunking.py` joins the places where our own code is used
+  - Token counts for chunk sizes come from a dependency-free estimate; the embedder's real tokenizer is compared with it at S1.5. `hypothesis` enters the `[dev]` extra at S1.2 (its first use), not S1.3
 
 ## 5. v1 findings (verified; all fixed by v2)
 
@@ -270,8 +274,8 @@ Verified by a heartbeat test: `/healthz` p99 < 200 ms during a concurrent ingest
   - `ordinal` / `char_start` / `char_end` / `page` / `section_path` are position metadata only, never identity.
   - Re-ingest = set diff on `chunk_id`.
 - **Embedder fingerprint** (model + digest + prefixes + dimension) is stored in the collection metadata. A mismatch blocks queries until a re-index.
-- **Where LangChain is used:** where it adds value: `ChatOllama`, `OllamaEmbeddings`, splitters, messages, structured output, LangGraph.
-- **Where direct clients are used:** where control matters: `chromadb` (precomputed, cached vectors) and `sqlite3` FTS5.
+- **Where LangChain is used:** where it adds value: `ChatOllama`, `OllamaEmbeddings`, messages, structured output, LangGraph.
+- **Where direct clients or our own code are used:** where control matters: `chromadb` (precomputed, cached vectors), `sqlite3` FTS5, and the chunker (`ingest/chunking.py`, rev 17, D-053): LangChain's splitters return text without positions, and every chunk here must be an exact slice of the document so that its offsets are facts.
 
 ### 6.5 Latency and VRAM design
 
@@ -641,7 +645,7 @@ A simulated user denies every approval. The report gives bypasses k/N (target 0)
 | Step | 🧠 Learn | 🛠 Build | ✍️ You write | ▶ You run |
 |---|---|---|---|---|
 | **S1.1 Loaders** | document parsing, why MarkItDown over unstructured, page metadata, tabular schema cards | `ingest/loaders/*` (pypdf 1-indexed, MarkItDown docx/pptx/html, text/code/ipynb, csv/tsv/xlsx schema cards only, never row text (rev 16, D-051)), per-file error report | the text/code loader | `pytest tests/unit/test_loaders.py` |
-| **S1.2 Chunking** | chunking trade-offs, tokens vs characters, structure-aware splitting, contextual headers | `ingest/chunking.py` (header → token-recursive 512/64, code splitter, header text) | the chunker's no-loss property test (hypothesis) | `pytest` |
+| **S1.2 Chunking** | chunking trade-offs, tokens vs characters, structure-aware splitting, contextual headers | `ingest/chunking.py`, hand-written (rev 17): header → token-recursive 512/64 with exact offsets, code splitter, header text | the chunker's no-loss property test (hypothesis, added to `[dev]` here) | `pytest` |
 | **S1.3 IDs and hashing** | content addressing, identity vs fingerprint, idempotency, property-based testing | `ingest/ids.py` + hypothesis tests (duplicates get distinct IDs; an insert keeps unchanged IDs) | `occurrence` numbering | `pytest` |
 | **S1.4 SQLite store + FTS5** | WAL, FTS5 and BM25 internals, migrations, single-writer thread | `index/sqlite.py` (schema, migrations, writer queue, read pool), `index/lock.py` | the BM25 search query (FTS5 `MATCH` + `bm25()`, ready-only) | `pytest` |
 | **S1.5 Embeddings + Chroma** | embeddings, cosine vs L2, HNSW, CPU embedding, embedding cache, fingerprints | `index/dense.py`, `PrefixedEmbeddings` (CPU `num_gpu=0`), cache, fingerprint guard | the embedding-cache lookup (key = content hash + embedder fingerprint) | `pytest` · a tiny live embed test (CPU only; also checks whether vectors are unit-length, which sets the R1 expectation) |

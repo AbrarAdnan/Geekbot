@@ -67,6 +67,8 @@ httpx==0.28.1
     # via geekbot (pyproject.toml)
 humanfriendly==10.0
     # via coloredlogs
+hypothesis==6.170.0
+    # via geekbot (pyproject.toml)
 identify==2.6.20
     # via pre-commit
 idna==3.20
@@ -192,6 +194,8 @@ six==1.17.0
     # via
     #   markdownify
     #   python-dateutil
+sortedcontainers==2.4.0
+    # via hypothesis
 soupsieve==3.0.3
     # via beautifulsoup4
 sqlglot==30.23.0
