@@ -369,7 +369,17 @@ def test_search_on_an_empty_knowledge_base_says_what_to_do(cli: dict[str, Any]) 
     assert "geekbot ingest" in result.output
 
 
-def test_search_reports_ollama_being_down_in_one_line(cli: dict[str, Any]) -> None:
+def test_a_search_never_creates_a_knowledge_base(cli: dict[str, Any], tmp_path: Path) -> None:
+    # a mistyped GEEKBOT_DATA_DIR must not silently become a new, empty store
+    result = runner.invoke(app, ["search", "anything"])
+    assert result.exit_code == 1
+    assert not (tmp_path / "data").exists()
+
+
+def test_search_reports_ollama_being_down_in_one_line(cli: dict[str, Any], tmp_path: Path) -> None:
+    docs = tmp_path / "docs"
+    write_corpus(docs)
+    assert runner.invoke(app, ["ingest", str(docs)]).exit_code == 0
     cli["error"] = OllamaError("Ollama GET /api/tags failed: connection refused")
     result = runner.invoke(app, ["search", "anything"])
     assert result.exit_code == 1
