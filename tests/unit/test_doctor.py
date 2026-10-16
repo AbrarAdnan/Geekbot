@@ -7,22 +7,27 @@ from geekbot.doctor import (
     BUSY_GPU_USED_MIB,
     Check,
     Status,
+    check_exclusive,
     check_gpu_memory,
     check_models_pulled,
     check_residency,
+    describe_swap,
     format_checks,
     has_failure,
     run_doctor,
 )
-from geekbot.llm.models import OllamaError
+from geekbot.llm.models import OllamaError, SwapResult
 from geekbot.llm.vram import CommandError, GpuMemory, LoadedModel
+
+pytestmark = pytest.mark.usefixtures("clean_geekbot_env")
 
 IDLE_GPU = GpuMemory(used_mib=654, total_mib=10240)
 PULLED = ["gemma3:4b", "qwen2.5-coder:3b"]
+CHAT, CSV = "gemma3:4b", "qwen2.5-coder:3b"
 
 
-def _model(gpu: int = 100, context: int | None = 8192) -> LoadedModel:
-    return LoadedModel("gemma3:4b", gpu, 100 - gpu, context, "Forever")
+def _model(gpu: int = 100, context: int | None = 8192, name: str = CHAT) -> LoadedModel:
+    return LoadedModel(name, gpu, 100 - gpu, context, "Forever")
 
 
 def test_missing_chat_model_fails_but_missing_csv_model_only_warns() -> None:
@@ -114,9 +119,22 @@ def test_a_busy_gpu_with_nothing_of_ours_loaded_still_warns_in_the_report() -> N
 
 
 class FakeClient:
-    def __init__(self, *, pulled: list[str], fail: bool = False) -> None:
+    """A stand-in Ollama. ``loaded`` is what it holds in memory; a warm-up adds to it and an
+    unload removes from it at once (the swap's waiting is tested in test_swap.py)."""
+
+    def __init__(
+        self,
+        *,
+        pulled: list[str],
+        fail: bool = False,
+        loaded: list[str] | None = None,
+        warm_up_error: OllamaError | None = None,
+    ) -> None:
         self.pulled, self.fail = pulled, fail
+        self.loaded = list(loaded or [])
+        self.warm_up_error = warm_up_error
         self.warmed: list[tuple[str, int, str]] = []
+        self.unloaded: list[str] = []
 
     def version(self) -> str:
         if self.fail:
@@ -126,8 +144,18 @@ class FakeClient:
     def list_models(self) -> list[str]:
         return self.pulled
 
+    def loaded_models(self) -> list[str]:
+        return list(self.loaded)
+
+    def unload(self, model: str) -> None:
+        self.unloaded.append(model)
+        self.loaded.remove(model)
+
     def warm_up(self, model: str, *, num_ctx: int, keep_alive: str) -> float:
+        if self.warm_up_error is not None:
+            raise self.warm_up_error
         self.warmed.append((model, num_ctx, keep_alive))
+        self.loaded.append(model)
         return 1.5
 
 
@@ -204,7 +232,107 @@ def test_the_report_names_the_steps_that_are_not_built_yet() -> None:
     )
     skipped = " ".join(c.detail for c in checks if c.status == "SKIP")
     assert "S1.5" in skipped
-    assert "C3" in skipped
+    assert "S1.4" in skipped
+
+
+# --- step C3: the doctor checks the active mode's model, reached by an explicit swap ----------
+
+
+def test_the_chat_report_points_to_the_csv_check() -> None:
+    checks = run_doctor(
+        _settings(),
+        FakeClient(pulled=PULLED),
+        warm_up=False,
+        read_gpu=lambda: IDLE_GPU,
+        read_ps=list,
+    )
+    pointer = _by_name(checks, "CSV model residency")
+    assert pointer.status == "SKIP"
+    assert "--mode csv" in pointer.detail
+
+
+def test_csv_mode_swaps_to_the_csv_model_and_checks_it_at_the_csv_context() -> None:
+    settings = _settings()
+    client = FakeClient(pulled=PULLED, loaded=[CHAT])
+    checks = run_doctor(
+        settings,
+        client,
+        warm_up=True,
+        read_gpu=lambda: IDLE_GPU,
+        read_ps=lambda: [_model(name=CSV, context=settings.csv_num_ctx)],
+        mode="csv",
+    )
+    assert client.unloaded == [CHAT]  # R-4: the chat model goes first
+    assert client.warmed == [(CSV, settings.csv_num_ctx, settings.keep_alive)]
+    warm_up = _by_name(checks, "warm-up")
+    assert warm_up.status == "PASS"
+    assert f"unloaded {CHAT}" in warm_up.detail
+    assert _by_name(checks, "residency").status == "PASS"
+    assert _by_name(checks, "no co-residency").status == "PASS"
+    assert "checking csv" in _by_name(checks, "profile").detail
+    assert not any("CSV model residency" in c.name for c in checks)  # the real check replaced it
+    assert not has_failure(checks)
+
+
+def test_a_chat_warm_up_also_unloads_a_csv_model_that_is_still_loaded() -> None:
+    client = FakeClient(pulled=PULLED, loaded=[CSV])
+    checks = run_doctor(
+        _settings(), client, warm_up=True, read_gpu=lambda: IDLE_GPU, read_ps=lambda: [_model()]
+    )
+    assert client.unloaded == [CSV]
+    assert _by_name(checks, "warm-up").status == "PASS"
+
+
+def test_both_models_loaded_at_once_fails_the_co_residency_check() -> None:
+    both = [_model(), _model(name=CSV, context=16384)]
+    checks = run_doctor(
+        _settings(),
+        FakeClient(pulled=PULLED),
+        warm_up=True,
+        read_gpu=lambda: IDLE_GPU,
+        read_ps=lambda: both,
+    )
+    exclusive = _by_name(checks, "no co-residency")
+    assert exclusive.status == "FAIL"
+    assert CSV in exclusive.detail
+    assert has_failure(checks)
+
+
+def test_a_failed_swap_is_a_failed_warm_up_and_stops_the_report() -> None:
+    client = FakeClient(pulled=PULLED, warm_up_error=OllamaError("model not found"))
+    checks = run_doctor(
+        _settings(), client, warm_up=True, read_gpu=lambda: IDLE_GPU, read_ps=list, mode="csv"
+    )
+    assert checks[-1].name == "warm-up"
+    assert checks[-1].status == "FAIL"
+    assert "model not found" in checks[-1].detail
+
+
+def test_the_active_modes_model_missing_fails_and_the_other_only_warns() -> None:
+    only_chat = check_models_pulled(CHAT, CSV, available=[CHAT], mode="csv")
+    assert [c.status for c in only_chat] == ["PASS", "FAIL"]
+    only_csv = check_models_pulled(CHAT, CSV, available=[CSV], mode="csv")
+    assert [c.status for c in only_csv] == ["WARN", "PASS"]
+
+
+def test_exclusive_check_ignores_the_embedder_and_passes_when_the_other_model_is_gone() -> None:
+    embedder = LoadedModel("nomic-embed-text:latest", 0, 100, 2048, "Forever")
+    assert check_exclusive(CSV, CHAT, [_model(name=CSV), embedder]).status == "PASS"
+
+
+def test_exclusive_check_fails_when_the_other_model_is_loaded() -> None:
+    assert check_exclusive(CSV, CHAT, [_model(name=CSV), _model()]).status == "FAIL"
+
+
+def test_exclusive_check_passes_when_both_modes_use_one_model() -> None:
+    assert check_exclusive(CHAT, CHAT, [_model()]).status == "PASS"
+
+
+def test_describe_swap_says_what_was_unloaded_only_when_something_was() -> None:
+    plain = SwapResult(loaded=CSV, unloaded=(), unload_s=0.0, warm_up_s=3.14)
+    assert describe_swap(plain) == f"{CSV} loaded in 3.1 s"
+    swapped = SwapResult(loaded=CSV, unloaded=(CHAT,), unload_s=1.25, warm_up_s=3.14)
+    assert describe_swap(swapped) == f"{CSV} loaded in 3.1 s; unloaded {CHAT} first (1.2 s)"
 
 
 @pytest.mark.parametrize(

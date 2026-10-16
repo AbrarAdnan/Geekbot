@@ -75,3 +75,28 @@ def test_model_is_pulled_treats_a_bare_name_as_latest() -> None:
     assert model_is_pulled("gemma3:4b", available)
     assert model_is_pulled("nomic-embed-text", available)
     assert not model_is_pulled("gemma4:12b", available)
+    assert model_is_pulled("nomic-embed-text:latest", ["nomic-embed-text"])
+
+
+def test_loaded_models_asks_api_ps_and_skips_entries_without_a_name() -> None:
+    paths: list[str] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        return httpx.Response(200, json={"models": [{"name": "qwen2.5-coder:3b"}, {"size": 1}]})
+
+    with _client(httpx.MockTransport(handle)) as client:
+        assert client.loaded_models() == ["qwen2.5-coder:3b"]
+    assert paths == ["/api/ps"]
+
+
+def test_nothing_loaded_is_an_empty_list() -> None:
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json={"models": []}))
+    with _client(transport) as client:
+        assert client.loaded_models() == []
+
+
+def test_loaded_models_without_a_list_is_an_ollama_error() -> None:
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json={"models": "none"}))
+    with _client(transport) as client, pytest.raises(OllamaError, match="/api/ps"):
+        client.loaded_models()

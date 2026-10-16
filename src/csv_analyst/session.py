@@ -69,11 +69,15 @@ class CsvAnalystSession:
 
     # GEEKBOT EDIT (C2): `time_limit_s` is passed through to run_pipeline so the host can set its own
     # per-question cap. Before, ask() always used the package's limit (10 minutes for the main model).
+    # GEEKBOT EDIT (C3): `seed_offset` is passed through to run_pipeline (which already has it) so a
+    # reproduction run can make its 3 runs differ, the way Gigalogy's benchmark does (README: "3 seed
+    # sets"). The default 0 is what every other caller gets.
     def ask(self, question: str, *, samples: Optional[int] = None,
-            time_limit_s: Optional[float] = None) -> RunRecord:
+            time_limit_s: Optional[float] = None, seed_offset: int = 0) -> RunRecord:
         """Answer one question from the data (the full reliability pipeline)."""
         return run_pipeline(self.llm, self.df, self.schema, question, self.dataset_id,
-                            model_name=self.model, samples=samples, time_limit_s=time_limit_s)
+                            model_name=self.model, samples=samples, time_limit_s=time_limit_s,
+                            seed_offset=seed_offset)
 
     def describe(self) -> str:
         """A short chat message confirming what was loaded."""

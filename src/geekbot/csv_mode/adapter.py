@@ -73,6 +73,33 @@ class CsvAnswer:
     def failed(self) -> bool:
         return self.record.status == Status.FAILED
 
+    @property
+    def reason(self) -> str | None:
+        """Why there is no answer (abstained, needs clarification or failed); else ``None``."""
+        return self.record.reason
+
+    @property
+    def retries(self) -> int:
+        """How many times the package retried after a failed attempt."""
+        reliability = self.record.reliability
+        return reliability.retries if reliability is not None else 0
+
+    @property
+    def failed_steps(self) -> int:
+        """How many steps of the pipeline failed on the way (a model call that errored or timed
+        out, a rejected query, ...), even if a later attempt then succeeded."""
+        return sum(not entry.ok for entry in self.record.trace)
+
+    @property
+    def slowest_step_ms(self) -> int:
+        """The longest single step of this question (a model call, a query, ...), in ms.
+
+        A question is slow either because it took many steps or because one step ran away; this
+        tells the two apart (found at C3: two questions took exactly 61.2 s, a 60 s model-call
+        timeout plus the rest).
+        """
+        return max((entry.ms for entry in self.record.trace), default=0)
+
 
 def find_problem(settings: Settings, *, transport: httpx.BaseTransport | None = None) -> str | None:
     """Why ``csv ask`` cannot work right now (Ollama down, model not pulled), or ``None``.
@@ -173,11 +200,20 @@ class CsvAnalyst:
         """The package's "Loaded **file**: N rows, M columns…" message. No model call."""
         return self._session.describe()
 
-    def ask(self, question: str) -> CsvAnswer:
-        """Answer one question from the data, within the per-question time cap."""
+    def ask(self, question: str, *, seed_offset: int = 0) -> CsvAnswer:
+        """Answer one question from the data, within the per-question time cap.
+
+        ``seed_offset`` shifts the seeds the package uses. Normal callers leave it at 0; a
+        reproduction run gives each of its repeats a different one (step C3), because with the
+        same seeds Ollama would return the same output and the repeats would measure nothing.
+        """
         load_before = self._load_timer.total_ns
         started = time.perf_counter()
-        record = self._session.ask(question, time_limit_s=self._settings.csv_question_time_limit_s)
+        record = self._session.ask(
+            question,
+            time_limit_s=self._settings.csv_question_time_limit_s,
+            seed_offset=seed_offset,
+        )
         seconds = time.perf_counter() - started
         return CsvAnswer(
             record=record,

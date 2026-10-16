@@ -8,23 +8,28 @@ mistake "not built" for success.
 import json
 import logging
 from collections.abc import Sequence
+from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, NoReturn
 
 import typer
 
 from geekbot import __version__
-from geekbot.config import Settings, mask_settings
+from geekbot.config import Mode, Settings, mask_settings
 from geekbot.doctor import format_checks, has_failure, run_doctor
-from geekbot.llm.models import OllamaClient
+from geekbot.evals import DEFAULT_RUNS, DEFAULT_SOURCE, DEFAULT_TIME_LIMIT_S, SUITE_NAMES
+from geekbot.llm.models import OllamaClient, OllamaError, model_is_pulled
 from geekbot.llm.vram import (
     NVIDIA_SMI_MEMORY_COMMAND,
     OLLAMA_PS_COMMAND,
+    GpuMemory,
+    LoadedModel,
     parse_nvidia_smi_memory,
     parse_ollama_ps,
     run_command,
 )
 from geekbot.log import setup_logging
+from geekbot.swapcheck import format_swap_report, run_swap_cycles
 
 # show_locals off: a crash traceback must never print a local variable that holds a secret.
 app = typer.Typer(
@@ -76,26 +81,46 @@ def config_show() -> None:
     typer.echo(json.dumps(mask_settings(settings), indent=2))
 
 
+class ModeChoice(StrEnum):
+    """The values of ``--mode``; Typer shows them as the allowed choices."""
+
+    CHAT = "chat"
+    CSV = "csv"
+
+
+def _read_gpu() -> GpuMemory:
+    return parse_nvidia_smi_memory(run_command(NVIDIA_SMI_MEMORY_COMMAND))
+
+
+def _read_ps() -> list[LoadedModel]:
+    return parse_ollama_ps(run_command(OLLAMA_PS_COMMAND))
+
+
 @app.command()
 def doctor(
     warmup: Annotated[
         bool,
         typer.Option(
             "--warmup/--no-warmup",
-            help="Load the chat model onto the GPU and check it (uses the GPU for a moment).",
+            help="Load the mode's model onto the GPU and check it (uses the GPU for a moment).",
         ),
     ] = True,
+    mode: Annotated[
+        ModeChoice,
+        typer.Option(
+            "--mode",
+            help="Whose model to check: chat (default) or csv. The warm-up is a swap: the other "
+            "mode's model is unloaded first (R-4).",
+        ),
+    ] = ModeChoice.CHAT,
 ) -> None:
     """Check Ollama, the models and the GPU. Exits 1 if a plan rule is broken."""
     settings = Settings()
     setup_logging(settings.log_level)
+    chosen: Mode = "csv" if mode is ModeChoice.CSV else "chat"
     with OllamaClient(settings.ollama_host) as client:
         checks = run_doctor(
-            settings,
-            client,
-            warm_up=warmup,
-            read_gpu=lambda: parse_nvidia_smi_memory(run_command(NVIDIA_SMI_MEMORY_COMMAND)),
-            read_ps=lambda: parse_ollama_ps(run_command(OLLAMA_PS_COMMAND)),
+            settings, client, warm_up=warmup, read_gpu=_read_gpu, read_ps=_read_ps, mode=chosen
         )
     typer.echo(format_checks(checks))
     if has_failure(checks):
@@ -186,6 +211,137 @@ def csv_ask(
     )
     if answer.failed:
         raise typer.Exit(1)
+
+
+@csv_app.command("swap")
+def csv_swap(
+    cycles: Annotated[
+        int, typer.Option("--cycles", min=1, help="How many chat->csv->chat round trips to time.")
+    ] = 3,
+) -> None:
+    """Time the swap between the chat model and the CSV model, in both directions (uses the GPU).
+
+    Loads and unloads both models on purpose, so run it when nothing else needs the GPU. After
+    each swap it checks that the new model is 100% on the GPU and the old one is gone (R-1, R-4).
+    Exit code 1 if one of those checks fails.
+    """
+    settings = Settings()
+    setup_logging(settings.log_level)
+    wanted = [settings.resolved_chat_model, settings.resolved_csv_model]
+    try:
+        with OllamaClient(settings.ollama_host) as client:
+            available = client.list_models()
+            missing = [m for m in wanted if not model_is_pulled(m, available)]
+            if missing:
+                _fail("not pulled: " + ", ".join(f"`ollama pull {m}`" for m in missing))
+            records = run_swap_cycles(
+                settings, client, cycles=cycles, read_gpu=_read_gpu, read_ps=_read_ps
+            )
+    except OllamaError as error:
+        _fail(str(error))
+    typer.echo(format_swap_report(settings, records))
+    if not all(record.ok for record in records):
+        raise typer.Exit(1)
+
+
+class SuiteChoice(StrEnum):
+    """The values of ``--suite``."""
+
+    BOTH = "both"
+    HOSPITAL = "hospital"
+    SALES = "sales"
+
+
+@csv_app.command("repro")
+def csv_repro(
+    source: Annotated[
+        Path,
+        typer.Option(
+            "--source", help="The Gigalogy folder. It is only read, never written or copied."
+        ),
+    ] = DEFAULT_SOURCE,
+    suite: Annotated[SuiteChoice, typer.Option("--suite", help="Which dataset(s).")] = (
+        SuiteChoice.BOTH
+    ),
+    runs: Annotated[
+        int, typer.Option("--runs", min=1, help="Repeats of every question, with new seeds.")
+    ] = DEFAULT_RUNS,
+    limit: Annotated[
+        int | None,
+        typer.Option("--limit", min=1, help="Only the first N questions per suite (smoke test)."),
+    ] = None,
+    time_limit_s: Annotated[
+        int,
+        typer.Option(
+            "--time-limit-s",
+            min=1,
+            help="Per-question time cap for the run. Default: the package's own 600 s, so the "
+            "run measures the copy, not Geekbot's cap; the report counts the questions that "
+            "took longer than Geekbot's.",
+        ),
+    ] = DEFAULT_TIME_LIMIT_S,
+    out: Annotated[
+        Path | None,
+        typer.Option("--out", help="Where to save the JSON result (default: evals/csv/results/)."),
+    ] = None,
+) -> None:
+    """Re-run Gigalogy's 40-question CSV benchmark through Geekbot's adapter (uses the GPU).
+
+    A full run (both datasets, 3 runs) takes about half an hour on the 7b model, with the GPU to
+    itself. Only a run on the target model and an idle GPU is flagged official; any other run is
+    a plumbing check (D-043). The result file holds ids and numbers, not the questions.
+    """
+    # Imported here for the same reason as in `csv describe`: pandas is slow to import.
+    from geekbot.csv_mode.adapter import find_problem
+    from geekbot.evals.csv_repro import (
+        ReproError,
+        default_output_path,
+        format_report,
+        load_suite,
+        run_repro,
+    )
+
+    settings = Settings()
+    setup_logging(settings.log_level)
+    problem = find_problem(settings)
+    if problem is not None:
+        _fail(problem)
+    names = SUITE_NAMES if suite is SuiteChoice.BOTH else (suite.value,)
+    try:
+        suites = [load_suite(source, name, limit=limit) for name in names]
+    except ReproError as error:
+        _fail(str(error))
+    out_path = out or default_output_path(settings)
+    typer.echo(
+        f"profile={settings.profile} csv model={settings.resolved_csv_model}; "
+        f"result file: {out_path}",
+        err=True,
+    )
+    if settings.profile != "target":
+        typer.echo(
+            "note: this is not the target profile, so the run is a plumbing check only "
+            "(set GEEKBOT_PROFILE=target for numbers you want to report).",
+            err=True,
+        )
+    try:
+        with OllamaClient(settings.ollama_host) as client:
+            result = run_repro(
+                settings,
+                suites,
+                runs=runs,
+                limit=limit,
+                time_limit_s=time_limit_s,
+                source=source,
+                client=client,
+                read_gpu=_read_gpu,
+                read_ps=_read_ps,
+                report=typer.echo,
+                out=out_path,
+            )
+    except OllamaError as error:
+        _fail(str(error))
+    typer.echo("")
+    typer.echo(format_report(result))
 
 
 def main(argv: Sequence[str] | None = None) -> None:

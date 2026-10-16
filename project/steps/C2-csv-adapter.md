@@ -3,7 +3,7 @@
 - **Phase / Gate:** Track C, part 1 (right after Phase 0), Gate A
 - **Chat date(s):** 2026-10-16
 - **Status:** green-lit (2026-10-16; 445 passed, 10 skipped, 1 xfailed; ruff, format and mypy clean)
-- **Commit:** <SHA reported by the user>
+- **Commit:** `9d5dab5` (squash commit of PR #3 on `v2`; recorded at the start of the C3 chat)
 - **Lesson note:** [learn/06-ports-adapters.md](../learn/06-ports-adapters.md)
 
 ## Goal

@@ -2,7 +2,7 @@
 
 import pytest
 
-from geekbot.llm.vram import GpuMemory, parse_nvidia_smi_memory
+from geekbot.llm.vram import CommandError, GpuMemory, parse_nvidia_smi_memory, try_read
 
 
 def test_parses_the_real_line() -> None:
@@ -20,3 +20,15 @@ def test_with_two_gpus_the_first_is_used() -> None:
 def test_bad_output_raises_value_error(text: str) -> None:
     with pytest.raises(ValueError, match="nvidia-smi"):
         parse_nvidia_smi_memory(text)
+
+
+def test_try_read_returns_the_value_or_none_for_a_command_or_parse_failure() -> None:
+    def missing() -> int:
+        raise CommandError("nvidia-smi not found")
+
+    def garbled() -> int:
+        raise ValueError("unexpected output")
+
+    assert try_read(lambda: 5) == 5
+    assert try_read(missing) is None
+    assert try_read(garbled) is None

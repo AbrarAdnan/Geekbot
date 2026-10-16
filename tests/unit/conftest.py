@@ -1,11 +1,27 @@
 """Fixtures shared by every test in ``tests/unit``."""
 
 import logging
+import os
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 
 from geekbot.log import LOGGER_NAME
+
+
+@pytest.fixture
+def clean_geekbot_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Make ``Settings()`` see the defaults: no ``GEEKBOT_*`` variable and no ``.env`` file.
+
+    Request it with ``pytestmark = pytest.mark.usefixtures("clean_geekbot_env")``. A variable set
+    in the shell that runs pytest, or a ``.env`` in the working directory, must not change a
+    result (the CLI builds its own ``Settings()``, which reads both).
+    """
+    for name in list(os.environ):
+        if name.startswith("GEEKBOT_"):
+            monkeypatch.delenv(name)
+    monkeypatch.chdir(tmp_path)
 
 
 @pytest.fixture(autouse=True)

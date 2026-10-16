@@ -24,6 +24,7 @@ dependencies = [
     "pandas>=2.2",
     "pyarrow>=15.0",  # parquet hand-off to its (unused) pandas sandbox
     "pydantic>=2.6",
+    "pyyaml>=6.0",  # reading Gigalogy's questions.yaml in the C3 reproduction run
     "requests>=2.31",  # its Ollama provider; C2 replaces this with Geekbot's own
     "sqlglot>=30.0",  # parsing and checking the model's SQL
 ]

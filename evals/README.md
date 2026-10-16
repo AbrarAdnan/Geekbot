@@ -6,6 +6,7 @@ This folder holds the data Geekbot is tested on. The code that runs the evaluati
 |---|---|---|
 | `corpus/` | the ~15 test documents (the "golden corpus") | by you, before step S1.6, which ingests this folder |
 | `datasets/golden-questions.md` | the hand-written test questions, as a fill-in template | by you, by step S2.4, which turns it into `golden.jsonl` |
+| `csv/` | results of the CSV analyst mode's evaluation runs (see its own `README.md`) | by the runs themselves, from step C3 |
 
 The public benchmark datasets (BEIR SciFact and NFCorpus) are downloaded at runtime and are **not** stored here (PLAN.md §9).
 

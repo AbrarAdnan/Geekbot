@@ -13,7 +13,7 @@ from typing import Any
 import httpx
 import pytest
 
-from csv_analyst import CsvAnalystSession
+from csv_analyst import CsvAnalystSession, LLMProviderError
 from geekbot.config import Settings
 from geekbot.csv_mode.adapter import CsvAnalyst, CsvLoadError, LoadTimer, find_problem
 
@@ -122,6 +122,60 @@ def test_ask_passes_the_per_question_time_cap_to_the_package(
     with CsvAnalyst.open(FIXTURE, settings, provider=FakeLLM(HAPPY_PATH)) as analyst:
         analyst.ask("Which region has the highest total revenue?")
     assert seen["time_limit_s"] == 7
+
+
+def test_ask_passes_the_seed_offset_to_the_package_and_defaults_to_zero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[Any] = []
+    real_ask = CsvAnalystSession.ask
+
+    def spy(self: CsvAnalystSession, question: str, **kwargs: Any) -> Any:
+        seen.append(kwargs["seed_offset"])
+        return real_ask(self, question, **kwargs)
+
+    monkeypatch.setattr(CsvAnalystSession, "ask", spy)
+    with CsvAnalyst.open(FIXTURE, Settings(_env_file=None), provider=FakeLLM(HAPPY_PATH * 2)) as a:
+        a.ask("Which region has the highest total revenue?")
+        a.ask("Which region has the highest total revenue?", seed_offset=20_000)
+    assert seen == [0, 20_000]
+
+
+def test_a_refusal_carries_its_reason_and_no_retries() -> None:
+    refusal = json.dumps(
+        {
+            "answerability": "data_missing",
+            "reason": "There is no salary column.",
+            "plan": [],
+            "columns_used": [],
+            "code": "",
+        }
+    )
+    with CsvAnalyst.open(
+        FIXTURE, Settings(_env_file=None), provider=FakeLLM([refusal, refusal])
+    ) as analyst:
+        answer = analyst.ask("What is the average salary?")
+    assert answer.status == "abstained"
+    assert "There is no salary column." in (answer.reason or "")
+    assert answer.retries == 0
+
+
+def test_a_happy_path_question_reports_its_steps() -> None:
+    with CsvAnalyst.open(FIXTURE, Settings(_env_file=None), provider=FakeLLM(HAPPY_PATH)) as a:
+        answer = a.ask("Which region has the highest total revenue?")
+    assert answer.failed_steps == 0
+    assert answer.slowest_step_ms >= 0
+
+
+def test_a_failing_model_call_counts_as_a_failed_step() -> None:
+    class Broken(FakeLLM):
+        def generate_json(self, prompt: str, **kwargs: Any) -> str:
+            raise LLMProviderError("timed out")
+
+    with CsvAnalyst.open(FIXTURE, Settings(_env_file=None), provider=Broken([])) as analyst:
+        answer = analyst.ask("Which region has the highest total revenue?")
+    assert answer.failed
+    assert answer.failed_steps >= 1
 
 
 def test_a_provider_you_pass_in_is_not_closed_by_the_analyst() -> None:
