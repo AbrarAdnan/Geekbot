@@ -26,11 +26,12 @@ Its own tests live in `tests/csv_analyst/vendored/` (no model needed; a fake LLM
 - **The pandas engine** (`execution/runner.py`, `execution/sandbox_entry.py`, `validation/ast_guard.py`, the `planner-v6` prompt). Deprecated and **unused**: the default engine is SQL (`query_engine = "sql"`) and Geekbot never sets "pandas". Removing it needs more than small edits (`pipeline.py` and three modules import `ExecutionResult` from `runner.py`). Decide again after C3.
 - The older prompt files (`planner-sql-v2/v3/v4`, `answer-v3`) stay on disk, as in the source.
 
-## Local edits (every one is marked `GEEKBOT EDIT (C1)` in the code)
+## Local edits (every one is marked `GEEKBOT EDIT (C1)` or `GEEKBOT EDIT (C2)` in the code)
 1. `config.py`: removed the 27B "heavy" tier (`llm_model_heavy`, `question_time_limit_s_heavy`, and its branch in `question_time_limit_s`). Reason: no model over 12B.
 2. `session.py`: removed the two hosted-provider imports; `PROVIDERS = ("ollama",)`; `make_provider(provider, model)` lost `api_key` / `api_base_url`; `CsvAnalystSession.__init__` lost the same two parameters.
 3. `tests/csv_analyst/vendored/test_pipeline.py`: `test_time_limit_follows_the_model_tier` no longer checks the heavy tier.
 4. `tests/csv_analyst/vendored/test_session.py`: `test_make_provider` expects `ValueError` for "anthropic" (now an unknown provider).
+5. (C2) `session.py`: `CsvAnalystSession.ask` takes an optional `time_limit_s` and passes it to `run_pipeline`, so Geekbot can set its own per-question cap. Before, `ask` always used the package's limit (10 minutes for the main model). Calls that don't pass it behave as before.
 
 ## Tests: what runs and what doesn't
 `tests/csv_analyst/conftest.py` (Geekbot's file) adapts the vendored tests without editing them:
@@ -48,5 +49,5 @@ The package reads `CSV_ANALYST_*` environment variables (and `.env`), separate f
 
 ## Re-syncing from Gigalogy later
 1. Copy again with the commands above (from a Gigalogy checkout of a named commit).
-2. Re-apply the four local edits (search for `GEEKBOT EDIT` in the old copy; `git diff` against this one shows them).
+2. Re-apply the five local edits (search for `GEEKBOT EDIT` in the old copy; `git diff` against this one shows them).
 3. Run `pytest`, then update the **Source** section of this file.

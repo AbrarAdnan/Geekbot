@@ -3,7 +3,7 @@
 - **Phase / Gate:** Track C, part 1 (right after Phase 0), Gate A
 - **Chat date(s):** 2026-10-16
 - **Status:** green-lit (2026-10-16; 382 passed, 10 skipped, 1 xfailed; ruff, format check and mypy clean)
-- **Commit:** <squash-commit SHA on v2, reported by the user>
+- **Commit:** `3bd19db` (merge commit of PR #2; branch commit `adea115`)
 - **Lesson note:** [learn/05-vendoring.md](../learn/05-vendoring.md)
 
 ## Goal
@@ -53,6 +53,7 @@ D-045 (plan rev 13).
 - Provenance is weak until Gigalogy's edits are committed (see `VENDORED.md`).
 - The pandas engine (and its subprocess sandbox) is unused code in the repo; revisit after C3.
 - `requests` is used only by the package's Ollama provider; C2 replaces the provider.
+- **CI flake, seen once after the merge (found in C2's chat, 2026-10-16):** on the Ubuntu job (Python 3.13.16), `tests/csv_analyst/vendored/test_runner.py::test_execute_unsupported_result_type_fails` hit the sandbox's 15 s timeout (15.02 s) and passed when the job was re-run. The failed run was CI run #5, the push to `v2` after the merge of PR #2 (`3bd19db`). The code path is as cheap as the other 23 tests in that file, which passed in the same run, so the cause is unconfirmed (most likely one slow or stalled sandbox process start on the shared runner). The timeout path in `runner.py` discards the child's output, so a recurrence can't be diagnosed from the log. If it recurs: a small fix on its own branch, recorded in `VENDORED.md`.
 
 ## Handoff to the next chat
 - **State:** `src/csv_analyst/` is in place with its tests; Geekbot code does not import it yet. Python 3.12 (Geekbot) vs 3.13 (the user's Gigalogy env) is the one known environment difference.

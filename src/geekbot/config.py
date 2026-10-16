@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Literal
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Profile = Literal["proto", "target"]
@@ -79,6 +79,13 @@ class Settings(BaseSettings):
     chat_num_ctx: int = 8192
     csv_num_ctx: int = 16384
     keep_alive: str = "30m"
+    # CSV mode (step C2, lesson 06 §5). Geekbot owns what touches Ollama and the clock; the
+    # package's prompt and pipeline settings stay at the defaults Gigalogy measured. Both values
+    # are starting points, not measurements: C3 checks how often the question cap would cut an
+    # answer. The cap is soft (the package checks it before each attempt, not during a model
+    # call), so the worst case is the cap plus one call.
+    csv_llm_timeout_s: int = Field(default=60, gt=0)  # one Ollama call
+    csv_question_time_limit_s: int = Field(default=60, gt=0)  # one question
     data_dir: Path = Path("data")
     log_level: LogLevel = "INFO"
     # Unused until the server's auth (S4.3). It exists now so secret masking has a real secret.

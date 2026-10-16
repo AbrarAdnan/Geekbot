@@ -1,4 +1,4 @@
-# Geekbot v2 — implementation plan (rev 13)
+# Geekbot v2 — implementation plan (rev 14)
 
 > **The measured results are the product; the architecture exists to make them credible.**
 > (This line also opens the v2 README.)
@@ -43,6 +43,8 @@ Geekbot (Sept 2025) is a 4-file Streamlit + LangChain 0.3 + Chroma + Ollama RAG 
 **No-run policy.** I only read and write files in this repo.
 - I run no shell commands, installs, tests, Ollama calls, benchmarks or git commands. The exception is a step where you explicitly allow a specific command.
 - For each step I give you the exact commands. You run them in the `geekbot` conda env when your PC is free and paste back the output.
+
+> **Prototyping mode (rev 14, D-047).** The table below is the full teaching loop. While prototyping, stages 1–2 shrink to a short outline from Claude (with a little interesting context), stages 3–4 become one build by Claude (including the ✍️ piece, which goes on the ✍️ backlog in `STATUS.md` so the user can redo it later), and stage 5 starts with Claude's summary. Stages 6–7 stay: the user runs the commands, gives the green light and pushes. New lesson notes are deferred.
 
 **Per-step loop (one feature at a time; pair programming D-039; branches, pull requests and look-backs D-040).** Each step is a small, complete software lifecycle you can watch from start to finish:
 
@@ -158,6 +160,11 @@ project/
   - The pandas engine stays in the copy, unused (the default engine is SQL). Dropping it needs more than small edits (`pipeline.py` and three other modules depend on it)
   - Cuts: `interface/`, the two hosted providers, the 27B tier, and the 8 tests that need Gigalogy's `evaluation/` folder or its API
   - C1 has no ✍️ piece (the user's choice, to keep the step small); §11's C1 row is updated
+- **rev 14** (C2, 2026-10-16, user decision; D-047): **fast-prototyping mode**:
+  - Per step: a short outline with some interesting context, one build by Claude, one summary; the user runs the commands, gives the green light and pushes
+  - No separate lesson or design-approval gate; new lesson notes are deferred
+  - Claude writes the ✍️ pieces for now (marked in the step log, listed in the ✍️ backlog in `STATUS.md`) so the user can redo them later
+  - The §11 ✍️ column stays as the list of pieces; the no-run policy, the model cap and the claims rules are unchanged
 
 ## 5. v1 findings (verified; all fixed by v2)
 
