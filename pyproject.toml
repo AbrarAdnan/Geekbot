@@ -34,6 +34,9 @@ dependencies = [
     "pypdf[crypto]>=5.0",  # PDF text per page; [crypto] opens AES-protected files
     # The dense index (S1.5): Chroma stores vectors Geekbot computed itself and never embeds.
     "chromadb>=1.0",
+    # The CPU cross-encoder reranker (S2.3). The package only; its model weights are downloaded
+    # on first use, into the data folder, never at install time.
+    "fastembed>=0.7",
 ]
 
 [project.optional-dependencies]

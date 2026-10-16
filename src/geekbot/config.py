@@ -99,6 +99,13 @@ class Settings(BaseSettings):
     # default; the ablation's rung R5 switches it.
     embed_with_header: bool = True
     embed_batch_size: int = Field(default=32, gt=0)
+    # The reranker (step S2.3): a small cross-encoder on the CPU (PLAN §6.5, §9). The default is
+    # the 80 MB MiniLM model (Apache-2.0), one of the two the S2.6 bake-off compares. Its weights
+    # are downloaded on first use into <data_dir>/models. The depth is how many fused candidates it
+    # re-scores: a starting point, not a measurement (``geekbot rerank-timing`` measures it).
+    rerank_model: str = "Xenova/ms-marco-MiniLM-L-6-v2"
+    rerank_depth: int = Field(default=30, gt=0)
+    rerank_threads: int | None = Field(default=None, gt=0)
     csv_llm_timeout_s: int = Field(default=60, gt=0)  # one Ollama call
     csv_question_time_limit_s: int = Field(default=60, gt=0)  # one question
     data_dir: Path = Path("data")
