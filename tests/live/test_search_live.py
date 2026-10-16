@@ -1,4 +1,4 @@
-"""Live test for steps S1.6 and S2.1: ingest a tiny corpus and search it with the real embedder.
+"""Live test for steps S1.6 to S2.2: ingest a tiny corpus and search it with the real embedder.
 
 Needs Ollama running with ``nomic-embed-text`` pulled. The embedder runs on the **CPU**
 (``num_gpu=0``), so the GPU is not used, but it does use CPU time: run it when the machine is
@@ -17,6 +17,8 @@ from geekbot.index.workspace import Workspace
 from geekbot.ingest.pipeline import Ingestor, collect_files
 from geekbot.retrieval import format_result
 from geekbot.retrieval.dense import DenseRetriever
+from geekbot.retrieval.hybrid import HybridRetriever
+from geekbot.retrieval.lexical import LexicalRetriever
 
 CORPUS = {
     "sourdough.md": (
@@ -53,11 +55,15 @@ def test_a_real_ingest_and_search_find_the_right_document(tmp_path: Path) -> Non
         assert second.embedded == 0  # the Gate A check, on a real embedder
 
         retriever = DenseRetriever(workspace.store, workspace.dense, workspace.embedder)
+        hybrid = HybridRetriever(retriever, LexicalRetriever(workspace.store))
         for question, expected in [
             ("how do I keep a sourdough starter alive?", "sourdough.md"),
             ("which rivers flow into the Bay of Bengal?", "rivers.md"),
             ("how often should I change my password?", "passwords.md"),
         ]:
             result = retriever.search(question, 3)
-            print(f"\n{question}\n{format_result(result)}")
+            print(f"\n{question}\ndense:\n{format_result(result)}")
             assert result.chunks[0].chunk.title == expected
+            fused = hybrid.search(question, 3)
+            print(f"hybrid:\n{format_result(fused)}")
+            assert fused.chunks[0].chunk.title == expected

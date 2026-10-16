@@ -236,7 +236,7 @@ def ingest(
 
 
 class SearchMode(StrEnum):
-    """The values of ``--mode`` for ``search``. Only the first is built so far."""
+    """The values of ``--mode`` for ``search``. ``hybrid_rerank`` arrives in S2.3."""
 
     DENSE = "dense"
     LEXICAL = "lexical"
@@ -252,37 +252,60 @@ def search(
         SearchMode,
         typer.Option(
             "--mode",
-            help="dense (by meaning) now; lexical, hybrid and hybrid_rerank arrive in S2.2 and S2.3.",
+            help="dense (by meaning), lexical (BM25, by words; needs no Ollama) or hybrid (both, "
+            "fused by rank with RRF). hybrid_rerank arrives in S2.3.",
         ),
     ] = SearchMode.DENSE,
+    candidates: Annotated[
+        int,
+        typer.Option(
+            "--candidates",
+            min=1,
+            help="hybrid only: how many chunks each side contributes before fusing.",
+        ),
+    ] = 50,
 ) -> None:
-    """Search the knowledge base: the chunks nearest in meaning to the question, with timings.
+    """Search the knowledge base and print the best chunks with the time each stage took.
 
-    Only ready documents are searched. Needs Ollama for the embedder (CPU) and takes the storage
-    lock, so it cannot run while another Geekbot process owns the data folder.
+    Only ready documents are searched. The dense and hybrid modes need Ollama for the embedder
+    (CPU). Every mode takes the storage lock, so none can run while another Geekbot process owns
+    the data folder.
     """
-    if mode is not SearchMode.DENSE:
-        _not_built(
-            f"search --mode {mode.value}",
-            "S2.2" if mode is not SearchMode.HYBRID_RERANK else "S2.3",
-        )
+    if mode is SearchMode.HYBRID_RERANK:
+        _not_built("search --mode hybrid_rerank", "S2.3")
     # Imported here: chromadb is slow to import and `geekbot --version` should not wait for it.
     from geekbot.index.dense import FingerprintMismatchError
     from geekbot.index.lock import StorageLockedError
+    from geekbot.index.sqlite import Store
     from geekbot.index.workspace import Workspace
-    from geekbot.retrieval import format_result
+    from geekbot.retrieval import RetrievalResult, format_result
     from geekbot.retrieval.dense import DenseRetriever
+    from geekbot.retrieval.hybrid import HybridRetriever
+    from geekbot.retrieval.lexical import LexicalRetriever
 
     settings = Settings()
     setup_logging(settings.log_level)
+    nothing = "nothing is indexed yet; run `geekbot ingest <folder>` first"
+    result: RetrievalResult
     try:
-        with Workspace.open(settings) as workspace:
-            if workspace.dense.count() == 0:
-                typer.echo("nothing is indexed yet; run `geekbot ingest <folder>` first", err=True)
-                raise typer.Exit(1)
-            result = DenseRetriever(workspace.store, workspace.dense, workspace.embedder).search(
-                query, top_k
-            )
+        if mode is SearchMode.LEXICAL:
+            # BM25 needs only SQLite: no embedder, no Ollama, no vector index.
+            with Store(settings.data_dir) as store:
+                if not store.list_documents("ready"):
+                    _fail(nothing)
+                result = LexicalRetriever(store).search(query, top_k)
+        else:
+            with Workspace.open(settings) as workspace:
+                if workspace.dense.count() == 0:
+                    _fail(nothing)
+                dense = DenseRetriever(workspace.store, workspace.dense, workspace.embedder)
+                if mode is SearchMode.DENSE:
+                    result = dense.search(query, top_k)
+                else:
+                    hybrid = HybridRetriever(
+                        dense, LexicalRetriever(workspace.store), candidates=candidates
+                    )
+                    result = hybrid.search(query, top_k)
     except StorageLockedError as error:
         _fail(str(error))
     except FingerprintMismatchError as error:
