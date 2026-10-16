@@ -17,6 +17,19 @@ DocState = Literal["pending", "embedding", "ready", "failed"]
 DOC_STATES: Final[tuple[DocState, ...]] = ("pending", "embedding", "ready", "failed")
 
 
+def embedding_text(header: str, text: str, *, with_header: bool) -> str:
+    """The exact string the embedder sees for a chunk: its text, with the header in front if asked.
+
+    One definition for the chunker's draft and the stored chunk, so a chunk embedded at ingest
+    and the same chunk re-embedded later can never differ by the header's spelling. The header is
+    kept out of the chunk's identity and out of BM25 (D-055); this is the only place it joins
+    the text, and only for the dense side.
+    """
+    if with_header and header:
+        return f"{header}\n\n{text}"
+    return text
+
+
 @dataclass(frozen=True)
 class NewDocument:
     """What the pipeline knows about a file when it hands it to the store.
@@ -73,6 +86,10 @@ class Chunk:
     section_path: tuple[str, ...]
     header: str
     text: str
+
+    def embedding_text(self, *, with_header: bool) -> str:
+        """The string to embed for this chunk (see the module-level ``embedding_text``)."""
+        return embedding_text(self.header, self.text, with_header=with_header)
 
 
 @dataclass(frozen=True)

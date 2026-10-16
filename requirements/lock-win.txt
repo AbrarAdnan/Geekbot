@@ -4,24 +4,47 @@
 #
 #    pip-compile --extra=dev --output-file=requirements/lock-win.txt --strip-extras pyproject.toml
 #
+aiohappyeyeballs==2.7.1
+    # via aiohttp
+aiohttp==3.14.5
+    # via
+    #   aiohttp-retry
+    #   kubernetes
+aiohttp-retry==2.9.1
+    # via kubernetes
+aiosignal==1.4.0
+    # via aiohttp
 annotated-doc==0.0.5
     # via typer
 annotated-types==0.8.0
     # via pydantic
 anyio==4.15.1
-    # via httpx
+    # via
+    #   httpx
+    #   httpx2
+    #   watchfiles
 ast-serialize==0.13.0
     # via mypy
+attrs==26.1.0
+    # via
+    #   aiohttp
+    #   jsonschema
+    #   referencing
+bcrypt==5.0.0
+    # via chromadb
 beautifulsoup4==4.15.0
     # via
     #   markdownify
     #   markitdown
 build==1.6.1
-    # via pip-tools
+    # via
+    #   chromadb
+    #   pip-tools
 certifi==2026.7.22
     # via
     #   httpcore
     #   httpx
+    #   kubernetes
     #   requests
 cffi==2.1.1
     # via cryptography
@@ -32,16 +55,21 @@ charset-normalizer==3.5.2
     #   geekbot (pyproject.toml)
     #   markitdown
     #   requests
+chromadb==1.5.9
+    # via geekbot (pyproject.toml)
 click==8.5.0
     # via
+    #   huggingface-hub
     #   magika
     #   pip-tools
+    #   uvicorn
 cobble==0.1.4
     # via mammoth
 colorama==0.4.6
     # via
     #   build
     #   pytest
+    #   tqdm
     #   typer
 coloredlogs==15.0.1
     # via onnxruntime
@@ -51,21 +79,51 @@ defusedxml==0.7.1
     # via markitdown
 distlib==0.4.3
     # via virtualenv
+durationpy==0.11
+    # via kubernetes
 et-xmlfile==2.0.0
     # via openpyxl
 filelock==4.2.0
     # via
     #   geekbot (pyproject.toml)
+    #   huggingface-hub
     #   python-discovery
     #   virtualenv
 flatbuffers==25.12.19
     # via onnxruntime
+frozenlist==1.8.0
+    # via
+    #   aiohttp
+    #   aiosignal
+fsspec==2026.9.0
+    # via huggingface-hub
+googleapis-common-protos==1.75.5
+    # via opentelemetry-exporter-otlp-proto-grpc
+grpcio==1.84.0
+    # via
+    #   chromadb
+    #   opentelemetry-exporter-otlp-proto-grpc
 h11==0.16.0
-    # via httpcore
+    # via
+    #   httpcore
+    #   httpcore2
+    #   uvicorn
+hf-xet==1.7.0
+    # via huggingface-hub
 httpcore==1.0.9
     # via httpx
+httpcore2==2.13.1
+    # via httpx2
+httptools==0.9.0
+    # via uvicorn
 httpx==0.28.1
-    # via geekbot (pyproject.toml)
+    # via
+    #   chromadb
+    #   geekbot (pyproject.toml)
+httpx2==2.13.1
+    # via huggingface-hub
+huggingface-hub==2.2.0
+    # via tokenizers
 humanfriendly==10.0
     # via coloredlogs
 hypothesis==6.170.0
@@ -76,9 +134,19 @@ idna==3.20
     # via
     #   anyio
     #   httpx
+    #   httpx2
     #   requests
+    #   yarl
+importlib-resources==7.1.0
+    # via chromadb
 iniconfig==2.3.1
     # via pytest
+jsonschema==4.26.0
+    # via chromadb
+jsonschema-specifications==2025.9.1
+    # via jsonschema
+kubernetes==37.0.1
+    # via chromadb
 librt==0.16.0
     # via mypy
 lxml==6.1.3
@@ -98,8 +166,14 @@ markitdown==0.1.8
     # via geekbot (pyproject.toml)
 mdurl==0.1.2
     # via markdown-it-py
+mmh3==5.3.1
+    # via chromadb
 mpmath==1.3.0
     # via sympy
+multidict==7.1.0
+    # via
+    #   aiohttp
+    #   yarl
 mypy==2.4.0
     # via geekbot (pyproject.toml)
 mypy-extensions==1.1.0
@@ -108,17 +182,50 @@ nodeenv==1.11.0
     # via pre-commit
 numpy==2.5.4
     # via
+    #   chromadb
     #   geekbot (pyproject.toml)
     #   magika
     #   onnxruntime
     #   pandas
+oauthlib==4.0.0
+    # via requests-oauthlib
 onnxruntime==1.20.1
-    # via magika
+    # via
+    #   chromadb
+    #   magika
 openpyxl==3.1.5
     # via geekbot (pyproject.toml)
+opentelemetry-api==1.45.1
+    # via
+    #   chromadb
+    #   opentelemetry-exporter-otlp-proto-grpc
+    #   opentelemetry-sdk
+    #   opentelemetry-semantic-conventions
+opentelemetry-exporter-otlp-common==0.66b1
+    # via opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-exporter-otlp-proto-common==1.45.1
+    # via opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-exporter-otlp-proto-grpc==1.45.1
+    # via chromadb
+opentelemetry-proto==1.45.1
+    # via
+    #   opentelemetry-exporter-otlp-proto-common
+    #   opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-sdk==1.45.1
+    # via
+    #   chromadb
+    #   opentelemetry-exporter-otlp-common
+    #   opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-semantic-conventions==0.66b1
+    # via opentelemetry-sdk
+orjson==3.13.0
+    # via chromadb
+overrides==7.7.0
+    # via chromadb
 packaging==26.3
     # via
     #   build
+    #   huggingface-hub
     #   onnxruntime
     #   pytest
     #   virtualenv
@@ -137,26 +244,41 @@ pluggy==1.6.0
     # via pytest
 pre-commit==4.7.0
     # via geekbot (pyproject.toml)
+propcache==0.5.4
+    # via
+    #   aiohttp
+    #   yarl
 protobuf==7.36.2
-    # via onnxruntime
+    # via
+    #   googleapis-common-protos
+    #   onnxruntime
+    #   opentelemetry-proto
 pyarrow==26.0.0
     # via geekbot (pyproject.toml)
+pybase64==1.5.1
+    # via chromadb
 pycparser==3.11
     # via cffi
 pydantic==2.14.1
     # via
+    #   chromadb
     #   geekbot (pyproject.toml)
+    #   kubernetes
     #   pydantic-settings
 pydantic-core==2.50.1
     # via pydantic
 pydantic-settings==2.16.0
-    # via geekbot (pyproject.toml)
+    # via
+    #   chromadb
+    #   geekbot (pyproject.toml)
 pygments==2.21.0
     # via
     #   pytest
     #   rich
 pypdf==6.21.0
     # via geekbot (pyproject.toml)
+pypika==0.51.1
+    # via chromadb
 pyproject-hooks==1.3.3
     # via
     #   build
@@ -166,7 +288,9 @@ pyreadline3==3.5.6
 pytest==9.1.1
     # via geekbot (pyproject.toml)
 python-dateutil==2.9.0.post0
-    # via pandas
+    # via
+    #   kubernetes
+    #   pandas
 python-discovery==1.6.2
     # via virtualenv
 python-docx==1.2.0
@@ -175,18 +299,37 @@ python-dotenv==1.2.4
     # via
     #   magika
     #   pydantic-settings
+    #   uvicorn
 python-pptx==1.0.2
     # via markitdown
 pyyaml==6.0.3
     # via
+    #   chromadb
     #   geekbot (pyproject.toml)
+    #   huggingface-hub
+    #   kubernetes
     #   pre-commit
+    #   uvicorn
+referencing==0.37.0
+    # via
+    #   jsonschema
+    #   jsonschema-specifications
 requests==2.34.2
     # via
     #   geekbot (pyproject.toml)
+    #   kubernetes
     #   markitdown
+    #   requests-oauthlib
+requests-oauthlib==2.0.0
+    # via kubernetes
 rich==15.0.0
-    # via typer
+    # via
+    #   chromadb
+    #   typer
+rpds-py==2026.9.1
+    # via
+    #   jsonschema
+    #   referencing
 ruff==0.17.0
     # via geekbot (pyproject.toml)
 shellingham==1.5.4
@@ -203,18 +346,44 @@ sqlglot==30.23.0
     # via geekbot (pyproject.toml)
 sympy==1.14.0
     # via onnxruntime
+tenacity==9.2.1
+    # via chromadb
+tokenizers==0.23.3
+    # via chromadb
+tqdm==4.70.1
+    # via
+    #   chromadb
+    #   huggingface-hub
+truststore==0.10.5
+    # via
+    #   httpcore2
+    #   httpx2
 typer==0.27.3
-    # via geekbot (pyproject.toml)
+    # via
+    #   chromadb
+    #   geekbot (pyproject.toml)
 typing-extensions==4.16.0
     # via
+    #   aiohttp
+    #   aiosignal
     #   anyio
     #   beautifulsoup4
+    #   chromadb
+    #   grpcio
+    #   httpx2
+    #   huggingface-hub
+    #   kubernetes
     #   mypy
+    #   opentelemetry-api
+    #   opentelemetry-exporter-otlp-proto-grpc
+    #   opentelemetry-sdk
+    #   opentelemetry-semantic-conventions
     #   pydantic
     #   pydantic-core
     #   pydantic-settings
     #   python-docx
     #   python-pptx
+    #   referencing
     #   typing-inspection
 typing-inspection==0.4.4
     # via
@@ -223,13 +392,25 @@ typing-inspection==0.4.4
 tzdata==2026.5
     # via pandas
 urllib3==2.8.0
-    # via requests
+    # via
+    #   kubernetes
+    #   requests
+uvicorn==0.54.0
+    # via chromadb
 virtualenv==21.14.7
     # via pre-commit
+watchfiles==1.3.0
+    # via uvicorn
+websocket-client==1.9.2
+    # via kubernetes
+websockets==17.2
+    # via uvicorn
 wheel==0.48.0
     # via pip-tools
 xlsxwriter==3.2.9
     # via python-pptx
+yarl==1.25.1
+    # via aiohttp
 
 # The following packages are considered to be unsafe in a requirements file:
 # pip

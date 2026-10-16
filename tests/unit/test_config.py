@@ -91,6 +91,33 @@ def test_csv_limits_must_be_positive(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(name)
 
 
+def test_embedder_defaults_follow_the_plan() -> None:
+    # Step S1.5. nomic-embed-text with its task prefixes and the contextual header on; pinned so
+    # a change is deliberate (any of them changes the embedder fingerprint and forces a re-index).
+    settings = Settings(_env_file=None)
+    assert settings.embed_model == "nomic-embed-text"
+    assert settings.embed_document_prefix == "search_document: "
+    assert settings.embed_query_prefix == "search_query: "
+    assert settings.embed_with_header is True
+    assert settings.embed_batch_size == 32
+
+
+def test_embedder_settings_come_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEEKBOT_EMBED_MODEL", "embeddinggemma")
+    monkeypatch.setenv("GEEKBOT_EMBED_DOCUMENT_PREFIX", "title: none | text: ")
+    monkeypatch.setenv("GEEKBOT_EMBED_WITH_HEADER", "false")
+    settings = Settings(_env_file=None)
+    assert settings.embed_model == "embeddinggemma"
+    assert settings.embed_document_prefix == "title: none | text: "
+    assert settings.embed_with_header is False
+
+
+def test_embed_batch_size_must_be_positive(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEEKBOT_EMBED_BATCH_SIZE", "0")
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+
+
 def test_settings_are_frozen() -> None:
     settings = Settings(_env_file=None)
     with pytest.raises(ValidationError):
