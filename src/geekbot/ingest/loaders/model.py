@@ -7,9 +7,13 @@ a citation later. It does not split the text into chunks (S1.2), hash it (S1.3) 
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Final, Literal
 
 DocKind = Literal["pdf", "docx", "pptx", "html", "markdown", "text", "code", "notebook", "table"]
+
+# What ``LoadedDocument.text`` puts between two segments. The chunker (S1.2) counts with the same
+# constant, so a chunk's offsets point into that text exactly.
+SEGMENT_SEPARATOR: Final = "\n\n"
 
 
 class LoadError(Exception):
@@ -53,4 +57,4 @@ class LoadedDocument:
     @property
     def text(self) -> str:
         """All segments joined by a blank line (for callers that don't care about pages)."""
-        return "\n\n".join(segment.text for segment in self.segments)
+        return SEGMENT_SEPARATOR.join(segment.text for segment in self.segments)
