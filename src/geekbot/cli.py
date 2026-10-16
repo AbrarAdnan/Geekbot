@@ -236,7 +236,7 @@ def ingest(
 
 
 class SearchMode(StrEnum):
-    """The values of ``--mode`` for ``search``. ``hybrid_rerank`` arrives in S2.3."""
+    """The values of ``--mode`` for ``search``."""
 
     DENSE = "dense"
     LEXICAL = "lexical"
@@ -252,8 +252,9 @@ def search(
         SearchMode,
         typer.Option(
             "--mode",
-            help="dense (by meaning), lexical (BM25, by words; needs no Ollama) or hybrid (both, "
-            "fused by rank with RRF). hybrid_rerank arrives in S2.3.",
+            help="dense (by meaning), lexical (BM25, by words; needs no Ollama), hybrid (both, "
+            "fused by rank with RRF) or hybrid_rerank (hybrid, then a cross-encoder re-scores "
+            "the best candidates on the CPU; the first use downloads its model).",
         ),
     ] = SearchMode.DENSE,
     candidates: Annotated[
@@ -261,18 +262,16 @@ def search(
         typer.Option(
             "--candidates",
             min=1,
-            help="hybrid only: how many chunks each side contributes before fusing.",
+            help="hybrid and hybrid_rerank: how many chunks each side contributes before fusing.",
         ),
     ] = 50,
 ) -> None:
     """Search the knowledge base and print the best chunks with the time each stage took.
 
-    Only ready documents are searched. The dense and hybrid modes need Ollama for the embedder
-    (CPU). Every mode takes the storage lock, so none can run while another Geekbot process owns
-    the data folder.
+    Only ready documents are searched. The dense, hybrid and hybrid_rerank modes need Ollama for
+    the embedder (CPU). Every mode takes the storage lock, so none can run while another Geekbot
+    process owns the data folder.
     """
-    if mode is SearchMode.HYBRID_RERANK:
-        _not_built("search --mode hybrid_rerank", "S2.3")
     # Imported here: chromadb is slow to import and `geekbot --version` should not wait for it.
     from geekbot.index.dense import FingerprintMismatchError
     from geekbot.index.lock import StorageLockedError
@@ -282,6 +281,7 @@ def search(
     from geekbot.retrieval.dense import DenseRetriever
     from geekbot.retrieval.hybrid import HybridRetriever
     from geekbot.retrieval.lexical import LexicalRetriever
+    from geekbot.retrieval.rerank import FastembedScorer, Reranker, RerankError
 
     settings = Settings()
     setup_logging(settings.log_level)
@@ -305,14 +305,85 @@ def search(
                     hybrid = HybridRetriever(
                         dense, LexicalRetriever(workspace.store), candidates=candidates
                     )
-                    result = hybrid.search(query, top_k)
+                    if mode is SearchMode.HYBRID:
+                        result = hybrid.search(query, top_k)
+                    else:
+                        scorer = FastembedScorer(
+                            settings.rerank_model,
+                            cache_dir=settings.data_dir / "models",
+                            threads=settings.rerank_threads,
+                        )
+                        result = Reranker(hybrid, scorer, depth=settings.rerank_depth).search(
+                            query, top_k
+                        )
     except StorageLockedError as error:
         _fail(str(error))
     except FingerprintMismatchError as error:
         _fail(f"{error}\nRun `geekbot ingest --reindex` to rebuild the vectors.")
-    except OllamaError as error:
+    except (OllamaError, RerankError) as error:
         _fail(str(error))
     typer.echo(format_result(result))
+
+
+@app.command("rerank-timing")
+def rerank_timing(
+    query: Annotated[
+        list[str],
+        typer.Option("--query", help="A question to time with (repeat the option for several)."),
+    ],
+    depths: Annotated[
+        str,
+        typer.Option("--depths", help="Comma-separated depths to compare, e.g. 10,20,30,50."),
+    ] = "10,20,30,50",
+    repeats: Annotated[
+        int, typer.Option("--repeats", min=1, help="Timed calls per query and depth.")
+    ] = 5,
+) -> None:
+    """Time the reranker at several depths and print p50 / p95 (uses the CPU, no Ollama).
+
+    The passages are the first stored chunks of ready documents, so there must be at least as many
+    chunks as the largest depth. The first call loads the model (and downloads it the first time);
+    it is not counted. Run it when the CPU is otherwise idle: the numbers are wall-clock times on
+    this machine now (PLAN.md section 6.5 gives retrieval plus reranking 400 ms at p95).
+    """
+    from geekbot.index.lock import StorageLockedError
+    from geekbot.index.sqlite import Store
+    from geekbot.retrieval.rerank import FastembedScorer, RerankError
+    from geekbot.retrieval.rerank_timing import format_depth_timings, measure_rerank_depths
+
+    settings = Settings()
+    setup_logging(settings.log_level)
+    try:
+        chosen = [int(part) for part in depths.split(",") if part.strip()]
+    except ValueError:
+        _fail(f"--depths must be comma-separated whole numbers, got {depths!r}")
+    if not chosen:
+        _fail("--depths needs at least one number")
+    needed = max(chosen)
+    try:
+        with Store(settings.data_dir) as store:
+            passages: list[str] = []
+            for document in store.list_documents("ready"):
+                passages.extend(chunk.text for chunk in store.document_chunks(document.doc_id))
+                if len(passages) >= needed:
+                    break
+    except StorageLockedError as error:
+        _fail(str(error))
+    if len(passages) < needed:
+        _fail(
+            f"only {len(passages)} chunks are stored but the largest depth is {needed}; "
+            "ingest more documents or lower --depths"
+        )
+    scorer = FastembedScorer(
+        settings.rerank_model,
+        cache_dir=settings.data_dir / "models",
+        threads=settings.rerank_threads,
+    )
+    try:
+        timings = measure_rerank_depths(scorer, query, passages, chosen, repeats=repeats)
+    except (RerankError, ValueError) as error:
+        _fail(str(error))
+    typer.echo(format_depth_timings(settings.rerank_model, timings))
 
 
 @app.command(context_settings=_STUB)
