@@ -14,6 +14,7 @@ license-files = ["LICENSE"]
 authors = [{ name = "Abrar Adnan" }]
 requires-python = ">=3.12"
 dependencies = [
+    "filelock>=3.13",  # the exclusive storage lock (S1.4)
     "httpx>=0.27",  # the Ollama HTTP client (S0.3)
     "pydantic-settings>=2.6",  # typed settings from GEEKBOT_* env vars and .env (S0.2)
     "typer>=0.15",  # the CLI (S0.2)
