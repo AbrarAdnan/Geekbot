@@ -87,6 +87,18 @@ class Settings(BaseSettings):
     # are starting points, not measurements: C3 checks how often the question cap would cut an
     # answer. The cap is soft (the package checks it before each attempt, not during a model
     # call), so the worst case is the cap plus one call.
+    # The embedder (step S1.5, PLAN §6.4/§6.5): Ollama's ``nomic-embed-text`` on the CPU, so the
+    # chat model keeps the whole GPU. nomic-embed-text was trained with task prefixes and
+    # embeds worse without them (v1 bug #8); another embedder (the S2.6 bake-off) brings its
+    # own. Changing any of these changes the embedder fingerprint, which blocks queries
+    # until the dense index is rebuilt.
+    embed_model: str = "nomic-embed-text"
+    embed_document_prefix: str = "search_document: "
+    embed_query_prefix: str = "search_query: "
+    # Whether the contextual header (title > headings) is embedded in front of each chunk. On by
+    # default; the ablation's rung R5 switches it.
+    embed_with_header: bool = True
+    embed_batch_size: int = Field(default=32, gt=0)
     csv_llm_timeout_s: int = Field(default=60, gt=0)  # one Ollama call
     csv_question_time_limit_s: int = Field(default=60, gt=0)  # one question
     data_dir: Path = Path("data")

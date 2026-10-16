@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from itertools import pairwise
 from typing import Final
 
+from geekbot.domain import embedding_text
 from geekbot.ingest.loaders.model import SEGMENT_SEPARATOR, DocKind, LoadedDocument
 
 __all__ = [
@@ -117,9 +118,7 @@ class ChunkDraft:
 
     def embedding_text(self, *, with_header: bool) -> str:
         """The text to embed: the chunk, with its contextual header in front when asked for."""
-        if with_header and self.header:
-            return f"{self.header}\n\n{self.text}"
-        return self.text
+        return embedding_text(self.header, self.text, with_header=with_header)
 
 
 def contextual_header(title: str, section_path: Sequence[str]) -> str:
