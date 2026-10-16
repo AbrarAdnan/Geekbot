@@ -8,7 +8,8 @@ mistake "not built" for success.
 import json
 import logging
 from collections.abc import Sequence
-from typing import Annotated
+from pathlib import Path
+from typing import Annotated, NoReturn
 
 import typer
 
@@ -125,16 +126,66 @@ def serve() -> None:
     _not_built("serve", "S4.1")
 
 
-@csv_app.command("describe", context_settings=_STUB)
-def csv_describe() -> None:
-    """Describe a CSV file."""
-    _not_built("csv describe", "C2")
+CsvFile = Annotated[
+    Path,
+    typer.Argument(help="The CSV file.", exists=True, dir_okay=False, readable=True),
+]
 
 
-@csv_app.command("ask", context_settings=_STUB)
-def csv_ask() -> None:
-    """Ask a question about a CSV file."""
-    _not_built("csv ask", "C2")
+def _fail(message: str) -> NoReturn:
+    """One clear line on stderr and exit code 1 (a usage mistake exits with 2, via Typer)."""
+    typer.echo(f"error: {message}", err=True)
+    raise typer.Exit(1)
+
+
+@csv_app.command("describe")
+def csv_describe(file: CsvFile) -> None:
+    """Show what was loaded from a CSV file: rows, columns and warnings. Uses no model."""
+    # Imported here, not at the top: the CSV package pulls in pandas and pyarrow, and
+    # `geekbot --version` or `geekbot doctor` should not wait for them.
+    from geekbot.csv_mode.adapter import CsvAnalyst, CsvLoadError
+
+    settings = Settings()
+    setup_logging(settings.log_level)
+    try:
+        with CsvAnalyst.open(file, settings) as analyst:
+            typer.echo(analyst.describe())
+    except CsvLoadError as error:
+        _fail(str(error))
+
+
+@csv_app.command("ask")
+def csv_ask(
+    file: CsvFile,
+    question: Annotated[str, typer.Argument(help="Your question about the data.")],
+) -> None:
+    """Ask a question about a CSV file (uses the CSV model, so it needs a free GPU).
+
+    The reply goes to stdout. A footer on stderr names the model, profile, status, time and the
+    time spent loading the model, so a pasted result always says which model produced it
+    (D-043). Exit code 0 means the tool worked (even if the data could not answer); 1 means the
+    question failed or Ollama, the model or the file was not usable.
+    """
+    from geekbot.csv_mode.adapter import CsvAnalyst, CsvLoadError, find_problem
+
+    settings = Settings()
+    setup_logging(settings.log_level)
+    problem = find_problem(settings)
+    if problem is not None:
+        _fail(problem)
+    try:
+        with CsvAnalyst.open(file, settings) as analyst:
+            answer = analyst.ask(question)
+    except CsvLoadError as error:
+        _fail(str(error))
+    typer.echo(answer.markdown)
+    typer.echo(
+        f"[csv] model={answer.model} profile={settings.profile} status={answer.status} "
+        f"time={answer.seconds:.1f}s model_load={answer.model_load_ms}ms",
+        err=True,
+    )
+    if answer.failed:
+        raise typer.Exit(1)
 
 
 def main(argv: Sequence[str] | None = None) -> None:

@@ -28,8 +28,6 @@ def test_no_arguments_shows_help() -> None:
         (["search", "anything", "--top-k", "3"], "S2.1"),
         (["ask", "what is RAG?"], "S3.1"),
         (["serve"], "S4.1"),
-        (["csv", "describe", "x.csv"], "C2"),
-        (["csv", "ask", "x.csv", "how many rows?"], "C2"),
     ],
 )
 def test_stub_commands_exit_2_and_name_their_step(args: list[str], step: str) -> None:

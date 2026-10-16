@@ -1,12 +1,13 @@
 # Geekbot v2 — Status
 
-_Last updated: 2026-10-16, in a multi-step chat (user's choice: S0.1 → S0.2 → S0.3 → S0.5 → C1–C3 → Phase 1 in one chat). P1, S0.1, S0.2, S0.3 and S0.5 are green-lit; Phase 0 is complete after S0.5 merges._
+_Last updated: 2026-10-16, in the C2 chat. Fast-prototyping mode is on (D-047). Phase 0 and C1 are green-lit and merged; C2 is green-lit and waits for the user's push and merge._
 
 ## Next up
-**C2 — Connect it to Geekbot** (Track C, Gate A), on branch `step/C2-csv-adapter`, created from an up-to-date `v2` before any change. The multi-step chat plan: C2 → C3 → Phase 1, then a handoff written here. C1 is green-lit and goes through its pull request (`step/C1-csv-analyst`); record its squash SHA here at the start of C2.
+**C2 — Connect it to Geekbot** (Track C, Gate A) is green-lit (445 passed) on branch `step/C2-csv-adapter`. The user pushes it and opens the pull request into `v2` (base `v2`, squash). Record the merge SHA here and in the C2 log at the start of the next chat. Next step: **C3 — CSV model: swap + reproduction run** 🎮, in a new chat. It needs `qwen2.5-coder:7b` pulled, an idle GPU and `GEEKBOT_PROFILE=target` for any number that is reported; the [C2 log](steps/C2-csv-adapter.md) handoff has the details. C3's log also carries the Phase 0 + C1–C3 look-back.
+- **Mode (D-047):** fast prototyping. Per step: Claude's outline (with some interesting context), one build, one summary; the user runs the tests, gives the green light and pushes. New lessons are deferred; ✍️ pieces Claude writes go on the backlog below.
 - **C1 handoff:** see the C1 step log (the vendored package, its known gaps, what to watch in C2/C3).
 - **Workflow since S0.5 (D-044):** every step starts with `git switch -c step/<id>-<slug>` from an up-to-date `v2`, ends with a push and a pull request into `v2` (base `v2`, not `main`), and is squash-merged after the three CI checks are green. First mistake to avoid (it happened once): committing before creating the branch.
-- Merged on `v2`: S0.5 as `e800a2b`; before it S0.3 `6a1dba2`, S0.2 `2febc8a`, P1 + S0.1 `0d09179`.
+- Merged on `v2`: C1 as `3bd19db` (merge commit of PR #2); S0.5 as `e800a2b` (merge commit of PR #1); before them S0.3 `6a1dba2`, S0.2 `2febc8a`, P1 + S0.1 `0d09179`. D-046: the rule is squash; the repo setting to allow only squash is the user's to change in GitHub.
 - `C:\Work\Gigalogy` is no longer at that path (the user's rename or move); the only copy of the package source is `scratch/gigalogy-latest/` (git-ignored, read-only, not backed up for lack of disk space).
 - Older handoffs below are history; where they disagree with the table, the table wins.
 
@@ -53,9 +54,9 @@ Status values: `todo → design → build → verify → green-lit`, or `blocked
 | S0.2 | Config, logging, CLI | A | green-lit (2026-10-15; pytest 31 passed, ruff + mypy clean) | 2026-10-15 | `2febc8a` | [S0.2](steps/S0.2-config-cli.md) |
 | S0.3 | `doctor` + GPU introspection 🎮 | A | green-lit (2026-10-15; 68 tests, live doctor run clean on the proto profile) | 2026-10-15 | `6a1dba2` | [S0.3](steps/S0.3-doctor-gpu.md) |
 | S0.4 | ~~v1 latency baseline~~ | A | dropped (D-031) | | | |
-| S0.5 | CI (+ branch and pull request per step from here) | A | green-lit (2026-10-16; all three CI checks green on the first run) | 2026-10-16 | `e800a2b` (squash commit on `v2`; branch commits `1e4a869` + the notes commit) | [S0.5](steps/S0.5-ci.md) |
-| C1 | Copy in `csv_analyst` | A | green-lit (2026-10-16; 382 passed, 10 skipped, 1 xfailed) | 2026-10-16 | squash SHA on `v2` recorded at the start of C2 | [C1](steps/C1-csv-analyst.md) |
-| C2 | Connect it to Geekbot (`geekbot csv ask`) | A | todo | | | |
+| S0.5 | CI (+ branch and pull request per step from here) | A | green-lit (2026-10-16; all three CI checks green on the first run) | 2026-10-16 | `e800a2b` (merge commit of PR #1; branch commits `1e4a869` + `8c81f1b`) | [S0.5](steps/S0.5-ci.md) |
+| C1 | Copy in `csv_analyst` | A | green-lit (2026-10-16; 382 passed, 10 skipped, 1 xfailed) | 2026-10-16 | `3bd19db` (PR #2; branch commit `adea115`) | [C1](steps/C1-csv-analyst.md) |
+| C2 | Connect it to Geekbot (`geekbot csv ask`) | A | green-lit (2026-10-16; 445 passed, 10 skipped, 1 xfailed; ruff, format, mypy clean; live `csv ask` and live tests passed on the proto profile) | 2026-10-16 | merge SHA recorded at the start of the next chat | [C2](steps/C2-csv-adapter.md) |
 | C3 | CSV model: swap + reproduction run 🎮 | A | todo | | | |
 | S1.1 | Loaders (open question: CSV row text, PLAN §6.7) | A | todo | | | |
 | S1.2 | Chunking | A | todo | | | |
@@ -98,7 +99,14 @@ Legend:
 - Rows are in the order the work happens.
 - 🎮 loads a model on the GPU (run when Gigalogy isn't using it).
 - **C1–C6** = the CSV track ("C" for CSV, not Gate C).
-- Every step from S0.2 on has a ✍️ piece you write yourself; PLAN §11 names it.
+- Every step from S0.2 on has a ✍️ piece (PLAN §11 names it). The user wrote S0.2's, S0.3's and S0.5's. From C2 on (fast-prototyping mode, D-047) Claude writes them and they go on the ✍️ backlog below.
+
+## ✍️ backlog (written by Claude in prototyping mode, D-047; to redo as exercises later)
+| Step | Piece | Where | Spec and tests |
+|---|---|---|---|
+| C2 | `OllamaCsvProvider.generate_json`: build the Ollama request, map failures to `LLMProviderError`, return the raw reply | `src/geekbot/csv_mode/provider.py` | the docstring of the method; `tests/unit/test_csv_provider.py` |
+
+To redo one: restore the stub (`raise NotImplementedError`), keep the tests, and write it yourself; the hint ladder still applies.
 
 ## Measured results so far
 _None yet. The first numbers arrive at S0.3 (`doctor`: VRAM use and GPU residency), at C3 (CSV-model swap time + reproduction run) and at the CP2 ablation table._

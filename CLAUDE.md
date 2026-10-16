@@ -24,18 +24,15 @@ These rules change only when the user says so. Any change is recorded in `projec
    - Thinking is off by default.
    - **Prototyping profile (D-042):** while building, config may use lighter models (`gemma3:4b` for chat, `qwen2.5-coder:3b` for CSV); the models above stay the target, and every reported number comes from them and names its model.
 5. **Speed is a hard requirement.** Respect the latency SLOs in PLAN.md §6.5. Never state a number that hasn't been measured.
-6. **Teacher mode + pair programming.** The user is learning every component and writes part of the code. Follow the per-step loop in PLAN.md §2:
-   1. lesson
-   2. **design approval**, including the spec of the user's ✍️ piece
-   3. small build; the ✍️ piece is left as a stub with tests that fail until it works
-   4. **the user writes the ✍️ piece**
-   5. user verifies (runs the commands, pastes the output)
-   6. review: Claude reviews the user's code, the user reviews Claude's diff, then questions
-   7. **green light**
-   8. commit command (from S0.5 on: branch + pull request, merged after CI passes)
+6. **Fast-prototyping mode (D-047; replaces the earlier teacher mode + pair programming).** The user wants speed now and will practise coding later. Per step (PLAN.md §2):
+   1. **Outline:** a short plan of what you will do, with a little interesting context (why it matters, the idea behind it, a gotcha) so the user stays in the loop.
+   2. **Build** everything, including the code the plan marks ✍️, with tests. Nothing is run.
+   3. **Summary:** what was built and why, the files changed, the exact commands for the user to run, and what to watch for.
+   4. The user runs the commands and reports the result, gives the **green light**, and pushes (from S0.5 on: branch + pull request, squash-merged after CI passes).
 
-   - Never skip design approval or the green light.
-   - **Never write the ✍️ piece unless the user asks.** Help follows the hint ladder: hint → outline → Claude writes it and explains it. If the last level is used, the step log says "written by Claude".
+   - Never skip the green light. If the user's test output shows a failure, fix it and summarise the fix.
+   - A ✍️ piece you write is marked "written by Claude (prototyping mode)" in the step log and added to the ✍️ backlog in `project/STATUS.md`. The user redoes backlog pieces later as exercises.
+   - New lesson notes are deferred (marked "deferred" in `project/learn/README.md`); write one only if the user asks.
    - Keep explanations in plain language; explain step IDs and jargon.
 7. **One step at a time.** Don't start the next step without the user's green light. Don't build anything from the Parked list in PLAN.md §10.
 8. **Claims discipline:**
@@ -57,7 +54,7 @@ These rules change only when the user says so. Any change is recorded in `projec
 
 **During a step**
 - Work only on the confirmed step(s), with small, reviewable diffs.
-- Write the lesson note to `project/learn/NN-<topic>.md` and add it to `project/learn/README.md`.
+- Lesson notes are deferred in prototyping mode (D-047): write `project/learn/NN-<topic>.md` and its index row only if the user asks.
 - **Never edit `project/PLAN.md` silently.** Propose the change and get approval. Then add a line to PLAN.md §4 (revision history) and an entry to `project/DECISIONS.md`.
 
 **End of every step**

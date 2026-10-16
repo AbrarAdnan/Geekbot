@@ -67,10 +67,13 @@ class CsvAnalystSession:
     def from_bytes(cls, data: bytes, filename: str = "upload.csv", **kwargs) -> "CsvAnalystSession":
         return cls(load_csv_bytes(data, filename), name=Path(filename or "upload.csv").name, **kwargs)
 
-    def ask(self, question: str, *, samples: Optional[int] = None) -> RunRecord:
+    # GEEKBOT EDIT (C2): `time_limit_s` is passed through to run_pipeline so the host can set its own
+    # per-question cap. Before, ask() always used the package's limit (10 minutes for the main model).
+    def ask(self, question: str, *, samples: Optional[int] = None,
+            time_limit_s: Optional[float] = None) -> RunRecord:
         """Answer one question from the data (the full reliability pipeline)."""
         return run_pipeline(self.llm, self.df, self.schema, question, self.dataset_id,
-                            model_name=self.model, samples=samples)
+                            model_name=self.model, samples=samples, time_limit_s=time_limit_s)
 
     def describe(self) -> str:
         """A short chat message confirming what was loaded."""

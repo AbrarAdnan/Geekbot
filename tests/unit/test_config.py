@@ -68,6 +68,29 @@ def test_a_bad_profile_fails_at_startup(monkeypatch: pytest.MonkeyPatch) -> None
         Settings(_env_file=None)
 
 
+def test_csv_limits_default_to_sixty_seconds() -> None:
+    # Step C2. Starting values, not measurements (C3 checks them); pinned so a change is deliberate.
+    settings = Settings(_env_file=None)
+    assert settings.csv_llm_timeout_s == 60
+    assert settings.csv_question_time_limit_s == 60
+
+
+def test_csv_limits_are_read_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEEKBOT_CSV_LLM_TIMEOUT_S", "30")
+    monkeypatch.setenv("GEEKBOT_CSV_QUESTION_TIME_LIMIT_S", "90")
+    settings = Settings(_env_file=None)
+    assert (settings.csv_llm_timeout_s, settings.csv_question_time_limit_s) == (30, 90)
+
+
+def test_csv_limits_must_be_positive(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ("GEEKBOT_CSV_LLM_TIMEOUT_S", "GEEKBOT_CSV_QUESTION_TIME_LIMIT_S"):
+        for value in ("0", "-5"):
+            monkeypatch.setenv(name, value)
+            with pytest.raises(ValidationError):
+                Settings(_env_file=None)
+        monkeypatch.delenv(name)
+
+
 def test_settings_are_frozen() -> None:
     settings = Settings(_env_file=None)
     with pytest.raises(ValidationError):

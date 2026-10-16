@@ -5,7 +5,9 @@ Every step starts with a lesson. Each note covers:
 - how they map to Geekbot's code
 - 3–5 interview-style questions with short model answers
 
-Together they form a study guide for the whole project. Notes are written as each step runs; this index lists what's planned. Lessons are numbered in the order the steps happen (renumbered at plan rev 11, when the CSV track C1–C6 was added).
+Together they form a study guide for the whole project. Notes are written as each step runs; this index lists what's planned.
+
+**Deferred (D-047, fast-prototyping mode):** every row below marked "planned" is deferred. Lessons 01–06 stay as written. A lesson is written when the user asks for it. Lessons are numbered in the order the steps happen (renumbered at plan rev 11, when the CSV track C1–C6 was added).
 
 | # | Topic | Step | Status |
 |---|---|---|---|
@@ -14,7 +16,7 @@ Together they form a study guide for the whole project. Notes are written as eac
 | 03 | [How Ollama loads models: keep_alive, residency, VRAM math (weights + KV cache + buffers), gemma4's sliding-window KV](03-ollama-gpu.md) | S0.3 | written |
 | 04 | [CI pipelines: matrix builds, lock vs fresh resolution; branches and pull requests](04-ci.md) | S0.5 | written |
 | 05 | [Working in a codebase you didn't just write: vendoring vs packages vs git subtree, provenance, gradual typing; a guided tour of `csv_analyst`](05-vendoring.md) (characterization tests: not used in C1) | C1 | written |
-| 06 | Ports and adapters: dependency injection through a Protocol, connecting two settings systems, Ollama JSON mode and structured output | C2 | planned |
+| 06 | [Ports and adapters: dependency injection through a Protocol, connecting two settings systems, Ollama JSON mode and structured output](06-ports-adapters.md) | C2 | written |
 | 07 | Two models, one GPU: explicit swaps, measuring swap cost, reproduction runs and run-to-run noise | C3 | planned |
 | 08 | Document parsing: PDFs, office files, page metadata, tabular schema cards | S1.1 | planned |
 | 09 | Chunking: tokens vs characters, structure-aware splitting, contextual headers | S1.2 | planned |
