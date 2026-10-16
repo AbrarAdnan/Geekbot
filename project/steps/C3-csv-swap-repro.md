@@ -3,7 +3,7 @@
 - **Phase / Gate:** Track C, part 1 (right after Phase 0), Gate A
 - **Chat date(s):** 2026-10-16
 - **Status:** green-lit (2026-10-16; 557 passed, 10 skipped, 1 xfailed; ruff, format and mypy clean; target-model reproduction inside the band fixed beforehand)
-- **Commit:** <merge SHA reported by the user at the start of the next chat>
+- **Commit:** `86d2cc2` (squash commit of PR #4 on `v2`; branch commits `b186795`, `ef1aa6f`, `32277ab`)
 - **Lesson note:** deferred (D-047)
 
 ## Goal

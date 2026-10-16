@@ -18,7 +18,7 @@ The folder doesn't exist yet: create it when you add the first file. **Only docu
 **Rules for choosing documents**
 - **Publishable.** This repo is public, so every file must be your own or under a license that allows sharing (public domain, CC-BY, MIT, …). Record the license in the table below.
 - **Mixed formats**, so every loader gets tested (step S1.1): PDF, Word (`.docx`), PowerPoint (`.pptx`), HTML, Markdown, plain text, code (`.py`), a Jupyter notebook (`.ipynb`), and spreadsheets (`.csv` / `.xlsx`).
-- **Spreadsheets:** at least one with ≤ 2,000 rows (its rows get embedded) and, ideally, one larger one (only its schema card is indexed). See D-016.
+- **Spreadsheets:** at least one `.csv` or `.xlsx`. Chat mode indexes only a schema card per table (columns, types, example values), never its rows (D-051, which replaced D-016), so questions about a spreadsheet in the golden set should be about *what it contains*, not about figures read from it.
 - **Overlapping topics**, so some questions need facts from two documents (multi-hop questions).
 - **Small files** (a few MB each), and **no secrets or personal data**.
 
