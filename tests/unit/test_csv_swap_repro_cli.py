@@ -69,8 +69,9 @@ class FakeOllama:
 def _fake_machine(
     monkeypatch: pytest.MonkeyPatch, *, pulled: list[str] | None = None, gpu_percent: int = 100
 ) -> FakeOllama:
-    fake = FakeOllama(pulled if pulled is not None else [CHAT, CSV])
+    fake = FakeOllama(pulled if pulled is not None else [CHAT, CSV, "nomic-embed-text"])
     monkeypatch.setattr(cli, "OllamaClient", fake)
+    monkeypatch.setattr(cli, "_probe_embedder", lambda settings: None)  # no real embedding call
     monkeypatch.setattr(cli, "_read_gpu", lambda: GpuMemory(5000, 10240))
     monkeypatch.setattr(
         cli,

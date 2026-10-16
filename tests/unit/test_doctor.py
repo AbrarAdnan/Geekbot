@@ -1,5 +1,8 @@
 """Tests for step S0.3: the doctor's checks, with made-up data (no GPU, no Ollama)."""
 
+from pathlib import Path
+from typing import Self
+
 import pytest
 
 from geekbot.config import Settings
@@ -7,22 +10,27 @@ from geekbot.doctor import (
     BUSY_GPU_USED_MIB,
     Check,
     Status,
+    check_embedder_on_cpu,
+    check_embedder_pulled,
     check_exclusive,
     check_gpu_memory,
     check_models_pulled,
     check_residency,
+    check_storage_lock,
     describe_swap,
     format_checks,
     has_failure,
     run_doctor,
 )
+from geekbot.index.lock import StorageLock
 from geekbot.llm.models import OllamaError, SwapResult
 from geekbot.llm.vram import CommandError, GpuMemory, LoadedModel
 
 pytestmark = pytest.mark.usefixtures("clean_geekbot_env")
 
 IDLE_GPU = GpuMemory(used_mib=654, total_mib=10240)
-PULLED = ["gemma3:4b", "qwen2.5-coder:3b"]
+EMBED = "nomic-embed-text"
+PULLED = ["gemma3:4b", "qwen2.5-coder:3b", "nomic-embed-text:latest"]
 CHAT, CSV = "gemma3:4b", "qwen2.5-coder:3b"
 
 
@@ -222,7 +230,8 @@ def test_unreadable_gpu_or_ps_warns_instead_of_crashing() -> None:
     assert not has_failure(checks)
 
 
-def test_the_report_names_the_steps_that_are_not_built_yet() -> None:
+def test_no_check_is_a_placeholder_for_a_step_that_is_built() -> None:
+    # S1.4 (the storage lock) and S1.5 (the embedder) used to be "not built yet" lines here.
     checks = run_doctor(
         _settings(),
         FakeClient(pulled=PULLED),
@@ -230,9 +239,194 @@ def test_the_report_names_the_steps_that_are_not_built_yet() -> None:
         read_gpu=lambda: IDLE_GPU,
         read_ps=list,
     )
-    skipped = " ".join(c.detail for c in checks if c.status == "SKIP")
-    assert "S1.5" in skipped
-    assert "S1.4" in skipped
+    assert not any("not built yet" in c.detail for c in checks)
+    assert _by_name(checks, "storage lock free").status == "PASS"
+    assert _by_name(checks, "embedder model pulled").status == "PASS"
+
+
+# --- steps S1.4 and S1.5: the embedder and the storage lock ------------------------------------
+
+
+def _embedder_entry(gpu: int = 0, name: str = "nomic-embed-text:latest") -> LoadedModel:
+    return LoadedModel(name, gpu, 100 - gpu, 2048, "29 minutes from now")
+
+
+def test_the_embedder_must_be_pulled_in_chat_mode_and_only_warns_in_csv_mode() -> None:
+    assert check_embedder_pulled(EMBED, PULLED).status == "PASS"  # "name" is "name:latest"
+    missing = check_embedder_pulled(EMBED, ["gemma3:4b"])
+    assert missing.status == "FAIL"
+    assert "ollama pull nomic-embed-text" in missing.detail
+    assert check_embedder_pulled(EMBED, ["gemma3:4b"], mode="csv").status == "WARN"
+
+
+def test_the_embedder_passes_when_it_is_listed_as_100_percent_cpu() -> None:
+    check = check_embedder_on_cpu(EMBED, [_model(), _embedder_entry()])
+    assert (check.status, check.name) == ("PASS", "embedder on CPU")
+    assert "100% CPU" in check.detail
+
+
+def test_an_embedder_on_the_gpu_fails_because_it_takes_the_chat_models_memory() -> None:
+    for gpu in (100, 40):
+        check = check_embedder_on_cpu(EMBED, [_embedder_entry(gpu=gpu)])
+        assert check.status == "FAIL"
+        assert f"{gpu}% on the GPU" in check.detail
+
+
+def test_an_embedder_that_ollama_does_not_list_is_a_warning_not_a_pass() -> None:
+    assert check_embedder_on_cpu(EMBED, [_model()]).status == "WARN"
+
+
+def test_the_storage_lock_is_free_when_nobody_holds_it(tmp_path: Path) -> None:
+    assert check_storage_lock(tmp_path).status == "PASS"
+    assert check_storage_lock(tmp_path).status == "PASS"  # the check let it go again
+    with StorageLock(tmp_path):
+        pass  # and it can still be taken
+
+
+def test_a_missing_data_folder_is_free_and_is_not_created(tmp_path: Path) -> None:
+    folder = tmp_path / "not-yet"
+    check = check_storage_lock(folder)
+    assert check.status == "PASS"
+    assert "no data folder yet" in check.detail
+    assert not folder.exists()
+
+
+def test_a_held_storage_lock_is_a_warning_naming_the_likely_owner(tmp_path: Path) -> None:
+    with StorageLock(tmp_path):
+        check = check_storage_lock(tmp_path)
+    assert check.status == "WARN"
+    assert "another Geekbot process" in check.detail
+
+
+class _Probe:
+    """An embedder probe that records that it was called, and can fail."""
+
+    def __init__(self, error: OllamaError | None = None) -> None:
+        self.error, self.calls = error, 0
+
+    def __call__(self) -> None:
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+
+
+def test_the_doctor_probes_the_embedder_and_reads_where_it_landed() -> None:
+    probe = _Probe()
+    checks = run_doctor(
+        _settings(),
+        FakeClient(pulled=PULLED),
+        warm_up=True,
+        read_gpu=lambda: IDLE_GPU,
+        read_ps=lambda: [_model(), _embedder_entry()],
+        probe_embedder=probe,
+    )
+    assert probe.calls == 1
+    assert _by_name(checks, "embedder on CPU").status == "PASS"
+    assert not has_failure(checks)
+
+
+def test_the_doctor_fails_an_embedder_that_ended_up_on_the_gpu() -> None:
+    checks = run_doctor(
+        _settings(),
+        FakeClient(pulled=PULLED),
+        warm_up=True,
+        read_gpu=lambda: IDLE_GPU,
+        read_ps=lambda: [_model(), _embedder_entry(gpu=100)],
+        probe_embedder=_Probe(),
+    )
+    assert _by_name(checks, "embedder on CPU").status == "FAIL"
+    assert has_failure(checks)
+
+
+def test_a_failed_probe_is_a_failed_check_with_the_reason() -> None:
+    checks = run_doctor(
+        _settings(),
+        FakeClient(pulled=PULLED),
+        warm_up=True,
+        read_gpu=lambda: IDLE_GPU,
+        read_ps=lambda: [_model()],
+        probe_embedder=_Probe(OllamaError("model requires more memory")),
+    )
+    check = _by_name(checks, "embedder on CPU")
+    assert check.status == "FAIL"
+    assert "model requires more memory" in check.detail
+
+
+def test_no_warmup_loads_nothing_so_the_embedder_is_not_probed() -> None:
+    probe = _Probe()
+    checks = run_doctor(
+        _settings(),
+        FakeClient(pulled=PULLED),
+        warm_up=False,
+        read_gpu=lambda: IDLE_GPU,
+        read_ps=list,
+        probe_embedder=probe,
+    )
+    assert probe.calls == 0
+    check = _by_name(checks, "embedder on CPU")
+    assert check.status == "SKIP"
+    assert "--no-warmup" in check.detail
+
+
+def test_csv_mode_does_not_probe_the_embedder() -> None:
+    probe = _Probe()
+    checks = run_doctor(
+        _settings(),
+        FakeClient(pulled=PULLED),
+        warm_up=True,
+        read_gpu=lambda: IDLE_GPU,
+        read_ps=lambda: [_model(name=CSV)],
+        mode="csv",
+        probe_embedder=probe,
+    )
+    assert probe.calls == 0
+    assert _by_name(checks, "embedder on CPU").status == "SKIP"
+
+
+def test_an_embedder_that_is_not_pulled_is_not_probed_and_the_pull_check_fails() -> None:
+    probe = _Probe()
+    checks = run_doctor(
+        _settings(),
+        FakeClient(pulled=["gemma3:4b", "qwen2.5-coder:3b"]),
+        warm_up=True,
+        read_gpu=lambda: IDLE_GPU,
+        read_ps=lambda: [_model()],
+        probe_embedder=probe,
+    )
+    assert probe.calls == 0
+    assert _by_name(checks, "embedder model pulled").status == "FAIL"
+    assert _by_name(checks, "embedder on CPU").status == "SKIP"
+
+
+def test_an_unreadable_ps_after_the_probe_is_a_warning() -> None:
+    calls = {"n": 0}
+
+    def ps() -> list[LoadedModel]:
+        calls["n"] += 1
+        if calls["n"] > 2:  # the doctor reads it twice for the chat model, then for the embedder
+            raise CommandError("ollama not found")
+        return [_model()]
+
+    checks = run_doctor(
+        _settings(),
+        FakeClient(pulled=PULLED),
+        warm_up=True,
+        read_gpu=lambda: IDLE_GPU,
+        read_ps=ps,
+        probe_embedder=_Probe(),
+    )
+    assert _by_name(checks, "embedder on CPU").status == "WARN"
+
+
+def test_without_a_probe_the_embedder_is_skipped_not_passed() -> None:
+    checks = run_doctor(
+        _settings(),
+        FakeClient(pulled=PULLED),
+        warm_up=True,
+        read_gpu=lambda: IDLE_GPU,
+        read_ps=lambda: [_model()],
+    )
+    assert _by_name(checks, "embedder on CPU").status == "SKIP"
 
 
 # --- step C3: the doctor checks the active mode's model, reached by an explicit swap ----------
@@ -348,3 +542,36 @@ def test_format_shows_status_name_and_detail() -> None:
     text = format_checks([Check("ollama", "FAIL", "down"), Check("gpu", "PASS", "ok")])
     assert text.splitlines()[0].startswith("[FAIL] ollama")
     assert "down" in text
+
+
+def test_the_command_probes_with_the_real_embedder_settings_on_the_cpu(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, object] = {}
+
+    class FakeEmbedder:
+        def __init__(self, host: str, model: str, *, num_gpu: int, keep_alive: str) -> None:
+            seen.update(host=host, model=model, num_gpu=num_gpu, keep_alive=keep_alive)
+
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, *_exc: object) -> None:
+            seen["closed"] = True
+
+        def embed_query(self, text: str) -> list[float]:
+            seen["text"] = text
+            return [0.1]
+
+    monkeypatch.setattr("geekbot.index.embedder.OllamaEmbeddingsClient", FakeEmbedder)
+    from geekbot.cli import _probe_embedder
+
+    _probe_embedder(_settings())
+    assert seen == {
+        "host": "http://127.0.0.1:11434",
+        "model": "nomic-embed-text",
+        "num_gpu": 0,
+        "keep_alive": "30m",
+        "text": "doctor probe",
+        "closed": True,
+    }
