@@ -74,6 +74,11 @@ class Settings(BaseSettings):
     csv_model: str | None = None
 
     ollama_host: str = "http://127.0.0.1:11434"
+    # Context sizes (PLAN §6.5: 8k for chat, 16k for the CSV package). Warm-up and real queries
+    # must send the same value, or Ollama reloads the model. keep_alive: how long it stays loaded.
+    chat_num_ctx: int = 8192
+    csv_num_ctx: int = 16384
+    keep_alive: str = "30m"
     data_dir: Path = Path("data")
     log_level: LogLevel = "INFO"
     # Unused until the server's auth (S4.3). It exists now so secret masking has a real secret.

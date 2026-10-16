@@ -14,6 +14,15 @@ import typer
 
 from geekbot import __version__
 from geekbot.config import Settings, mask_settings
+from geekbot.doctor import format_checks, has_failure, run_doctor
+from geekbot.llm.models import OllamaClient
+from geekbot.llm.vram import (
+    NVIDIA_SMI_MEMORY_COMMAND,
+    OLLAMA_PS_COMMAND,
+    parse_nvidia_smi_memory,
+    parse_ollama_ps,
+    run_command,
+)
 from geekbot.log import setup_logging
 
 # show_locals off: a crash traceback must never print a local variable that holds a secret.
@@ -66,10 +75,30 @@ def config_show() -> None:
     typer.echo(json.dumps(mask_settings(settings), indent=2))
 
 
-@app.command(context_settings=_STUB)
-def doctor() -> None:
-    """Check Ollama, the models and the GPU."""
-    _not_built("doctor", "S0.3")
+@app.command()
+def doctor(
+    warmup: Annotated[
+        bool,
+        typer.Option(
+            "--warmup/--no-warmup",
+            help="Load the chat model onto the GPU and check it (uses the GPU for a moment).",
+        ),
+    ] = True,
+) -> None:
+    """Check Ollama, the models and the GPU. Exits 1 if a plan rule is broken."""
+    settings = Settings()
+    setup_logging(settings.log_level)
+    with OllamaClient(settings.ollama_host) as client:
+        checks = run_doctor(
+            settings,
+            client,
+            warm_up=warmup,
+            read_gpu=lambda: parse_nvidia_smi_memory(run_command(NVIDIA_SMI_MEMORY_COMMAND)),
+            read_ps=lambda: parse_ollama_ps(run_command(OLLAMA_PS_COMMAND)),
+        )
+    typer.echo(format_checks(checks))
+    if has_failure(checks):
+        raise typer.Exit(1)
 
 
 @app.command(context_settings=_STUB)

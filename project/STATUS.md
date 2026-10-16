@@ -1,11 +1,11 @@
 # Geekbot v2 — Status
 
-_Last updated: 2026-10-14, in a notes-only chat (added `project/README.md` and plan rev 12; no step status has changed since 2026-10-11)._
+_Last updated: 2026-10-15, in a multi-step chat (user's choice: S0.1 → S0.2 → S0.3 → S0.5 → C1–C3 → Phase 1 in one chat). P1, S0.1 and S0.2 are green-lit._
 
 ## Next up
-**Finish S0.1 — Skeleton + conda env** (Phase 0, Gate A). Its code is built and waits for your verification run. Start it in a **new chat**; that chat reads `CLAUDE.md` → this file.
-- **Found in P1:** `requirements/lock-win.txt` is **not in the repo**. The S0.1 bootstrap should have created it with `pip-compile`. The S0.1 chat first asks you what you ran, then gives the commands to (re)create the lock and re-create the env from `environment.yml`.
-- **After S0.1:** S0.2 → S0.3 → S0.5 → **C1–C3** (the CSV analyst comes in) → Phase 1.
+**S0.5 — CI + branch and pull-request workflow** (starting, 2026-10-16). The multi-step chat plan: S0.5 → C1–C3 → Phase 1, then a handoff written here. S0.3's commit SHA is to be recorded when the user reports it.
+- The P1 + S0.1 commit is `0d09179`. Local `v2` is two commits ahead of `origin/v2` (`b57696f`); not pushed yet.
+- Older handoffs below are history; where they disagree with the table, the table wins.
 
 **Handoff from the 2026-10-14 chat (notes only, nothing run):**
 - **New file `project/README.md`:** the user-facing guide to running a step chat (one step = one chat). It is uncommitted; commit it together with P1. PLAN §2.1's folder tree doesn't list it (rev 12 didn't change the tree). **S0.5** must add the exact branch and pull-request commands to its section 4.
@@ -45,10 +45,10 @@ Status values: `todo → design → build → verify → green-lit`, or `blocked
 | Step | Title | Gate | Status | Chat date | Commit | Log |
 |---|---|---|---|---|---|---|
 | P0 | Project notes bootstrap | — | green-lit | 2026-10-07 | `f7c2100` + `b57696f` | [P0](steps/P0-notes-bootstrap.md) |
-| P1 | CSV analyst integration plan (rev 11 + rev 12, notes only) | — | green-lit (2026-10-15; user skimmed and approved) | 2026-10-11 | | [P1](steps/P1-csv-integration-plan.md) |
-| S0.1 | Skeleton + conda env | A | green-lit (2026-10-15; all 4 checks green on the rebuilt env) | 2026-10-07 – 15 | | [S0.1](steps/S0.1-skeleton.md) |
-| S0.2 | Config, logging, CLI | A | build (design approved 2026-10-15; waiting for the ✍️ piece) | 2026-10-15 | | [S0.2](steps/S0.2-config-cli.md) |
-| S0.3 | `doctor` + GPU introspection 🎮 | A | todo | | | |
+| P1 | CSV analyst integration plan (rev 11 + rev 12, notes only) | — | green-lit (2026-10-15; user skimmed and approved) | 2026-10-11 | `0d09179` | [P1](steps/P1-csv-integration-plan.md) |
+| S0.1 | Skeleton + conda env | A | green-lit (2026-10-15; all 4 checks green on the rebuilt env) | 2026-10-07 – 15 | `0d09179` | [S0.1](steps/S0.1-skeleton.md) |
+| S0.2 | Config, logging, CLI | A | green-lit (2026-10-15; pytest 31 passed, ruff + mypy clean) | 2026-10-15 | `2febc8a` | [S0.2](steps/S0.2-config-cli.md) |
+| S0.3 | `doctor` + GPU introspection 🎮 | A | green-lit (2026-10-15; 68 tests, live doctor run clean on the proto profile) | 2026-10-15 | | [S0.3](steps/S0.3-doctor-gpu.md) |
 | S0.4 | ~~v1 latency baseline~~ | A | dropped (D-031) | | | |
 | S0.5 | CI (+ branch and pull request per step from here) | A | todo | | | |
 | C1 | Copy in `csv_analyst` | A | todo | | | |
