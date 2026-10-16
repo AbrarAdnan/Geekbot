@@ -1,4 +1,4 @@
-# Geekbot v2 — implementation plan (rev 14)
+# Geekbot v2 — implementation plan (rev 15)
 
 > **The measured results are the product; the architecture exists to make them credible.**
 > (This line also opens the v2 README.)
@@ -165,6 +165,10 @@ project/
   - No separate lesson or design-approval gate; new lesson notes are deferred
   - Claude writes the ✍️ pieces for now (marked in the step log, listed in the ✍️ backlog in `STATUS.md`) so the user can redo them later
   - The §11 ✍️ column stays as the list of pieces; the no-run policy, the model cap and the claims rules are unchanged
+- **rev 15** (C3, 2026-10-16, user approval; D-048, D-049): **first CSV-mode measurements and speed targets** (§6.5):
+  - The explicit swap, the reproduction run and its design are recorded in D-048 (this settles §9's "imported read-only or ported": the grader is ported, and the benchmark is read from the Gigalogy folder and never copied)
+  - CSV-mode targets are set from the first measurements on the target models: question p50 ≤ 3 s and p95 ≤ 10 s, swap ≤ 6 s in either direction, 0 model loads during questions (R-2). They stay targets until S5.1 re-measures them
+  - The CSV VRAM line is checked against a measurement (§6.5); the question cap (60 s) and the per-call timeout (60 s) are unchanged because neither came close to firing
 
 ## 5. v1 findings (verified; all fixed by v2)
 
@@ -278,15 +282,15 @@ Verified by a heartbeat test: `/healthz` p99 < 200 ms during a concurrent ingest
 | Compute buffers (`num_batch` lever) | measured |
 | Embedder | 0 (CPU, `OllamaEmbeddings(num_gpu=0)`) |
 | Reranker | 0 (CPU ONNX) |
-| **Headroom** | **tight: measured, never assumed** |
+| **Headroom** | **tight: measured, never assumed.** First reading, at C3 (`gemma4:12b` warm at 8k through the swap, desktop included): 8,981 MiB in use, 1,259 MiB free. S5.1 re-measures it with the full tuning settings |
 
 **CSV mode** replaces gemma4 on the GPU (the two never fit together):
 
 | Item | Budget |
 |---|---|
 | `qwen2.5-coder:7b` file | 4.7 GB (INTEGRATION.md) |
-| KV cache @ 16k (`num_ctx` 16,384, the package's setting), f16 | ≈896 MiB, an **estimate**: 28 layers × 4 KV heads × 128 dims × 2 (K and V) × 2 bytes × 16,384 tokens; verified at C3 |
-| Headroom | measured at C3, never assumed |
+| KV cache @ 16k (`num_ctx` 16,384, the package's setting), f16 | ≈896 MiB, an **estimate**: 28 layers × 4 KV heads × 128 dims × 2 (K and V) × 2 bytes × 16,384 tokens. At C3 the GPU went from 869 MiB (idle) to 6,457 MiB with the model warm, +5,588 MiB for weights, KV cache and compute buffers together: consistent with 4.7 GB + ≈ 0.9 GB, but the KV cache itself was not measured separately |
+| Headroom | measured at C3: 3,783 MiB free (6,457 of 10,240 MiB in use, desktop included) |
 
 **Residency rules** (restated per mode in rev 11, D-037):
 - **R-1:** the **active mode's model** is **100% GPU** (`ollama ps`). `doctor` and `bench` fail otherwise.
@@ -312,7 +316,16 @@ Verified by a heartbeat test: `/healthz` p99 < 200 ms during a concurrent ingest
 | End-to-end p95 (≤ 400 tokens) | ≤ 15 s |
 | Model loads during queries | 0 (except the first CSV question after a swap, R-2) |
 
-**CSV-mode targets** (seconds per question, swap time) are set at C3 from the first measurements, and stay targets until S5.1 re-measures them. For reference only, Gigalogy measured about 3.0 s per question on average with `qwen2.5-coder:7b` on this GPU (its README). That is a source-project number, not a Geekbot result.
+**CSV-mode targets** (rev 15, set at C3; targets until S5.1 re-measures them; target models, warm server, CSV already loaded):
+
+| Metric | Target | Measured at C3 |
+|---|---|---|
+| Seconds per question, p50 | ≤ 3 s | 2.3 s |
+| Seconds per question, p95 | ≤ 10 s | 7.7 s |
+| Swap between the two models, either direction | ≤ 6 s | chat→csv median 2.7 s (max 4.3 s); csv→chat median 4.5 s (max 4.5 s) |
+| Model loads during questions | 0 (except the first one after a swap, R-2) | 0 of 120 question-runs |
+
+Each target is the measured value plus about 30% headroom, rounded. The measurement is one reproduction run (40 questions × 3 seed sets on the hospital and sales datasets, an idle GPU, `gemma4:12b` ↔ `qwen2.5-coder:7b`; the C3 log has the details): short questions on two datasets, so wider CSVs with longer prompts may need the targets revisited at S5.1. The per-question cap (60 s) and the per-call timeout (60 s) stay as they are: the slowest question took 11.9 s and the slowest single step 2.7 s. For reference only, Gigalogy measured about 3.0 s per question on average with `qwen2.5-coder:7b` on this GPU (its README); Geekbot's own run gave a mean of 2.9 s. The first is a source-project number, the second a Geekbot result.
 
 **Prototyping profile** (rev 12, D-042). For fast iteration on a PC shared with your Gigalogy work, the config can point both modes at lighter models:
 - **Prototyping models:** chat `gemma3:4b`, CSV `qwen2.5-coder:3b` (Gigalogy's own "fast" tier, which its notes keep for cheap iteration).
@@ -387,7 +400,7 @@ The host-app guide is `project/sources/csv-analyst-INTEGRATION.md` (a verbatim c
 - **Provider:** `geekbot.csv_mode.provider` implements the package's `LLMProvider` protocol (`generate_json(prompt, *, system, temperature, seed, schema)`, in `csv_analyst/llm/base.py`). It is passed in through `CsvAnalystSession(..., llm=...)`. It uses Geekbot's own config: Ollama host, `keep_alive`, `num_ctx` 16,384 and timeouts. It keeps the package's "prompt too long" guard and records load events in `RunStats`.
 - **Settings:** Geekbot's config (S0.2, `GEEKBOT_` prefix) owns the CSV model name and the per-question time limit, and passes them in.
   - The package's own `CSV_ANALYST_*` prompt and pipeline settings stay at the defaults Gigalogy chose by measurement. Changing them means re-running the benchmark.
-  - Its default time limit is 10 minutes per question, too long for Geekbot's speed goal. C2 sets Geekbot's cap, and C3 measures how often that cap would cut answers.
+  - Its default time limit is 10 minutes per question, too long for Geekbot's speed goal. C2 sets Geekbot's cap (60 s); at C3 no benchmark question took longer than 11.9 s, so the cap cut nothing.
 - **Import boundary:** only `geekbot.csv_mode` imports `csv_analyst` (an import-linter contract, Phase 4).
 - **CLI:** `geekbot csv describe <file>` and `geekbot csv ask <file> "<question>"`.
 

@@ -1,9 +1,10 @@
 # Geekbot v2 — Status
 
-_Last updated: 2026-10-16, in the C2 chat. Fast-prototyping mode is on (D-047). Phase 0 and C1 are green-lit and merged; C2 is green-lit and waits for the user's push and merge._
+_Last updated: 2026-10-16, in the C3 chat. Fast-prototyping mode is on (D-047). Phase 0, C1 and C2 are green-lit and merged; C3 is green-lit and waits for the user's push and merge._
 
 ## Next up
-**C2 — Connect it to Geekbot** (Track C, Gate A) is green-lit (445 passed) on branch `step/C2-csv-adapter`. The user pushes it and opens the pull request into `v2` (base `v2`, squash). Record the merge SHA here and in the C2 log at the start of the next chat. Next step: **C3 — CSV model: swap + reproduction run** 🎮, in a new chat. It needs `qwen2.5-coder:7b` pulled, an idle GPU and `GEEKBOT_PROFILE=target` for any number that is reported; the [C2 log](steps/C2-csv-adapter.md) handoff has the details. C3's log also carries the Phase 0 + C1–C3 look-back.
+**C3 — CSV model: swap + reproduction run** 🎮 (Track C, Gate A) is **green-lit** ([log](steps/C3-csv-swap-repro.md)): the explicit swap (`swap_to`), `geekbot doctor --mode csv`, `geekbot csv swap`, `geekbot csv repro` and the grader port, on the branch `step/C3-csv-swap-repro`. The target-model runs met the acceptance band that was fixed before the run (33–37 solved, 32.0–36.0 correct per run, ≤ 2 of 30 invented): 33/40, 32.3, 0 of 30. `pytest` (557 passed), `mypy` and `ruff` are clean after Claude fixed 15 style issues. PLAN **rev 15** (approved) holds the CSV-mode speed targets (p50 ≤ 3 s, p95 ≤ 10 s, swap ≤ 6 s, 0 loads during questions) and D-049 the verdict. **Green-lit on 2026-10-16.** The user pushes `step/C3-csv-swap-repro` and opens the pull request into `v2` (base `v2`, squash; only the target-profile result file is committed). Record the merge SHA here and in the C3 log at the start of the next chat. Then **S1.1 — Loaders** in a new chat (its open question: does chat mode keep CSV row text, PLAN §6.7).
+- **C2** was merged as `9d5dab5` (the squash commit of PR #3).
 - **Mode (D-047):** fast prototyping. Per step: Claude's outline (with some interesting context), one build, one summary; the user runs the tests, gives the green light and pushes. New lessons are deferred; ✍️ pieces Claude writes go on the backlog below.
 - **C1 handoff:** see the C1 step log (the vendored package, its known gaps, what to watch in C2/C3).
 - **Workflow since S0.5 (D-044):** every step starts with `git switch -c step/<id>-<slug>` from an up-to-date `v2`, ends with a push and a pull request into `v2` (base `v2`, not `main`), and is squash-merged after the three CI checks are green. First mistake to avoid (it happened once): committing before creating the branch.
@@ -56,8 +57,8 @@ Status values: `todo → design → build → verify → green-lit`, or `blocked
 | S0.4 | ~~v1 latency baseline~~ | A | dropped (D-031) | | | |
 | S0.5 | CI (+ branch and pull request per step from here) | A | green-lit (2026-10-16; all three CI checks green on the first run) | 2026-10-16 | `e800a2b` (merge commit of PR #1; branch commits `1e4a869` + `8c81f1b`) | [S0.5](steps/S0.5-ci.md) |
 | C1 | Copy in `csv_analyst` | A | green-lit (2026-10-16; 382 passed, 10 skipped, 1 xfailed) | 2026-10-16 | `3bd19db` (PR #2; branch commit `adea115`) | [C1](steps/C1-csv-analyst.md) |
-| C2 | Connect it to Geekbot (`geekbot csv ask`) | A | green-lit (2026-10-16; 445 passed, 10 skipped, 1 xfailed; ruff, format, mypy clean; live `csv ask` and live tests passed on the proto profile) | 2026-10-16 | merge SHA recorded at the start of the next chat | [C2](steps/C2-csv-adapter.md) |
-| C3 | CSV model: swap + reproduction run 🎮 | A | todo | | | |
+| C2 | Connect it to Geekbot (`geekbot csv ask`) | A | green-lit (2026-10-16; 445 passed, 10 skipped, 1 xfailed; ruff, format, mypy clean; live `csv ask` and live tests passed on the proto profile) | 2026-10-16 | `9d5dab5` (PR #3, squash) | [C2](steps/C2-csv-adapter.md) |
+| C3 | CSV model: swap + reproduction run 🎮 | A | green-lit (2026-10-16; 557 passed, 10 skipped, 1 xfailed; ruff, format, mypy clean; target-model reproduction inside the band fixed beforehand: 33/40 solved, 32.3 per run, 0 of 30 invented) | 2026-10-16 | merge SHA recorded at the start of the next chat | [C3](steps/C3-csv-swap-repro.md) |
 | S1.1 | Loaders (open question: CSV row text, PLAN §6.7) | A | todo | | | |
 | S1.2 | Chunking | A | todo | | | |
 | S1.3 | IDs and hashing | A | todo | | | |
@@ -105,8 +106,14 @@ Legend:
 | Step | Piece | Where | Spec and tests |
 |---|---|---|---|
 | C2 | `OllamaCsvProvider.generate_json`: build the Ollama request, map failures to `LLMProviderError`, return the raw reply | `src/geekbot/csv_mode/provider.py` | the docstring of the method; `tests/unit/test_csv_provider.py` |
+| C3 | `swap_to`: unload the other mode's model, wait until Ollama stops listing it, warm the new one up, return the timings | `src/geekbot/llm/models.py` | the docstring of the function; `tests/unit/test_swap.py` (fake Ollama and clock), `tests/live/test_swap_live.py` |
 
 To redo one: restore the stub (`raise NotImplementedError`), keep the tests, and write it yourself; the hint ladder still applies.
 
 ## Measured results so far
-_None yet. The first numbers arrive at S0.3 (`doctor`: VRAM use and GPU residency), at C3 (CSV-model swap time + reproduction run) and at the CP2 ablation table._
+**C3, 2026-10-16, target profile** (`gemma4:12b` chat, `qwen2.5-coder:7b` CSV, Ollama 0.34.2, RTX 3080, idle GPU; details in the [C3 log](steps/C3-csv-swap-repro.md); result file `evals/csv/results/repro-target-qwen2.5-coder-7b-20261016-1657.json`):
+- **Swap** (3 round trips): chat→csv median 2.7 s (max 4.3 s); csv→chat median 4.5 s (max 4.5 s); unload ≈ 0.1 s; the new model was 100% on the GPU and the old one gone after every swap. The setup swap that first loaded `gemma4:12b` took 13.5 s (it depends on what was loaded before, so it is not a swap time).
+- **VRAM in use** (desktop included, ≈ 870 MiB idle): CSV mode 6,457 MiB (3,783 MiB free); chat mode 8,981 MiB (1,259 MiB free).
+- **Reproduction run** (Gigalogy's 40 questions × 3 seed sets, official): 33/40 solved (source project: 35/40), 32.3 correct per run (34.0), 0 of 30 invented answers (0), 2.9 s per question on average (3.0 s), p95 7.7 s, slowest 11.9 s; 0 model loads during questions. Inside the acceptance band fixed before the run; at its low edge.
+- Earlier numbers on the light profile (`gemma3:4b`, `qwen2.5-coder:3b`) were plumbing checks and are not results.
+The first retrieval and chat-latency numbers arrive at S0.3's successors (S2.x, S3.3) and at the CP2 ablation table.

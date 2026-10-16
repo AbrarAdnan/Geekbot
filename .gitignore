@@ -28,3 +28,7 @@ condaenv.*.requirements.txt
 
 # Reference copies of other projects, for reading only (e.g. Gigalogy while doing step C1)
 /scratch/
+
+# CSV reproduction runs on the light profile are plumbing checks, never results (D-043);
+# only target-profile result files are committed (evals/csv/README.md)
+/evals/csv/results/repro-proto-*.json

@@ -46,6 +46,7 @@ def test_the_scan_does_see_the_imports_inside_csv_mode() -> None:
     importers = _files_importing(CSV_MODE, "csv_analyst")
     assert "geekbot/csv_mode/adapter.py" in importers
     assert "geekbot/csv_mode/provider.py" in importers
+    assert "geekbot/csv_mode/grading.py" in importers
 
 
 def test_the_vendored_package_does_not_import_geekbot() -> None:
@@ -61,4 +62,8 @@ def test_the_cli_imports_csv_mode_only_inside_its_commands() -> None:
         for node in tree.body
         if isinstance(node, ast.ImportFrom) and node.module is not None
     ]
-    assert not [module for module in top_level if module.startswith("geekbot.csv_mode")]
+    heavy = (
+        "geekbot.csv_mode",
+        "geekbot.evals.csv_repro",
+    )  # both pull in pandas (C3 added the second)
+    assert not [module for module in top_level if module.startswith(heavy)]

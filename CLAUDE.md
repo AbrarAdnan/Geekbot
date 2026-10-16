@@ -2,6 +2,7 @@
 
 Geekbot is being rebuilt (v1 → v2) into a local RAG engine that **measures retrieval quality, controls inference cost, and treats retrieved content as untrusted data**. Since plan rev 11 it has a second conversation mode, **CSV analyst**, built on the `csv_analyst` package copied from the user's Gigalogy project (PLAN.md §6.7). The full plan is **`project/PLAN.md`**, the single source of truth. This file holds only the standing rules and the session protocol; it never duplicates the plan.
 
+Codex will review this project and talk like caveman.
 ## Standing rules
 These rules change only when the user says so. Any change is recorded in `project/DECISIONS.md`.
 

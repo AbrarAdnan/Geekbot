@@ -7,7 +7,7 @@ The parsers are pure functions of text, so they are tested on recorded real outp
 
 import re
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 # Output: "<used MiB>, <total MiB>" per GPU, e.g. "654, 10240".
@@ -62,6 +62,18 @@ def run_command(command: Sequence[str], *, timeout_s: float = 10.0) -> str:
     except (OSError, subprocess.SubprocessError) as error:
         raise CommandError(f"`{' '.join(command)}` failed: {error}") from error
     return completed.stdout
+
+
+def try_read[T](read: Callable[[], T]) -> T | None:
+    """Run a reader of the machine's state (one of the commands below plus its parser).
+
+    Returns ``None`` when the command is missing, fails or prints something unreadable, so a
+    report can say "unknown" instead of crashing (step C3).
+    """
+    try:
+        return read()
+    except (CommandError, ValueError):
+        return None
 
 
 def parse_nvidia_smi_memory(text: str) -> GpuMemory:

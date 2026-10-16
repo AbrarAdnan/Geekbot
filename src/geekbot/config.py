@@ -19,6 +19,9 @@ from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Profile = Literal["proto", "target"]
+# A conversation's mode (PLAN.md §6.7): chat answers from the knowledge base, csv answers about
+# one uploaded CSV. Each mode has its own model, and the two are never on the GPU together.
+Mode = Literal["chat", "csv"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 

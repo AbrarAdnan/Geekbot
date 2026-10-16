@@ -7,14 +7,18 @@ inputs. ``run_doctor`` only collects the data and calls them. Statuses:
 - WARN: works, but numbers or speed may suffer.
 - FAIL: a plan rule is broken (the command exits with code 1).
 - SKIP: the thing doesn't exist yet; the detail names the step that builds it.
+
+Step C3 adds ``--mode``: the doctor checks the *active mode's* model (chat or CSV). Getting that
+model onto the GPU is an explicit swap (unload the other mode's model, wait, warm up), so a
+mode check also proves the swap leaves the new model 100% on the GPU and the old one gone.
 """
 
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
-from geekbot.config import Settings
-from geekbot.llm.models import OllamaError, model_is_pulled
+from geekbot.config import Mode, Settings
+from geekbot.llm.models import OllamaError, SwapResult, same_model, swap_to_mode
 from geekbot.llm.vram import CommandError, GpuMemory, LoadedModel
 
 Status = Literal["PASS", "WARN", "FAIL", "SKIP"]
@@ -36,15 +40,22 @@ class OllamaLike(Protocol):
 
     def version(self) -> str: ...
     def list_models(self) -> list[str]: ...
+    def loaded_models(self) -> list[str]: ...
+    def unload(self, model: str) -> None: ...
     def warm_up(self, model: str, *, num_ctx: int, keep_alive: str) -> float: ...
 
 
-def check_models_pulled(chat: str, csv: str, available: list[str]) -> list[Check]:
-    """The chat model must exist (FAIL); the CSV model is only needed from step C2 (WARN)."""
-    wanted: list[tuple[str, str, Status]] = [("chat", chat, "FAIL"), ("csv", csv, "WARN")]
+def check_models_pulled(
+    chat: str, csv: str, available: list[str], *, mode: Mode = "chat"
+) -> list[Check]:
+    """The active mode's model must exist (FAIL); the other mode's model only warns."""
+    wanted: list[tuple[str, str, Status]] = [
+        ("chat", chat, "FAIL" if mode == "chat" else "WARN"),
+        ("csv", csv, "FAIL" if mode == "csv" else "WARN"),
+    ]
     checks: list[Check] = []
     for label, model, status_if_missing in wanted:
-        if model_is_pulled(model, available):
+        if any(same_model(model, name) for name in available):
             checks.append(Check(f"{label} model pulled", "PASS", model))
         else:
             detail = f"{model}: run `ollama pull {model}`"
@@ -71,7 +82,7 @@ def check_gpu_memory(
 
 def check_residency(model: str, loaded: list[LoadedModel], *, expected_context: int) -> Check:
     """Rule R-1: the active model is 100% on the GPU. Also catches a context mismatch."""
-    entry = next((m for m in loaded if m.name == model), None)
+    entry = next((m for m in loaded if same_model(m.name, model)), None)
     if entry is None:
         return Check("residency (R-1)", "FAIL", f"{model} is not loaded")
     if entry.gpu_percent != 100:
@@ -88,6 +99,30 @@ def check_residency(model: str, loaded: list[LoadedModel], *, expected_context: 
             f"{expected_context}, so Ollama would reload it",
         )
     return Check("residency (R-1)", "PASS", f"{model}: 100% GPU, context {entry.context}")
+
+
+def check_exclusive(active: str, other: str, loaded: list[LoadedModel]) -> Check:
+    """Rules R-1/R-4: the two chat models are never on the GPU together.
+
+    The embedder may be listed too (it runs on the CPU); only the other mode's model matters.
+    """
+    if same_model(active, other):
+        return Check("no co-residency (R-4)", "PASS", "both modes use the same model")
+    if any(same_model(m.name, other) for m in loaded):
+        return Check(
+            "no co-residency (R-4)",
+            "FAIL",
+            f"{other} is still loaded next to {active}; the two never share the GPU",
+        )
+    return Check("no co-residency (R-4)", "PASS", f"{other} is not loaded")
+
+
+def describe_swap(result: SwapResult) -> str:
+    """One line for the warm-up check: what was unloaded, what was loaded, and the times."""
+    loaded = f"{result.loaded} loaded in {result.warm_up_s:.1f} s"
+    if not result.unloaded:
+        return loaded
+    return f"{loaded}; unloaded {', '.join(result.unloaded)} first ({result.unload_s:.1f} s)"
 
 
 def _gpu_check(
@@ -112,11 +147,13 @@ def run_doctor(
     warm_up: bool,
     read_gpu: Callable[[], GpuMemory],
     read_ps: Callable[[], list[LoadedModel]],
+    mode: Mode = "chat",
 ) -> list[Check]:
-    """Collect the facts and run every check. With ``warm_up`` the chat model is loaded.
+    """Collect the facts and run every check. With ``warm_up`` the mode's model is loaded.
 
     ``read_gpu`` and ``read_ps`` return parsed data (the CLI builds them from the real commands
     plus the parsers), so the doctor itself never depends on the text format of any tool.
+    The warm-up is a swap: the other mode's model is unloaded first (R-4).
     """
     try:
         version = client.version()
@@ -125,15 +162,19 @@ def run_doctor(
         return [Check("ollama", "FAIL", f"{error} (is Ollama running at {settings.ollama_host}?)")]
 
     chat, csv = settings.resolved_chat_model, settings.resolved_csv_model
+    if mode == "csv":
+        active, other, num_ctx = csv, chat, settings.csv_num_ctx
+    else:
+        active, other, num_ctx = chat, csv, settings.chat_num_ctx
     checks = [
         Check("ollama", "PASS", f"version {version} at {settings.ollama_host}"),
-        Check("profile", "PASS", f"{settings.profile}: chat {chat}, csv {csv}"),
-        *check_models_pulled(chat, csv, available),
+        Check("profile", "PASS", f"{settings.profile}: chat {chat}, csv {csv}; checking {mode}"),
+        *check_models_pulled(chat, csv, available, mode=mode),
     ]
     # If our model is already loaded (keep_alive keeps it for a while), the memory in use
     # includes it, so a high "before" figure is not another program's fault.
     try:
-        already_loaded = any(m.name == chat for m in read_ps())
+        already_loaded = any(same_model(m.name, active) for m in read_ps())
     except (CommandError, ValueError):
         already_loaded = False
     before_check, gpu_before = _gpu_check(
@@ -141,29 +182,30 @@ def run_doctor(
     )
     if already_loaded:
         before_check = Check(
-            before_check.name, before_check.status, f"{before_check.detail}; {chat} already loaded"
+            before_check.name,
+            before_check.status,
+            f"{before_check.detail}; {active} already loaded",
         )
     checks.append(before_check)
 
     if warm_up:
         try:
-            seconds = client.warm_up(
-                chat, num_ctx=settings.chat_num_ctx, keep_alive=settings.keep_alive
-            )
+            swap = swap_to_mode(client, settings, mode)
         except OllamaError as error:
             checks.append(Check("warm-up", "FAIL", str(error)))
             return checks
-        checks.append(Check("warm-up", "PASS", f"{chat} loaded in {seconds:.1f} s"))
+        checks.append(Check("warm-up", "PASS", describe_swap(swap)))
 
     try:
         loaded = read_ps()
     except (CommandError, ValueError) as error:
         checks.append(Check("residency (R-1)", "WARN", f"cannot read `ollama ps`: {error}"))
     else:
-        if warm_up or any(m.name == chat for m in loaded):
-            checks.append(check_residency(chat, loaded, expected_context=settings.chat_num_ctx))
+        if warm_up or any(same_model(m.name, active) for m in loaded):
+            checks.append(check_residency(active, loaded, expected_context=num_ctx))
+            checks.append(check_exclusive(active, other, loaded))
         else:
-            checks.append(Check("residency (R-1)", "SKIP", f"{chat} not loaded (--no-warmup)"))
+            checks.append(Check("residency (R-1)", "SKIP", f"{active} not loaded (--no-warmup)"))
     if warm_up:
         after_check, _ = _gpu_check(
             read_gpu, "GPU memory after", model_loaded=True, before=gpu_before
@@ -173,8 +215,11 @@ def run_doctor(
     checks += [
         Check("embedder on CPU", "SKIP", "not built yet (step S1.5)"),
         Check("storage lock free", "SKIP", "not built yet (step S1.4)"),
-        Check("CSV model residency after a swap", "SKIP", "not built yet (step C3)"),
     ]
+    if mode == "chat":
+        checks.append(
+            Check("CSV model residency after a swap", "SKIP", "run `geekbot doctor --mode csv`")
+        )
     return checks
 
 
