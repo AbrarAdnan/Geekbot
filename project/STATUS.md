@@ -1,10 +1,14 @@
 # Geekbot v2 — Status
 
-_Last updated: 2026-10-15, in a multi-step chat (user's choice: S0.1 → S0.2 → S0.3 → S0.5 → C1–C3 → Phase 1 in one chat). P1, S0.1 and S0.2 are green-lit._
+_Last updated: 2026-10-16, in a multi-step chat (user's choice: S0.1 → S0.2 → S0.3 → S0.5 → C1–C3 → Phase 1 in one chat). P1, S0.1, S0.2, S0.3 and S0.5 are green-lit; Phase 0 is complete after S0.5 merges._
 
 ## Next up
-**S0.5 — CI + branch and pull-request workflow** (starting, 2026-10-16). The multi-step chat plan: S0.5 → C1–C3 → Phase 1, then a handoff written here. S0.3's commit SHA is to be recorded when the user reports it.
-- The P1 + S0.1 commit is `0d09179`. Local `v2` is two commits ahead of `origin/v2` (`b57696f`); not pushed yet.
+**C1 — Copy in `csv_analyst`** (Track C, Gate A), on branch `step/C1-csv-analyst`. The multi-step chat plan: C1 → C2 → C3 → Phase 1, then a handoff written here.
+- **Before C1's design:** the user checks that `C:\Work\Gigalogy` is still at commit `f482455` (`git -C C:\Work\Gigalogy log --oneline -3`).
+- **Record at the start of C1:** the squash-commit SHA of the S0.5 pull request on `v2` (`git switch v2`, `git pull`, `git log -1 --format=%h`), in the S0.5 row.
+- **Workflow since S0.5 (D-044):** every step starts with `git switch -c step/<id>-<slug>` from an up-to-date `v2`, ends with a push and a pull request into `v2` (base `v2`, not `main`), and is squash-merged after the three CI checks are green. First mistake to avoid (it happened once): committing before creating the branch.
+- `v2` on GitHub now holds the work through S0.3 (`6a1dba2`); S0.5 lands through its own pull request.
+- The P1 + S0.1 commit is `0d09179`.
 - Older handoffs below are history; where they disagree with the table, the table wins.
 
 **Handoff from the 2026-10-14 chat (notes only, nothing run):**
@@ -48,9 +52,9 @@ Status values: `todo → design → build → verify → green-lit`, or `blocked
 | P1 | CSV analyst integration plan (rev 11 + rev 12, notes only) | — | green-lit (2026-10-15; user skimmed and approved) | 2026-10-11 | `0d09179` | [P1](steps/P1-csv-integration-plan.md) |
 | S0.1 | Skeleton + conda env | A | green-lit (2026-10-15; all 4 checks green on the rebuilt env) | 2026-10-07 – 15 | `0d09179` | [S0.1](steps/S0.1-skeleton.md) |
 | S0.2 | Config, logging, CLI | A | green-lit (2026-10-15; pytest 31 passed, ruff + mypy clean) | 2026-10-15 | `2febc8a` | [S0.2](steps/S0.2-config-cli.md) |
-| S0.3 | `doctor` + GPU introspection 🎮 | A | green-lit (2026-10-15; 68 tests, live doctor run clean on the proto profile) | 2026-10-15 | | [S0.3](steps/S0.3-doctor-gpu.md) |
+| S0.3 | `doctor` + GPU introspection 🎮 | A | green-lit (2026-10-15; 68 tests, live doctor run clean on the proto profile) | 2026-10-15 | `6a1dba2` | [S0.3](steps/S0.3-doctor-gpu.md) |
 | S0.4 | ~~v1 latency baseline~~ | A | dropped (D-031) | | | |
-| S0.5 | CI (+ branch and pull request per step from here) | A | todo | | | |
+| S0.5 | CI (+ branch and pull request per step from here) | A | green-lit (2026-10-16; all three CI checks green on the first run) | 2026-10-16 | `1e4a869` on the branch; squash SHA on `v2` to be recorded at the start of C1 | [S0.5](steps/S0.5-ci.md) |
 | C1 | Copy in `csv_analyst` | A | todo | | | |
 | C2 | Connect it to Geekbot (`geekbot csv ask`) | A | todo | | | |
 | C3 | CSV model: swap + reproduction run 🎮 | A | todo | | | |
