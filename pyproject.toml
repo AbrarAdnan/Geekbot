@@ -17,6 +17,15 @@ dependencies = [
     "httpx>=0.27",  # the Ollama HTTP client (S0.3)
     "pydantic-settings>=2.6",  # typed settings from GEEKBOT_* env vars and .env (S0.2)
     "typer>=0.15",  # the CLI (S0.2)
+    # The copied csv_analyst package (C1, src/csv_analyst/VENDORED.md). Only what it imports
+    # directly, with the lower bounds from its own pyproject.
+    "charset-normalizer>=3.3",  # guessing a CSV's text encoding
+    "numpy>=1.26",
+    "pandas>=2.2",
+    "pyarrow>=15.0",  # parquet hand-off to its (unused) pandas sandbox
+    "pydantic>=2.6",
+    "requests>=2.31",  # its Ollama provider; C2 replaces this with Geekbot's own
+    "sqlglot>=30.0",  # parsing and checking the model's SQL
 ]
 
 [project.optional-dependencies]
@@ -32,7 +41,7 @@ dev = [
 geekbot = "geekbot.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/geekbot"]
+packages = ["src/geekbot", "src/csv_analyst"]
 
 [tool.ruff]
 # The target Python version is read from requires-python.
@@ -51,6 +60,10 @@ extend-exclude = [
     "evals/corpus",
     # ruff >= 0.16 also formats Python blocks inside Markdown; notes keep snippets as written.
     "*.md",
+    # The copied csv_analyst package and its tests stay byte-for-byte as Gigalogy wrote them,
+    # so a re-sync is a plain copy (C1, src/csv_analyst/VENDORED.md).
+    "src/csv_analyst",
+    "tests/csv_analyst/vendored",
 ]
 
 # No `select`: we use ruff 0.16's curated default rule set (~413 rules).
@@ -63,6 +76,12 @@ python_version = "3.12"
 strict = true
 warn_unreachable = true
 files = ["src"]
+
+# Typing debt (C1): the copied package was not written for mypy strict. Its errors are ignored;
+# Geekbot's own code that calls it (src/geekbot/csv_mode, from C2) is still checked strictly.
+[[tool.mypy.overrides]]
+module = ["csv_analyst", "csv_analyst.*"]
+ignore_errors = true
 
 [tool.pytest.ini_options]
 minversion = "9.0"

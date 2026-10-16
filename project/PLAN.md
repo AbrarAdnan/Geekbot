@@ -1,4 +1,4 @@
-# Geekbot v2 — implementation plan (rev 12)
+# Geekbot v2 — implementation plan (rev 13)
 
 > **The measured results are the product; the architecture exists to make them credible.**
 > (This line also opens the v2 README.)
@@ -153,6 +153,11 @@ project/
   - While building, Geekbot can run on lighter models: chat `gemma3:4b`, CSV mode `qwen2.5-coder:3b` (Gigalogy's own "fast" tier)
   - The plan's models stay the target: `gemma4:12b` and `qwen2.5-coder:7b`. Every reported number comes from them and names its model
   - New paragraph in §6.5, a note in S0.2's row (§11) and a new risk, 22 (§12)
+- **rev 13** (C1 design, 2026-10-16, user decisions; D-045): **what C1 copies, and from where**:
+  - The copy comes from the Gigalogy working tree of 2026-10-16 (the user's newer, then-uncommitted edits), not from commit `f482455`. `VENDORED.md` says so. Gigalogy's numbers (35/40, about 3.0 s) still describe the commit they were measured on, not this exact copy; Geekbot reports its own results from C3 on
+  - The pandas engine stays in the copy, unused (the default engine is SQL). Dropping it needs more than small edits (`pipeline.py` and three other modules depend on it)
+  - Cuts: `interface/`, the two hosted providers, the 27B tier, and the 8 tests that need Gigalogy's `evaluation/` folder or its API
+  - C1 has no ✍️ piece (the user's choice, to keep the step small); §11's C1 row is updated
 
 ## 5. v1 findings (verified; all fixed by v2)
 
@@ -358,7 +363,7 @@ The host-app guide is `project/sources/csv-analyst-INTEGRATION.md` (a verbatim c
 `to_markdown(record)` renders the answer, the confidence, the SQL and a result table. A bad file raises `IngestionError`.
 
 **How it comes in (C1, D-036).**
-- **The copy:** `csv_analyst/` from Gigalogy commit `f482455` is copied to `src/csv_analyst/`. It keeps its package name and public API.
+- **The copy:** `csv_analyst/` from the Gigalogy working tree of 2026-10-16 (based on commit `f482455` plus the user's then-uncommitted edits; rev 13, D-045) is copied to `src/csv_analyst/`. It keeps its package name and public API.
 - **Provenance:** `src/csv_analyst/VENDORED.md` records the source commit, what was cut, every local edit, and how to re-sync from Gigalogy.
 - **Gigalogy's role:** it stays the home of the benchmark, datasets and experiments (INTEGRATION.md: "keep them in this repository for re-measuring").
 - **Cuts, settled in C1's design:**
@@ -366,7 +371,7 @@ The host-app guide is `project/sources/csv-analyst-INTEGRATION.md` (a verbatim c
   - **Recommended:**
     - drop `interface/` (Gigalogy's own API, UI and CLI)
     - drop the hosted providers (Anthropic, OpenAI-compatible): they would send CSV data off the machine on a path the egress gate (G2) doesn't control
-    - drop the deprecated pandas engine and its subprocess sandbox, if `pipeline.py` allows it with small edits
+    - drop the deprecated pandas engine and its subprocess sandbox, if `pipeline.py` allows it with small edits. **Settled in C1: it does not allow it, so the engine stays, unused** (rev 13)
 - **Dependencies:** pandas, numpy, pydantic, pydantic-settings, python-dotenv, requests, charset-normalizer, pyarrow and sqlglot enter `pyproject.toml` in C1, and the lock is regenerated (D-035).
 - **Quality gates:** the copied code isn't written for mypy strict, so it gets a per-package override, recorded in `VENDORED.md` as a typing debt.
 - **Tests:** its no-model tests move to `tests/csv_analyst/`.
@@ -604,7 +609,7 @@ A simulated user denies every approval. The report gives bypasses k/N (target 0)
 ### Track C, part 1 — CSV analyst in (right after Phase 0)
 | Step | 🧠 Learn | 🛠 Build | ✍️ You write | ▶ You run |
 |---|---|---|---|---|
-| **C1 Copy in `csv_analyst`** | working in a codebase you didn't just write; vendoring vs packages vs git subtree; provenance; characterization tests; gradual typing. A guided code tour: load → profile → plan → check → run SQL → agree → explain → number check | `src/csv_analyst/` from Gigalogy `f482455` with the cuts (§6.7), `VENDORED.md`, runtime dependencies + regenerated lock, mypy/ruff override for the copy, its no-model tests in `tests/csv_analyst/` | a characterization test (a test that pins down what existing code does today) for one module from the tour, e.g. `sql_engine/rewrite.py` | `pytest` · `ruff check .` · `mypy src` |
+| **C1 Copy in `csv_analyst`** | working in a codebase you didn't just write; vendoring vs packages vs git subtree; provenance; characterization tests; gradual typing. A guided code tour: load → profile → plan → check → run SQL → agree → explain → number check | `src/csv_analyst/` from the Gigalogy working tree of 2026-10-16 (rev 13) with the cuts (§6.7), `VENDORED.md`, runtime dependencies + regenerated lock, mypy/ruff override for the copy, its no-model tests in `tests/csv_analyst/` | none in C1 (the user dropped it, rev 13); the characterization-test idea (pinning down what existing code does today, e.g. for `sql_engine/rewrite.py`) moves to C2's or a later step's ✍️ if wanted | `pytest` · `ruff check .` · `mypy src` |
 | **C2 Connect it to Geekbot** | ports and adapters, dependency injection through a Protocol, connecting two settings systems, Ollama JSON mode and structured output | `csv_mode/provider.py`, Geekbot's time-limit cap, `geekbot csv describe` / `geekbot csv ask`, the read-only SQL test (§8.1) | the provider's `generate_json`, tested against a fake HTTP transport | `pytest` · one live `geekbot csv ask` 🎮 |
 | **C3 CSV model: swap + reproduction run** 🎮 | sharing one GPU between two models, measuring swap cost, reproduction runs and run-to-run noise (the 2-of-3 rule) | explicit swap in `llm/models.py` (R-4), `doctor` checks the CSV model's residency, the Gigalogy benchmark through Geekbot's adapter (§9); CSV-mode speed targets set from the results; Phase 0 + C1–C3 look-back | the swap function (unload, warm up, timings), tested with a fake client, then run live | `ollama list` (is `qwen2.5-coder:7b` there?) · `geekbot doctor` · the benchmark run (idle GPU, no Gigalogy jobs running; commands given then) |
 

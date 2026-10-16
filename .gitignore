@@ -25,3 +25,6 @@ condaenv.*.requirements.txt
 # Local data (SQLite, Chroma, the storage lock) and secrets
 /data/
 .env
+
+# Reference copies of other projects, for reading only (e.g. Gigalogy while doing step C1)
+/scratch/
