@@ -38,7 +38,7 @@ import re
 import sqlite3
 import threading
 import unicodedata
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -63,6 +63,7 @@ __all__ = [
     "MIGRATIONS",
     "ChunkSync",
     "Migration",
+    "StateConflictError",
     "Store",
     "StoreClosedError",
     "StoreError",
@@ -89,6 +90,20 @@ class StoreClosedError(StoreError):
 
 class UnknownDocumentError(StoreError):
     """A document ID that the store does not have."""
+
+
+class StateConflictError(StoreError):
+    """A document was not in a state the requested move starts from (S1.6's state machine).
+
+    ``actual`` is the state it was found in. It means someone else moved the document first, or
+    the caller's picture of it was out of date; either way the move was not made.
+    """
+
+    def __init__(self, doc_id: str, actual: DocState, allowed: Collection[DocState]) -> None:
+        wanted = ", ".join(sorted(allowed)) or "none"
+        super().__init__(f"document {doc_id} is {actual}, but the move needs one of: {wanted}")
+        self.doc_id = doc_id
+        self.actual = actual
 
 
 # --- migrations ------------------------------------------------------------------------------
@@ -710,6 +725,63 @@ class Store:
 
         self.write(work)
 
+    def transition_document(
+        self,
+        doc_id: str,
+        allowed_from: Collection[DocState],
+        to: DocState,
+        *,
+        error: str | None = None,
+    ) -> DocState:
+        """Move a document to ``to`` only if it is now in one of ``allowed_from``; return where it was.
+
+        A compare-and-set: the state is read and written in one transaction on the writer thread,
+        so nothing can slip in between. This is the primitive under S1.6's state machine
+        (``ingest/outbox.py`` decides *which* moves are legal; this makes each one atomic).
+        ``StateConflictError`` if the document is in another state, ``UnknownDocumentError`` if
+        there is no such document, ``ValueError`` for an unknown state or an ``error`` with any
+        state but ``failed``.
+        """
+        if to not in DOC_STATES:
+            raise ValueError(f"unknown document state {to!r}; it must be one of {DOC_STATES}")
+        if error is not None and to != "failed":
+            raise ValueError("an error message only goes with the state 'failed'")
+        now = self._now()
+
+        def work(conn: sqlite3.Connection) -> DocState:
+            row = conn.execute("SELECT state FROM documents WHERE doc_id = ?", (doc_id,)).fetchone()
+            if row is None:
+                raise UnknownDocumentError(doc_id)
+            current = _doc_state(row[0])
+            if current not in allowed_from:
+                raise StateConflictError(doc_id, current, allowed_from)
+            conn.execute(
+                "UPDATE documents SET state = ?, error = ?, updated_at = ? WHERE doc_id = ?",
+                (to, error, now, doc_id),
+            )
+            return current
+
+        return self.write(work)
+
+    def list_documents(self, state: DocState | None = None) -> list[Document]:
+        """Every stored document (or those in ``state``), ordered by path.
+
+        What ``doctor --repair`` walks, and what a listing of the knowledge base is built from.
+        """
+        if state is not None and state not in DOC_STATES:
+            raise ValueError(f"unknown document state {state!r}; it must be one of {DOC_STATES}")
+
+        def work(conn: sqlite3.Connection) -> list[Document]:
+            rows = conn.execute(
+                "SELECT doc_id, path, title, kind, file_hash, pipeline_version, state, error, "
+                "created_at, updated_at FROM documents "
+                "WHERE (?1 IS NULL OR state = ?1) ORDER BY path, doc_id",
+                (state,),
+            ).fetchall()
+            return [_document_from_row(row) for row in rows]
+
+        return self.read(work)
+
     def get_document(self, doc_id: str) -> Document | None:
         """The stored document, or ``None``."""
 
@@ -773,6 +845,39 @@ class Store:
 
         found = {chunk.chunk_id: chunk for chunk in self.read(work)}
         return [found[chunk_id] for chunk_id in chunk_ids if chunk_id in found]
+
+    def document_chunks(self, doc_id: str) -> list[Chunk]:
+        """All stored chunks of one document, in document order, whatever its state.
+
+        Unlike ``get_chunks`` this is not filtered to ``ready`` documents: it is for the pipeline
+        and the repair, which work on documents that are not ready yet (or not any more).
+        """
+
+        def work(conn: sqlite3.Connection) -> list[Chunk]:
+            rows = conn.execute(
+                "SELECT " + _CHUNK_COLUMNS + " "
+                "FROM chunks AS c JOIN documents AS d ON d.doc_id = c.doc_id "
+                "WHERE c.doc_id = ? ORDER BY c.ordinal, c.chunk_id",
+                (doc_id,),
+            ).fetchall()
+            return [_chunk_from_row(row) for row in rows]
+
+        return self.read(work)
+
+    def chunk_ids_by_document(self) -> dict[str, set[str]]:
+        """Every stored chunk ID, grouped by its document, in any state.
+
+        What the repair compares with Chroma. One query for the whole store, and no chunk text.
+        A document with no chunks is absent from the result.
+        """
+
+        def work(conn: sqlite3.Connection) -> dict[str, set[str]]:
+            grouped: dict[str, set[str]] = {}
+            for doc_id, chunk_id in conn.execute("SELECT doc_id, chunk_id FROM chunks"):
+                grouped.setdefault(doc_id, set()).add(chunk_id)
+            return grouped
+
+        return self.read(work)
 
     # --- lexical search ---
 

@@ -113,10 +113,22 @@ def doctor(
             "mode's model is unloaded first (R-4).",
         ),
     ] = ModeChoice.CHAT,
+    repair_stores: Annotated[
+        bool,
+        typer.Option(
+            "--repair",
+            help="Instead of the checks: bring SQLite and the vector index back in step (finish "
+            "or fail interrupted ingests, rebuild missing vectors, remove orphan vectors). Uses "
+            "the CPU embedder, only for text the cache does not have.",
+        ),
+    ] = False,
 ) -> None:
     """Check Ollama, the models and the GPU. Exits 1 if a plan rule is broken."""
     settings = Settings()
     setup_logging(settings.log_level)
+    if repair_stores:
+        _repair_stores(settings)
+        return
     chosen: Mode = "csv" if mode is ModeChoice.CSV else "chat"
     with OllamaClient(settings.ollama_host) as client:
         checks = run_doctor(
@@ -127,10 +139,100 @@ def doctor(
         raise typer.Exit(1)
 
 
-@app.command(context_settings=_STUB)
-def ingest() -> None:
-    """Index documents."""
-    _not_built("ingest", "S1.6")
+def _repair_stores(settings: Settings) -> None:
+    """``doctor --repair``: report, repair, report again; exit 1 if anything is still wrong."""
+    from geekbot.index.consistency import check_consistency, repair
+    from geekbot.index.dense import FingerprintMismatchError
+    from geekbot.index.lock import StorageLockedError
+    from geekbot.index.workspace import Workspace
+
+    try:
+        with Workspace.open(settings) as workspace:
+            typer.echo(f"before: {check_consistency(workspace.store, workspace.dense).summary()}")
+            typer.echo(
+                f"repair: {repair(workspace.store, workspace.dense, workspace.embedder).summary()}"
+            )
+            after = check_consistency(workspace.store, workspace.dense)
+    except StorageLockedError as error:
+        _fail(str(error))
+    except FingerprintMismatchError as error:
+        _fail(f"{error}\nRun `geekbot ingest --reindex` to rebuild the vectors.")
+    except OllamaError as error:
+        _fail(str(error))
+    typer.echo(f"after: {after.summary()}")
+    if not after.ok:
+        raise typer.Exit(1)
+
+
+@app.command()
+def ingest(
+    paths: Annotated[
+        list[Path] | None,
+        typer.Argument(
+            help="Files or folders to index. A folder is walked recursively; there is no default "
+            "folder, so nothing is indexed by accident (v1 finding #13).",
+            exists=True,
+            readable=True,
+        ),
+    ] = None,
+    workers: Annotated[
+        int,
+        typer.Option("--workers", min=1, help="Processes that parse files in parallel."),
+    ] = 1,
+    reindex: Annotated[
+        bool,
+        typer.Option(
+            "--reindex",
+            help="Throw the stored vectors away and rebuild them from the stored chunks (needed "
+            "after the embedder, its prefixes or the header setting changed). Then ingest the "
+            "paths, if any.",
+        ),
+    ] = False,
+) -> None:
+    """Index documents: parse, chunk, embed on the CPU, store. Needs Ollama for the embedder.
+
+    Files that did not change since the last run are skipped without being read again, and text
+    that was embedded before is taken from the cache, so a second run over the same folder
+    computes 0 embeddings. One bad file never stops the run: it is reported, and the exit code is
+    1 if any file failed.
+    """
+    # Imported here: chromadb and the loaders are slow to import, and `geekbot --version` or
+    # `geekbot doctor` should not wait for them.
+    from geekbot.index.consistency import repair
+    from geekbot.index.dense import FingerprintMismatchError
+    from geekbot.index.lock import StorageLockedError
+    from geekbot.index.workspace import Workspace
+    from geekbot.ingest.pipeline import Ingestor, collect_files, format_outcome
+
+    settings = Settings()
+    setup_logging(settings.log_level)
+    if not paths and not reindex:
+        _fail("give at least one file or folder to ingest (or --reindex)")
+    try:
+        files, unsupported = collect_files(paths or [])
+    except FileNotFoundError as error:
+        _fail(str(error))
+    if unsupported:
+        typer.echo(f"{len(unsupported)} files of unsupported types were left out.", err=True)
+    try:
+        with Workspace.open(settings, reset_dense=reindex) as workspace:
+            if reindex:
+                typer.echo("re-indexing: rebuilding the vectors from the stored chunks", err=True)
+                typer.echo(
+                    repair(workspace.store, workspace.dense, workspace.embedder).summary(), err=True
+                )
+            report = Ingestor(
+                workspace.store, workspace.dense, workspace.embedder, workers=workers
+            ).ingest(files, on_file=lambda outcome: typer.echo(format_outcome(outcome)))
+    except StorageLockedError as error:
+        _fail(str(error))
+    except FingerprintMismatchError as error:
+        _fail(f"{error}\nRun `geekbot ingest --reindex` to rebuild the vectors.")
+    except OllamaError as error:
+        _fail(str(error))
+    typer.echo(report.summary())
+    if report.has_failures:
+        raise typer.Exit(1)
 
 
 @app.command(context_settings=_STUB)
