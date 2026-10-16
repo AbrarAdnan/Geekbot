@@ -235,10 +235,61 @@ def ingest(
         raise typer.Exit(1)
 
 
-@app.command(context_settings=_STUB)
-def search() -> None:
-    """Search the knowledge base."""
-    _not_built("search", "S2.1")
+class SearchMode(StrEnum):
+    """The values of ``--mode`` for ``search``. Only the first is built so far."""
+
+    DENSE = "dense"
+    LEXICAL = "lexical"
+    HYBRID = "hybrid"
+    HYBRID_RERANK = "hybrid_rerank"
+
+
+@app.command()
+def search(
+    query: Annotated[str, typer.Argument(help="What to look for, in your own words.")],
+    top_k: Annotated[int, typer.Option("--top-k", min=1, help="How many chunks to show.")] = 5,
+    mode: Annotated[
+        SearchMode,
+        typer.Option(
+            "--mode",
+            help="dense (by meaning) now; lexical, hybrid and hybrid_rerank arrive in S2.2 and S2.3.",
+        ),
+    ] = SearchMode.DENSE,
+) -> None:
+    """Search the knowledge base: the chunks nearest in meaning to the question, with timings.
+
+    Only ready documents are searched. Needs Ollama for the embedder (CPU) and takes the storage
+    lock, so it cannot run while another Geekbot process owns the data folder.
+    """
+    if mode is not SearchMode.DENSE:
+        _not_built(
+            f"search --mode {mode.value}",
+            "S2.2" if mode is not SearchMode.HYBRID_RERANK else "S2.3",
+        )
+    # Imported here: chromadb is slow to import and `geekbot --version` should not wait for it.
+    from geekbot.index.dense import FingerprintMismatchError
+    from geekbot.index.lock import StorageLockedError
+    from geekbot.index.workspace import Workspace
+    from geekbot.retrieval import format_result
+    from geekbot.retrieval.dense import DenseRetriever
+
+    settings = Settings()
+    setup_logging(settings.log_level)
+    try:
+        with Workspace.open(settings) as workspace:
+            if workspace.dense.count() == 0:
+                typer.echo("nothing is indexed yet; run `geekbot ingest <folder>` first", err=True)
+                raise typer.Exit(1)
+            result = DenseRetriever(workspace.store, workspace.dense, workspace.embedder).search(
+                query, top_k
+            )
+    except StorageLockedError as error:
+        _fail(str(error))
+    except FingerprintMismatchError as error:
+        _fail(f"{error}\nRun `geekbot ingest --reindex` to rebuild the vectors.")
+    except OllamaError as error:
+        _fail(str(error))
+    typer.echo(format_result(result))
 
 
 @app.command(context_settings=_STUB)
