@@ -13,7 +13,7 @@ Together they form a study guide for the whole project. Notes are written as eac
 | 02 | [12-factor configuration, pydantic-settings, logging, typed CLIs](02-config-cli.md) | S0.2 | written |
 | 03 | [How Ollama loads models: keep_alive, residency, VRAM math (weights + KV cache + buffers), gemma4's sliding-window KV](03-ollama-gpu.md) | S0.3 | written |
 | 04 | [CI pipelines: matrix builds, lock vs fresh resolution; branches and pull requests](04-ci.md) | S0.5 | written |
-| 05 | Working in a codebase you didn't just write: vendoring vs packages vs git subtree, provenance, characterization tests, gradual typing; a guided tour of `csv_analyst` | C1 | planned |
+| 05 | [Working in a codebase you didn't just write: vendoring vs packages vs git subtree, provenance, gradual typing; a guided tour of `csv_analyst`](05-vendoring.md) (characterization tests: not used in C1) | C1 | written |
 | 06 | Ports and adapters: dependency injection through a Protocol, connecting two settings systems, Ollama JSON mode and structured output | C2 | planned |
 | 07 | Two models, one GPU: explicit swaps, measuring swap cost, reproduction runs and run-to-run noise | C3 | planned |
 | 08 | Document parsing: PDFs, office files, page metadata, tabular schema cards | S1.1 | planned |

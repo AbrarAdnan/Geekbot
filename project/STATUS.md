@@ -3,12 +3,11 @@
 _Last updated: 2026-10-16, in a multi-step chat (user's choice: S0.1 → S0.2 → S0.3 → S0.5 → C1–C3 → Phase 1 in one chat). P1, S0.1, S0.2, S0.3 and S0.5 are green-lit; Phase 0 is complete after S0.5 merges._
 
 ## Next up
-**C1 — Copy in `csv_analyst`** (Track C, Gate A), on branch `step/C1-csv-analyst`. The multi-step chat plan: C1 → C2 → C3 → Phase 1, then a handoff written here.
-- **Before C1's design:** the user checks that `C:\Work\Gigalogy` is still at commit `f482455` (`git -C C:\Work\Gigalogy log --oneline -3`).
-- **Record at the start of C1:** the squash-commit SHA of the S0.5 pull request on `v2` (`git switch v2`, `git pull`, `git log -1 --format=%h`), in the S0.5 row.
+**C2 — Connect it to Geekbot** (Track C, Gate A), on branch `step/C2-csv-adapter`, created from an up-to-date `v2` before any change. The multi-step chat plan: C2 → C3 → Phase 1, then a handoff written here. C1 is green-lit and goes through its pull request (`step/C1-csv-analyst`); record its squash SHA here at the start of C2.
+- **C1 handoff:** see the C1 step log (the vendored package, its known gaps, what to watch in C2/C3).
 - **Workflow since S0.5 (D-044):** every step starts with `git switch -c step/<id>-<slug>` from an up-to-date `v2`, ends with a push and a pull request into `v2` (base `v2`, not `main`), and is squash-merged after the three CI checks are green. First mistake to avoid (it happened once): committing before creating the branch.
-- `v2` on GitHub now holds the work through S0.3 (`6a1dba2`); S0.5 lands through its own pull request.
-- The P1 + S0.1 commit is `0d09179`.
+- Merged on `v2`: S0.5 as `e800a2b`; before it S0.3 `6a1dba2`, S0.2 `2febc8a`, P1 + S0.1 `0d09179`.
+- `C:\Work\Gigalogy` is no longer at that path (the user's rename or move); the only copy of the package source is `scratch/gigalogy-latest/` (git-ignored, read-only, not backed up for lack of disk space).
 - Older handoffs below are history; where they disagree with the table, the table wins.
 
 **Handoff from the 2026-10-14 chat (notes only, nothing run):**
@@ -54,8 +53,8 @@ Status values: `todo → design → build → verify → green-lit`, or `blocked
 | S0.2 | Config, logging, CLI | A | green-lit (2026-10-15; pytest 31 passed, ruff + mypy clean) | 2026-10-15 | `2febc8a` | [S0.2](steps/S0.2-config-cli.md) |
 | S0.3 | `doctor` + GPU introspection 🎮 | A | green-lit (2026-10-15; 68 tests, live doctor run clean on the proto profile) | 2026-10-15 | `6a1dba2` | [S0.3](steps/S0.3-doctor-gpu.md) |
 | S0.4 | ~~v1 latency baseline~~ | A | dropped (D-031) | | | |
-| S0.5 | CI (+ branch and pull request per step from here) | A | green-lit (2026-10-16; all three CI checks green on the first run) | 2026-10-16 | `1e4a869` on the branch; squash SHA on `v2` to be recorded at the start of C1 | [S0.5](steps/S0.5-ci.md) |
-| C1 | Copy in `csv_analyst` | A | todo | | | |
+| S0.5 | CI (+ branch and pull request per step from here) | A | green-lit (2026-10-16; all three CI checks green on the first run) | 2026-10-16 | `e800a2b` (squash commit on `v2`; branch commits `1e4a869` + the notes commit) | [S0.5](steps/S0.5-ci.md) |
+| C1 | Copy in `csv_analyst` | A | green-lit (2026-10-16; 382 passed, 10 skipped, 1 xfailed) | 2026-10-16 | squash SHA on `v2` recorded at the start of C2 | [C1](steps/C1-csv-analyst.md) |
 | C2 | Connect it to Geekbot (`geekbot csv ask`) | A | todo | | | |
 | C3 | CSV model: swap + reproduction run 🎮 | A | todo | | | |
 | S1.1 | Loaders (open question: CSV row text, PLAN §6.7) | A | todo | | | |
