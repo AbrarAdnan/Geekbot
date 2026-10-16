@@ -48,9 +48,9 @@ Status values: `todo → design → build → verify → green-lit`, or `blocked
 | P1 | CSV analyst integration plan (rev 11 + rev 12, notes only) | — | green-lit (2026-10-15; user skimmed and approved) | 2026-10-11 | `0d09179` | [P1](steps/P1-csv-integration-plan.md) |
 | S0.1 | Skeleton + conda env | A | green-lit (2026-10-15; all 4 checks green on the rebuilt env) | 2026-10-07 – 15 | `0d09179` | [S0.1](steps/S0.1-skeleton.md) |
 | S0.2 | Config, logging, CLI | A | green-lit (2026-10-15; pytest 31 passed, ruff + mypy clean) | 2026-10-15 | `2febc8a` | [S0.2](steps/S0.2-config-cli.md) |
-| S0.3 | `doctor` + GPU introspection 🎮 | A | green-lit (2026-10-15; 68 tests, live doctor run clean on the proto profile) | 2026-10-15 | | [S0.3](steps/S0.3-doctor-gpu.md) |
+| S0.3 | `doctor` + GPU introspection 🎮 | A | green-lit (2026-10-15; 68 tests, live doctor run clean on the proto profile) | 2026-10-15 | `6a1dba2` | [S0.3](steps/S0.3-doctor-gpu.md) |
 | S0.4 | ~~v1 latency baseline~~ | A | dropped (D-031) | | | |
-| S0.5 | CI (+ branch and pull request per step from here) | A | todo | | | |
+| S0.5 | CI (+ branch and pull request per step from here) | A | build (design approved 2026-10-16; waiting for the ✍️ ubuntu job) | 2026-10-16 | | [S0.5](steps/S0.5-ci.md) |
 | C1 | Copy in `csv_analyst` | A | todo | | | |
 | C2 | Connect it to Geekbot (`geekbot csv ask`) | A | todo | | | |
 | C3 | CSV model: swap + reproduction run 🎮 | A | todo | | | |

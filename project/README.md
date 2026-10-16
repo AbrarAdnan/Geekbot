@@ -57,7 +57,28 @@ Before you close the chat, check that Claude has:
 
 Then you commit. Claude drafts the message in Conventional Commits style, for example `feat(ingest): S1.1 loaders`, ending with a `Co-Authored-By:` line. Code and notes go in **one** commit.
 - **Before S0.5:** commit straight on the `v2` branch.
-- **From S0.5 on:** each step runs on its own branch `step/<id>-<slug>` and is merged into `v2` through a pull request after CI (the automatic checks on GitHub) passes. S0.5 adds the exact commands here.
+- **From S0.5 on:** each step runs on its own branch `step/<id>-<slug>` and is merged into `v2` through a pull request after CI (the automatic checks on GitHub) passes (D-044). The exact flow, for a step `S1.1` with slug `loaders`:
+  1. **Start of the step** (from an up-to-date `v2`):
+     ```
+     git switch v2
+     git pull
+     git switch -c step/S1.1-loaders
+     ```
+  2. **End of the step**, commit as usual (`git add -A`, then `git commit …` with the message Claude drafts). Then push the branch (VS Code's Publish Branch button does the same):
+     ```
+     git push -u origin step/S1.1-loaders
+     ```
+  3. **Open the pull request** on GitHub (the "Compare & pull request" button, or VS Code's GitHub Pull Requests extension). The base branch is `v2`. The description template appears; fill it in.
+  4. **Wait for CI.** Both jobs (`windows` and `ubuntu`) must show a green check. If one is red, open "Details", read the log, fix, commit and push again; the pull request updates by itself.
+  5. **Merge with "Squash and merge"** (one commit per step on `v2`). Delete the branch when GitHub offers.
+  6. **Back on your PC:**
+     ```
+     git switch v2
+     git pull
+     git log -1 --format=%h
+     ```
+     That last SHA is the squash commit on `v2`; give it to Claude for `STATUS.md`.
+  The final merge of `v2` into `main` (after Gate B) uses a **merge commit**, not a squash, to keep the per-step history.
 
 Last, tell Claude the commit SHA (`git log -1 --format=%h`). Claude records it in `STATUS.md`, at the latest at the start of the next chat.
 
