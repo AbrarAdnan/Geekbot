@@ -1,4 +1,4 @@
-# Geekbot v2 — implementation plan (rev 15)
+# Geekbot v2 — implementation plan (rev 16)
 
 > **The measured results are the product; the architecture exists to make them credible.**
 > (This line also opens the v2 README.)
@@ -23,7 +23,7 @@ Geekbot (Sept 2025) is a 4-file Streamlit + LangChain 0.3 + Chroma + Ollama RAG 
   - The `csv_analyst` package is **copied into the repo** with a note of where it came from (D-036).
   - CSV mode uses **`qwen2.5-coder:7b`**, the model Gigalogy measured. Chat mode keeps `gemma4:12b`. The two never share the GPU; Geekbot swaps them (D-037).
   - The work is a **track of 6 steps, C1–C6**, each placed where the parts it needs exist (D-038).
-- **CSV files in chat mode:** a schema card, plus row text for small files (D-016). Now that CSV mode exists, S1.1's design asks whether the row text is still worth keeping (§6.7).
+- **CSV files in chat mode (rev 16, D-051):** a schema card only (columns, types, a few example values); row text is never indexed. Numbers come from CSV mode (§6.7). This replaces D-016's "row text for files up to 2,000 rows".
 - **Gate C:** the MCP server only. The old CSV-adapter step (S6.2) is replaced by track C (D-038, replaces D-017).
 - **Pair programming (rev 11):** in every step the user writes one piece of code themselves, against tests Claude provides (D-039).
 
@@ -169,6 +169,10 @@ project/
   - The explicit swap, the reproduction run and its design are recorded in D-048 (this settles §9's "imported read-only or ported": the grader is ported, and the benchmark is read from the Gigalogy folder and never copied)
   - CSV-mode targets are set from the first measurements on the target models: question p50 ≤ 3 s and p95 ≤ 10 s, swap ≤ 6 s in either direction, 0 model loads during questions (R-2). They stay targets until S5.1 re-measures them
   - The CSV VRAM line is checked against a measurement (§6.5); the question cap (60 s) and the per-call timeout (60 s) are unchanged because neither came close to firing
+- **rev 16** (S1.1, 2026-10-16, user decision; D-051, D-052): **chat mode indexes a schema card for tables, never their rows** (§1, §6.7, §11 S1.1):
+  - The open question from rev 11 is settled. D-016's "row text for files up to 2,000 rows" is superseded: a CSV, TSV or Excel sheet becomes a card (columns, types, empty share, three example values per column) that points number questions to CSV mode
+  - Reason: numbers read from embedded rows are exactly the guessing CSV mode avoids (the model there writes one SQL query and the answer's numbers are checked against the result)
+  - The loader design (what each format yields, what is dropped on purpose) is recorded in D-052
 
 ## 5. v1 findings (verified; all fixed by v2)
 
@@ -424,10 +428,10 @@ The host-app guide is `project/sources/csv-analyst-INTEGRATION.md` (a verbatim c
 - **Geekbot's own numbers:** reported separately, from C3, C6 and S5.1.
 - **SQL safety:** the package's read-only SQL checks are described the way INTEGRATION.md describes them: prototype-grade, not a security audit (§8).
 
-**Chat mode and CSV files (open question for S1.1).**
-- **Today's rule:** D-016 indexes a schema card, plus row text for files ≤2,000 rows, "while no tabular backend is registered". From C2 on, CSV mode is that backend.
-- **The question:** S1.1's design decides whether chat mode keeps the row text.
-- **Claude's recommendation:** a schema card only, pointing number questions to CSV mode, because numbers read from embedded rows are exactly the guessing CSV mode avoids.
+**Chat mode and CSV files (settled at S1.1, rev 16, D-051).**
+- **The old rule:** D-016 indexed a schema card plus row text for files ≤2,000 rows, "while no tabular backend is registered". From C2 on, CSV mode is that backend.
+- **The decision:** chat mode indexes **a schema card only** for every CSV, TSV and Excel sheet: the columns, their types, the empty share and three example values per column, plus a line that sends number questions to CSV mode. Row text is never indexed.
+- **Why:** numbers read from embedded rows are exactly the guessing CSV mode avoids. The card is still enough to find the right file for a question.
 
 ## 7. LangGraph design (explicit state and conditional transitions; no ReAct loop)
 
@@ -636,7 +640,7 @@ A simulated user denies every approval. The report gives bypasses k/N (target 0)
 ### Phase 1 — Ingestion and storage
 | Step | 🧠 Learn | 🛠 Build | ✍️ You write | ▶ You run |
 |---|---|---|---|---|
-| **S1.1 Loaders** | document parsing, why MarkItDown over unstructured, page metadata, tabular schema cards | `ingest/loaders/*` (pypdf 1-indexed, MarkItDown docx/pptx/html, text/code/ipynb, csv/xlsx schema cards + ≤2,000-row text, unless the design drops the row text (§6.7)), per-file error report | the text/code loader | `pytest tests/unit/test_loaders.py` |
+| **S1.1 Loaders** | document parsing, why MarkItDown over unstructured, page metadata, tabular schema cards | `ingest/loaders/*` (pypdf 1-indexed, MarkItDown docx/pptx/html, text/code/ipynb, csv/tsv/xlsx schema cards only, never row text (rev 16, D-051)), per-file error report | the text/code loader | `pytest tests/unit/test_loaders.py` |
 | **S1.2 Chunking** | chunking trade-offs, tokens vs characters, structure-aware splitting, contextual headers | `ingest/chunking.py` (header → token-recursive 512/64, code splitter, header text) | the chunker's no-loss property test (hypothesis) | `pytest` |
 | **S1.3 IDs and hashing** | content addressing, identity vs fingerprint, idempotency, property-based testing | `ingest/ids.py` + hypothesis tests (duplicates get distinct IDs; an insert keeps unchanged IDs) | `occurrence` numbering | `pytest` |
 | **S1.4 SQLite store + FTS5** | WAL, FTS5 and BM25 internals, migrations, single-writer thread | `index/sqlite.py` (schema, migrations, writer queue, read pool), `index/lock.py` | the BM25 search query (FTS5 `MATCH` + `bm25()`, ready-only) | `pytest` |
