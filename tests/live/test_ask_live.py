@@ -14,12 +14,14 @@ stay loaded, does the stream arrive in pieces with a time to the first token, is
 the right document), not how good the answers are or how fast the target model is.
 """
 
+import asyncio
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pytest
 
+from geekbot.agent.condense import CondenseOutput
 from geekbot.agent.graph import build_graph
 from geekbot.agent.latency import (
     LatencyRun,
@@ -28,12 +30,13 @@ from geekbot.agent.latency import (
     measure_latency,
 )
 from geekbot.agent.render import format_answer
+from geekbot.agent.runner import read_thread, run_turn
 from geekbot.agent.runtime import AgentContext
 from geekbot.config import Settings
 from geekbot.domain import RunStats
 from geekbot.index.workspace import Workspace
 from geekbot.ingest.pipeline import Ingestor, collect_files
-from geekbot.llm.chat import ChatError, make_chat_model
+from geekbot.llm.chat import ChatError, make_chat_model, make_structured_model
 from geekbot.llm.models import OllamaClient, swap_to_mode, unload_and_wait
 from geekbot.retrieval import SearchMode
 from geekbot.retrieval.factory import build_retriever
@@ -180,6 +183,57 @@ def test_the_latency_harness_measures_a_real_cold_start_and_warm_runs(live: Live
         assert run.stats.first_token_s is not None
         assert 0 < run.stats.first_token_s <= run.stats.seconds
     assert count_loads(report.runs) == 0  # R-2: no question had Ollama load the model again
+
+
+@pytest.mark.live
+def test_a_follow_up_is_rewritten_by_the_real_model_inside_a_saved_thread(
+    live: Live, tmp_path: Path
+) -> None:
+    """S3.4: two turns of one thread, the second a fragment that needs the first to make sense.
+
+    Plumbing is asserted (the real model answers in the rewrite's JSON shape, the thread is saved
+    and read back, the earlier turn reaches the prompt); whether the rewrite is *good* is only shown.
+    """
+    settings = live.settings
+    condenser = make_structured_model(
+        settings, CondenseOutput, num_predict=settings.condense_num_predict
+    )
+    context = replace(live.context, condenser=condenser)
+    db = tmp_path / "threads.db"
+    follow_up = "And can I reuse one across services?"
+
+    first = asyncio.run(run_turn(PASSWORD_QUESTION, context=context, thread="live", threads_db=db))
+    second = asyncio.run(run_turn(follow_up, context=context, thread="live", threads_db=db))
+    print(
+        f"\nturn 1: {first.final['answer']!r}  (rewrite seconds: {first.final['condense_seconds']})"
+    )
+    print(format_answer(second.final, model=context.model, thread="live"))
+    print(f"\nrewritten as: {second.final['standalone_question']!r}")
+
+    assert (
+        first.final["condense_seconds"] == 0.0
+    )  # the first turn makes no model call before retrieval
+    final = second.final
+    assert final["condense_seconds"] > 0
+    assert final["condense_error"] == ""  # the real model answered in the shape of the schema
+    assert final["standalone_question"]
+    assert final["history_used"] == 2  # the earlier question and answer went into the prompt
+    assert final["turn"] == 2
+    saved = asyncio.run(read_thread(db, "live"))
+    assert saved is not None
+    assert [m["id"] for m in saved["history"]] == [
+        "t1-user",
+        "t1-assistant",
+        "t2-user",
+        "t2-assistant",
+    ]
+    assert saved["thread_taint"] == ["KB", "USER"]
+    stats = RunStats.from_mapping(final["generation"])
+    assert stats.load_s is not None
+    assert stats.load_s < MAX_LOAD_SECONDS  # the rewrite did not make Ollama reload the model
+    # Shown, not asserted: does the rewrite carry the topic, and did retrieval find the right file?
+    print(f"mentions passwords: {'password' in final['standalone_question'].lower()}")
+    print(f"first source: {final['sources'][0]['title']}")
 
 
 @pytest.mark.live

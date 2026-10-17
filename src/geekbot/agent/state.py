@@ -13,7 +13,7 @@ has written yet is simply absent, which is why the state class is ``total=False`
 
 from typing import Literal, TypedDict
 
-__all__ = ["AgentState", "SourceRef", "StreamEvent"]
+__all__ = ["AgentState", "HistoryMessage", "SourceRef", "StreamEvent"]
 
 
 class SourceRef(TypedDict):
@@ -35,20 +35,51 @@ class SourceRef(TypedDict):
     score: float
 
 
+class HistoryMessage(TypedDict):
+    """One message of the conversation so far, as plain data (step S3.4, PLAN.md §8.2).
+
+    ``labels`` say who wrote the text, in the vocabulary of ``domain.Label``: a user's message is
+    ``["USER"]``; an assistant message carries the labels of everything that was in the prompt that
+    produced it (``["KB", "USER"]`` for an answer built from documents; none for the application's
+    own "nothing found" sentence). The labels live next to the text they describe, never on a
+    string, so they survive being saved and loaded again.
+    """
+
+    id: str  # "t<turn>-user" / "t<turn>-assistant"
+    role: Literal["user", "assistant"]
+    content: str
+    labels: list[str]
+
+
 class AgentState(TypedDict, total=False):
-    """The answer graph's state. Only ``question`` is given at the start."""
+    """The answer graph's state: what one turn works on, and what a thread remembers.
+
+    Only ``question`` is given at the start of a turn. Without a checkpointer every run starts from
+    nothing. With one (``geekbot ask --thread``) the keys below are saved after every step and the
+    next turn starts from them, so ``begin_turn`` first resets the keys that belong to one turn only
+    (everything up to ``generation``): without that, a turn that finds nothing would still show the
+    previous turn's sources. ``history``, ``thread_taint`` and ``turn`` are the thread's memory.
+    """
 
     question: str
+    standalone_question: str  # what retrieval searches for: the question, or its rewrite (S3.4)
+    condense_seconds: float  # how long the rewrite took (only on a follow-up)
+    condense_error: str  # why the rewrite fell back to the user's own words (only if it failed)
     sources: list[SourceRef]  # every chunk retrieval returned, best first
     retrieval_ms: dict[str, float]  # per stage, from the retriever's own timings
     used: int  # how many of the sources made it into the prompt
+    history_used: int  # how many earlier messages made it into the prompt (S3.4)
     answer: str  # what the user sees; after S3.2's check, without citations that point nowhere
-    raw_answer: str  # the model's own text, before the citation check (absent when it was not run)
+    raw_answer: str  # the model's own text, before the citation check ("" when it was not run)
     cited: list[int]  # the valid [n] marks left in the answer, first appearance first
     dropped_citations: list[int]  # the marks the check removed because no such source was shown
     answer_labels: list[str]  # PLAN.md §8.2: the labels of everything in the prompt, sorted
-    thinking: str  # the model's reasoning, only when thinking was on and the model produced some
+    thinking: str  # the model's reasoning, "" unless thinking was on and the model produced some
     generation: dict[str, float]  # what the model call took: ``RunStats.as_dict()`` (S3.3)
+    # The thread's memory (S3.4). Written only by ``remember``, at the end of a turn that answered.
+    history: list[HistoryMessage]  # earlier messages, oldest first; the newest are kept
+    thread_taint: list[str]  # PLAN.md §8.2: every label seen in this thread; only ever grows
+    turn: int  # how many turns the thread has completed
 
 
 class StreamEvent(TypedDict):

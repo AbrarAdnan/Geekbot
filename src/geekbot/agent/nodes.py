@@ -1,4 +1,4 @@
-"""The steps of the answer graph (steps S3.1 to S3.3, PLAN.md §7).
+"""The steps of the answer graph (steps S3.1 to S3.4, PLAN.md §7).
 
 A node is a plain function: it receives the state (and the run's context), does one thing, and
 returns *only the keys it changes*. LangGraph merges the returned keys into the state and follows the
@@ -6,9 +6,14 @@ edges. Nothing here knows about LangGraph's machinery beyond the ``Runtime`` arg
 node reaches the retriever, the chat model and the stream writer, so each node can be called directly
 in a test.
 
-The nodes are ordinary (synchronous) functions on purpose. When S3.4 runs the graph with ``astream``
-and an async checkpointer, LangGraph runs a synchronous node in a worker thread, so the event loop
-stays free (PLAN.md §6.3) without rewriting a line here.
+The nodes are ordinary (synchronous) functions on purpose. When the graph runs with ``astream`` and an
+async checkpointer (S3.4: ``geekbot ask --thread``), LangGraph runs a synchronous node in a worker
+thread, so the event loop stays free (PLAN.md §6.3) without rewriting a line here.
+
+**One turn, in order** (the wiring is ``agent.graph``): ``begin_turn`` clears what the last turn left in
+a saved thread and says what to search for; on a follow-up ``condense`` rewrites the question; then
+``retrieve``, and either ``generate`` and ``validate_citations`` or ``no_context``; and ``remember``
+writes the turn into the thread's memory last, so a turn that failed is never remembered.
 """
 
 import time
@@ -18,24 +23,31 @@ from typing import Any, Final, Literal
 from langgraph.runtime import Runtime
 
 from geekbot.agent.citations import check_citations
+from geekbot.agent.condense import CondenseOutput, build_condense_messages, clean_standalone
 from geekbot.agent.packing import pack_prompt
 from geekbot.agent.runtime import AgentContext
-from geekbot.agent.state import AgentState, SourceRef, StreamEvent
+from geekbot.agent.state import AgentState, HistoryMessage, SourceRef, StreamEvent
 from geekbot.domain import Label, ScoredChunk
 from geekbot.llm.chat import ChatError
 from geekbot.llm.streaming import read_stream
 
 __all__ = [
     "NO_CONTEXT_ANSWER",
+    "begin_turn",
+    "condense",
     "generate",
     "has_sources",
     "label_names",
+    "needs_condense",
     "no_context",
+    "remember",
     "retrieve",
     "section_trail",
     "source_refs",
     "validate_citations",
 ]
+
+_ERROR_WIDTH: Final = 300  # how much of an error message is kept in the state
 
 # What the user is told when there is nothing to answer from. S3.5 replaces this stop-gap with a real
 # decision (grade the sources, abstain below a calibrated threshold); until then the one rule is that
@@ -82,10 +94,88 @@ def label_names(labels: Iterable[Label]) -> list[str]:
     return sorted(label.value for label in labels)
 
 
-def retrieve(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any]:
-    """Find the chunks that may answer the question, with the time each stage took."""
+def begin_turn(state: AgentState) -> dict[str, Any]:
+    """Start a turn: clear what the previous turn of a saved thread left behind.
+
+    With a checkpointer the state is saved after every step and the next question starts from it, so
+    a key one turn wrote would still be there in the next: a turn that finds nothing would show the
+    previous turn's sources and a reply with no citation check would show its raw text. Every key that
+    belongs to one turn is therefore set to its empty value here (the thread's memory, ``history``,
+    ``thread_taint`` and ``turn``, is left alone), and the search text starts as the user's own
+    words; ``condense`` replaces it on a follow-up. Without a checkpointer this changes nothing.
+    """
+    return {
+        "standalone_question": state["question"],
+        "condense_seconds": 0.0,
+        "condense_error": "",
+        "sources": [],
+        "retrieval_ms": {},
+        "used": 0,
+        "history_used": 0,
+        "answer": "",
+        "raw_answer": "",
+        "cited": [],
+        "dropped_citations": [],
+        "answer_labels": [],
+        "thinking": "",
+        "generation": {},
+    }
+
+
+def needs_condense(state: AgentState) -> Literal["condense", "retrieve"]:
+    """A conditional edge: a follow-up (the thread has history) is rewritten first; turn one is not.
+
+    A plain function of the state, no model call. This is what keeps the first question of a thread at
+    zero model calls before retrieval (PLAN.md §7).
+    """
+    return "condense" if state.get("history") else "retrieve"
+
+
+def _one_line(text: str) -> str:
+    return " ".join(text.split())[:_ERROR_WIDTH]
+
+
+def condense(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any]:
+    """Rewrite a follow-up into a question that stands on its own (one structured model call).
+
+    The conversation so far and the last message go to the model (``build_condense_messages``); it
+    must answer in the shape of ``CondenseOutput``; ``clean_standalone`` checks the text. Whatever
+    goes wrong (Ollama down, a reply that is not that shape, an empty or absurd rewrite) the turn
+    goes on with the user's own words and the reason is kept in ``condense_error``: a worse search is
+    better than a stopped conversation, and the answer step will report a dead model itself. With no
+    condenser configured the question is searched for as typed and nothing is recorded. The time the
+    call took is kept in ``condense_seconds`` either way.
+    """
     context = runtime.context
-    result = context.retriever.search(state["question"], context.top_k)
+    question = state["question"]
+    if context.condenser is None:
+        return {}
+    messages = build_condense_messages(
+        question, state.get("history", []), budget_tokens=context.history_budget_tokens
+    )
+    started = time.perf_counter()
+    try:
+        reply = context.condenser.invoke(messages)
+        if not isinstance(reply, CondenseOutput):
+            raise TypeError(f"expected a CondenseOutput, got {type(reply).__name__}")
+        rewritten = clean_standalone(reply.standalone_question, fallback=question)
+    except Exception as error:  # noqa: BLE001  # any failure of the rewrite is survivable, by design
+        return {
+            "standalone_question": question,
+            "condense_seconds": time.perf_counter() - started,
+            "condense_error": _one_line(f"{type(error).__name__}: {error}"),
+        }
+    return {"standalone_question": rewritten, "condense_seconds": time.perf_counter() - started}
+
+
+def retrieve(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any]:
+    """Find the chunks that may answer the question, with the time each stage took.
+
+    What is searched for is ``standalone_question``: the user's words, or on a follow-up their rewrite.
+    """
+    context = runtime.context
+    query = state.get("standalone_question") or state["question"]
+    result = context.retriever.search(query, context.top_k)
     return {"sources": source_refs(result.chunks), "retrieval_ms": dict(result.timings_ms)}
 
 
@@ -104,6 +194,7 @@ def no_context(state: AgentState) -> dict[str, Any]:
     return {
         "answer": NO_CONTEXT_ANSWER,
         "used": 0,
+        "history_used": 0,
         "cited": [],
         "dropped_citations": [],
         "answer_labels": [],
@@ -137,7 +228,11 @@ def generate(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any
     """
     context = runtime.context
     packed = pack_prompt(
-        state["question"], state["sources"], budget_tokens=context.context_budget_tokens
+        state["question"],
+        state["sources"],
+        budget_tokens=context.context_budget_tokens,
+        history=state.get("history", []),
+        history_budget_tokens=context.history_budget_tokens,
     )
     if packed.used == 0:
         return no_context(state)
@@ -172,6 +267,7 @@ def generate(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any
     update: dict[str, Any] = {
         "answer": result.text,
         "used": packed.used,
+        "history_used": packed.history_used,
         "answer_labels": label_names(packed.labels),
         "generation": result.stats.as_dict(),
     }
@@ -198,3 +294,30 @@ def validate_citations(state: AgentState) -> dict[str, Any]:
         "cited": list(check.cited),
         "dropped_citations": list(check.dropped),
     }
+
+
+def remember(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any]:
+    """Write this turn into the thread's memory: the question, the answer, their labels, the taint.
+
+    The last step of a turn, so a turn that raised an error half way is never remembered (the
+    conversation does not contain an answer the user never got). Two messages are appended: the
+    question (``USER``) and the answer, which carries ``answer_labels``, the labels of everything in
+    the prompt that produced it (none for the application's own "nothing found" sentence). Only the
+    newest ``history_keep_messages`` are kept, always whole turns, so the checkpoint does not grow
+    for ever; forgetting a message does **not** forget its taint: ``thread_taint`` is the union of
+    every label the thread has ever carried and only grows (PLAN.md §8.2: monotonic, no
+    declassification, so a thread cannot be cleaned by letting a tainted answer scroll away).
+    """
+    turn = state.get("turn", 0) + 1
+    labels = sorted(set(state.get("answer_labels", [])))
+    asked = HistoryMessage(
+        id=f"t{turn}-user", role="user", content=state["question"], labels=[Label.USER.value]
+    )
+    answered = HistoryMessage(
+        id=f"t{turn}-assistant", role="assistant", content=state["answer"], labels=labels
+    )
+    kept = [*state.get("history", []), asked, answered]
+    keep = max(2, runtime.context.history_keep_messages)
+    kept = kept[-(keep - keep % 2) :]  # whole turns: an even number of messages
+    taint = sorted({*state.get("thread_taint", []), Label.USER.value, *labels})
+    return {"history": kept, "thread_taint": taint, "turn": turn}

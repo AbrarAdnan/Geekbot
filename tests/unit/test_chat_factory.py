@@ -8,8 +8,9 @@ with, or Ollama reloads it during the query (R-2).
 import pytest
 from pydantic import ValidationError
 
+from geekbot.agent.condense import CondenseOutput
 from geekbot.config import Settings
-from geekbot.llm.chat import make_chat_model
+from geekbot.llm.chat import make_chat_model, make_structured_model
 
 pytestmark = pytest.mark.usefixtures("clean_geekbot_env")
 
@@ -65,6 +66,40 @@ def test_thinking_changes_nothing_that_would_make_ollama_reload_the_model() -> N
     thinking = make_chat_model(config, think=True)
     assert thinking.num_ctx == config.chat_num_ctx
     assert thinking.keep_alive == config.keep_alive
+
+
+def test_the_rewrite_model_is_the_same_model_with_a_small_cap_and_the_schema_as_its_format() -> (
+    None
+):
+    """Step S3.4: a follow-up's rewrite must not make Ollama reload the model (R-2)."""
+    config = settings(chat_num_ctx=4096, keep_alive="10m")
+    structured = make_structured_model(config, CondenseOutput, num_predict=96)
+    chat = structured.first.bound  # type: ignore[attr-defined]
+    assert chat.model == "gemma3:4b"
+    assert chat.num_ctx == 4096  # the warm-up's value
+    assert chat.keep_alive == "10m"
+    assert chat.num_predict == 96
+    assert chat.temperature == 0.0
+    assert chat.reasoning is False
+    assert structured.first.kwargs["format"] == CondenseOutput.model_json_schema()  # type: ignore[attr-defined]
+
+
+def test_the_rewrite_models_name_can_be_overridden() -> None:
+    structured = make_structured_model(settings(), CondenseOutput, num_predict=32, model="other:2b")
+    assert structured.first.bound.model == "other:2b"  # type: ignore[attr-defined]
+
+
+def test_the_conversation_settings_have_starting_values_and_refuse_nonsense() -> None:
+    config = settings()
+    assert (config.history_budget_tokens, config.history_keep_messages) == (1000, 40)
+    assert config.condense_num_predict == 96  # PLAN.md section 6.5
+    for bad in (
+        {"history_budget_tokens": 0},
+        {"history_keep_messages": 1},
+        {"condense_num_predict": 0},
+    ):
+        with pytest.raises(ValidationError):
+            settings(**bad)
 
 
 def test_the_default_thinking_budget_leaves_room_for_the_reasoning() -> None:

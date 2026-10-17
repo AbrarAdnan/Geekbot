@@ -118,6 +118,13 @@ class Settings(BaseSettings):
     chat_think_num_predict: int = Field(default=2048, gt=0)
     chat_temperature: float = Field(default=0.2, ge=0.0, le=2.0)
     context_budget_tokens: int = Field(default=3000, gt=0)
+    # Conversation memory (step S3.4). The share of the prompt the earlier turns may take (whole
+    # turns, newest first), how many messages a thread keeps, and the cap on the one model call that
+    # rewrites a follow-up into a standalone question (PLAN §6.5: 96 tokens). Starting points, not
+    # measurements.
+    history_budget_tokens: int = Field(default=1000, gt=0)
+    history_keep_messages: int = Field(default=40, ge=2)
+    condense_num_predict: int = Field(default=96, gt=0)
     csv_llm_timeout_s: int = Field(default=60, gt=0)  # one Ollama call
     csv_question_time_limit_s: int = Field(default=60, gt=0)  # one question
     data_dir: Path = Path("data")

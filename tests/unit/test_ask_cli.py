@@ -17,7 +17,9 @@ import pytest
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
 from typer.testing import CliRunner
 
+from geekbot.agent.condense import CondenseOutput
 from geekbot.agent.nodes import NO_CONTEXT_ANSWER
+from geekbot.agent.packing import HISTORY_HEADING
 from geekbot.cli import app
 from geekbot.config import Settings
 from geekbot.index.embedder import EmbedderSpec, PrefixedEmbeddings
@@ -81,10 +83,28 @@ class FakeChat:
         )
 
 
+class FakeCondenser:
+    """Stands in for the structured rewrite call of a follow-up (step S3.4)."""
+
+    def __init__(self, reply: object) -> None:
+        self.reply = reply
+        self.calls: list[list[BaseMessage]] = []
+
+    def invoke(self, messages: list[BaseMessage], /) -> Any:
+        self.calls.append(messages)
+        if isinstance(self.reply, Exception):
+            raise self.reply
+        return self.reply
+
+
 class FakeLlm:
     """What the command did with the chat model and the swap, and what to make them do."""
 
     def __init__(self) -> None:
+        self.condenser = FakeCondenser(
+            CondenseOutput(standalone_question="river Brahmaputra flows")
+        )
+        self.structured_made: list[dict[str, object]] = []  # what make_structured_model was given
         self.chat = FakeChat(
             AIMessage(
                 content=ANSWER,
@@ -131,10 +151,15 @@ def llm(monkeypatch: pytest.MonkeyPatch) -> FakeLlm:
         state.made.append(dict(kwargs))
         return state.chat
 
+    def make_structured(_settings: object, schema: object, **kwargs: object) -> FakeCondenser:
+        state.structured_made.append({"schema": schema, **kwargs})
+        return state.condenser
+
     monkeypatch.setattr("geekbot.cli.OllamaClient", FakeClient)
     monkeypatch.setattr("geekbot.llm.models.swap_to_mode", swap)
     monkeypatch.setattr("geekbot.llm.models.unload_and_wait", unload)
     monkeypatch.setattr("geekbot.llm.chat.make_chat_model", make_chat)
+    monkeypatch.setattr("geekbot.llm.chat.make_structured_model", make_structured)
     return state
 
 
@@ -446,6 +471,119 @@ def test_without_think_that_error_gets_no_hint(indexed: None, llm: FakeLlm) -> N
     llm.chat = FakeChat(RuntimeError("does not support thinking"))
     result = ask("bread", "--mode", "lexical")
     assert "Drop --think" not in result.output
+
+
+# --- conversations: ask --thread, thread show / delete (S3.4) ---------------------------------
+
+BREAD = "how do I bake bread"
+FOLLOW_UP = "and the river?"
+
+
+def test_a_lone_question_makes_no_rewrite_model_and_saves_nothing(
+    indexed: None, llm: FakeLlm, tmp_path: Path
+) -> None:
+    result = ask(BREAD, "--mode", "lexical")
+    assert result.exit_code == 0, result.output
+    assert llm.structured_made == []
+    assert not (tmp_path / "data" / "threads.db").exists()
+    assert "thread " not in result.output
+
+
+def test_a_thread_remembers_the_first_question_for_the_second_invocation(
+    indexed: None, llm: FakeLlm, tmp_path: Path
+) -> None:
+    first = ask(BREAD, "--mode", "lexical", "--thread", "t1")
+    assert first.exit_code == 0, first.output
+    assert "thread t1: turn 1, 2 messages remembered, taint KB, USER (tainted)" in first.output
+    assert llm.condenser.calls == []  # the first turn of a thread: no model call before retrieval
+    assert (tmp_path / "data" / "threads.db").is_file()
+    second = ask(FOLLOW_UP, "--mode", "lexical", "--thread", "t1")
+    assert second.exit_code == 0, second.output
+    assert len(llm.condenser.calls) == 1
+    assert 'searched as: "river Brahmaputra flows"' in second.output
+    assert "[1] river.md" in second.output  # retrieval looked for the rewrite
+    assert "thread t1: turn 2, 4 messages remembered" in second.output
+    assert HISTORY_HEADING in str(llm.chat.calls[-1][1].content)
+    assert llm.structured_made[0]["num_predict"] == 96  # PLAN.md section 6.5
+
+
+def test_a_thread_name_is_checked_before_any_model_is_loaded(indexed: None, llm: FakeLlm) -> None:
+    result = ask(BREAD, "--mode", "lexical", "--thread", "../etc")
+    assert result.exit_code == 1
+    assert "not a usable thread name" in result.output
+    assert llm.swaps == []
+
+
+def test_a_failed_rewrite_is_reported_and_the_turn_goes_on(indexed: None, llm: FakeLlm) -> None:
+    llm.condenser = FakeCondenser(ValueError("not json"))
+    ask(BREAD, "--mode", "lexical", "--thread", "t1")
+    result = ask(FOLLOW_UP, "--mode", "lexical", "--thread", "t1")
+    assert result.exit_code == 0, result.output
+    assert "rewrite failed, searched with your own words: ValueError: not json" in result.output
+    assert "searched as:" not in result.output
+
+
+def test_a_streamed_follow_up_prints_the_answer_once_and_the_thread_line(
+    indexed: None, llm: FakeLlm
+) -> None:
+    ask(BREAD, "--mode", "lexical", "--thread", "t1")
+    llm.chat = FakeChat(AIMessage(content=""), pieces=pieces_of("The river ", "flows south [1]."))
+    result = ask(FOLLOW_UP, "--mode", "lexical", "--thread", "t1", "--stream")
+    assert result.exit_code == 0, result.output
+    assert result.output.count("The river flows south [1].") == 1
+    assert "thread t1: turn 2" in result.output
+
+
+def test_show_prompt_in_a_thread_shows_the_earlier_turn_the_model_was_given(
+    indexed: None, llm: FakeLlm
+) -> None:
+    ask(BREAD, "--mode", "lexical", "--thread", "t1")
+    result = ask(FOLLOW_UP, "--mode", "lexical", "--thread", "t1", "--show-prompt")
+    assert result.exit_code == 0, result.output
+    shown = result.output.split("--- human ---")[1]
+    assert HISTORY_HEADING in shown
+    assert f"> User: {BREAD}" in shown
+    assert shown.rstrip().endswith(f"Question: {FOLLOW_UP}")
+
+
+def test_thread_show_lists_the_messages_with_their_labels_and_the_taint(
+    indexed: None, llm: FakeLlm
+) -> None:
+    ask(BREAD, "--mode", "lexical", "--thread", "t1")
+    result = runner.invoke(app, ["thread", "show", "t1"])
+    assert result.exit_code == 0, result.output
+    assert "thread t1: 1 turns, 2 messages remembered" in result.output
+    assert f"t1-user [USER] {BREAD}" in result.output
+    assert f"t1-assistant [KB, USER] {ANSWER}" in result.output
+    assert "taint: KB, USER" in result.output
+
+
+def test_thread_show_and_delete_say_so_for_a_thread_that_does_not_exist(
+    indexed: None, llm: FakeLlm
+) -> None:
+    for command in ("show", "delete"):
+        result = runner.invoke(app, ["thread", command, "nothing"])
+        assert result.exit_code == 1
+        assert "no thread named 'nothing'" in result.output
+
+
+def test_thread_delete_forgets_the_conversation(indexed: None, llm: FakeLlm) -> None:
+    ask(BREAD, "--mode", "lexical", "--thread", "t1")
+    deleted = runner.invoke(app, ["thread", "delete", "t1"])
+    assert deleted.exit_code == 0, deleted.output
+    assert "thread t1 deleted" in deleted.output
+    assert runner.invoke(app, ["thread", "show", "t1"]).exit_code == 1
+    again = ask(FOLLOW_UP, "--mode", "lexical", "--thread", "t1")
+    assert "turn 1" in again.output  # a deleted thread starts over
+    assert len(llm.condenser.calls) == 0
+
+
+def test_thread_commands_refuse_a_bad_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEEKBOT_DATA_DIR", str(tmp_path / "data"))
+    for command in ("show", "delete"):
+        result = runner.invoke(app, ["thread", command, "a b"])
+        assert result.exit_code == 1
+        assert "not a usable thread name" in result.output
 
 
 # --- ask-timing (S3.3) -------------------------------------------------------------------------

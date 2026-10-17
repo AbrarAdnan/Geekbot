@@ -43,6 +43,9 @@ dependencies = [
     "langchain-core>=1.0",
     "langchain-ollama>=1.0",
     "langgraph>=1.0",
+    # Conversation memory (S3.4): the SQLite checkpointer. Its async saver (aiosqlite underneath) is
+    # the one PLAN.md section 6.3 names for the server; the command line uses it too.
+    "langgraph-checkpoint-sqlite>=3.0",
 ]
 
 [project.optional-dependencies]

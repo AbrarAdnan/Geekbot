@@ -19,13 +19,20 @@ passes a fake that has no network and no LangChain base class to fake.
 """
 
 from collections.abc import Iterator
-from typing import Protocol
+from typing import Any, Protocol
 
 from langchain_core.messages import BaseMessage
+from pydantic import BaseModel
 
 from geekbot.config import Settings
 
-__all__ = ["ChatError", "ChatModel", "make_chat_model"]
+__all__ = [
+    "ChatError",
+    "ChatModel",
+    "StructuredChat",
+    "make_chat_model",
+    "make_structured_model",
+]
 
 
 class ChatError(RuntimeError):
@@ -38,6 +45,45 @@ class ChatModel(Protocol):
     def stream(self, messages: list[BaseMessage], /) -> Iterator[BaseMessage]:
         """The reply, piece by piece. Positional-only so ``ChatOllama`` fits."""
         ...
+
+
+class StructuredChat(Protocol):
+    """A chat model held to one JSON shape: ``invoke`` returns the parsed object (S3.4)."""
+
+    def invoke(self, messages: list[BaseMessage], /) -> Any:
+        """The reply as an instance of the schema it was built with. Raises if it cannot be parsed."""
+        ...
+
+
+def make_structured_model(
+    settings: Settings,
+    schema: type[BaseModel],
+    *,
+    num_predict: int,
+    model: str | None = None,
+) -> StructuredChat:
+    """A ``ChatOllama`` whose reply Ollama constrains to ``schema`` and LangChain parses into it.
+
+    The same model, ``num_ctx`` and ``keep_alive`` as the answer model (rule R-2: a different
+    context size would make Ollama reload the model for this call), so asking for a rewrite never
+    loads anything. Differences: ``num_predict`` is the small cap the call needs (PLAN.md §6.5: 96
+    for the rewrite of a follow-up), the temperature is 0 (a rewrite should be repeatable), and thinking
+    is off. ``method="json_schema"`` sends the schema as Ollama's ``format``, so the output is
+    constrained while it is generated, not repaired afterwards.
+    """
+    from langchain_ollama import ChatOllama  # type: ignore[import-untyped, unused-ignore]
+
+    chat = ChatOllama(
+        model=model or settings.resolved_chat_model,
+        base_url=settings.ollama_host,
+        num_ctx=settings.chat_num_ctx,
+        num_predict=num_predict,
+        keep_alive=settings.keep_alive,
+        temperature=0.0,
+        reasoning=False,
+    )
+    structured: StructuredChat = chat.with_structured_output(schema, method="json_schema")
+    return structured
 
 
 def make_chat_model(

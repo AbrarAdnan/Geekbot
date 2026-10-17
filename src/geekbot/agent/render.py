@@ -21,6 +21,7 @@ from geekbot.agent.state import SourceRef
 from geekbot.domain import Label, is_tainted
 
 __all__ = [
+    "StreamCollector",
     "StreamedAnswer",
     "consume_stream",
     "format_after_stream",
@@ -86,6 +87,7 @@ def format_answer(
     model: str,
     include_answer: bool = True,
     show_thinking: bool = False,
+    thread: str | None = None,
 ) -> str:
     """The answer, its sources, and the readings of the run.
 
@@ -94,6 +96,9 @@ def format_answer(
     check removed is named, so a user who sees a gap knows why. ``include_answer=False`` leaves the
     answer out (it was already shown while streaming). With ``show_thinking`` the model's reasoning,
     if it produced any, is printed under the answer; the readings count its characters either way.
+    On a follow-up the line ``searched as:`` shows what retrieval was asked for (the rewrite), and a
+    rewrite that failed says why. With ``thread`` (the name of a saved conversation) a last line says
+    which turn this was and what the thread's taint is (PLAN.md §8.2).
     """
     lines: list[str] = []
     if include_answer:
@@ -116,13 +121,42 @@ def format_answer(
     if names:
         verdict = "tainted" if is_tainted(Label(name) for name in names) else "not tainted"
         lines.append(f"labels: {', '.join(names)} ({verdict})")
+    lines.extend(_rewrite_lines(final))
     retrieval = final.get("retrieval_ms", {})
     if retrieval:
         lines.append(_timing_line("retrieval", retrieval, order=("total",)))
     generation = final.get("generation", {})
     if generation:
         lines.append(_generation_line(model, generation))
+    if thread is not None:
+        lines.append(_thread_line(thread, final))
     return "\n".join(lines).strip()
+
+
+def _rewrite_lines(final: Mapping[str, Any]) -> list[str]:
+    """What retrieval searched for when it was not the user's own words, and a failed rewrite."""
+    lines: list[str] = []
+    searched = str(final.get("standalone_question", ""))
+    if searched and searched != str(final.get("question", searched)):
+        lines.append(f'searched as: "{searched}"')
+    error = str(final.get("condense_error", ""))
+    if error:
+        lines.append(f"rewrite failed, searched with your own words: {error}")
+    seconds = float(final.get("condense_seconds", 0.0))
+    if seconds > 0:
+        lines.append(f"rewrite: {seconds:.2f} s")
+    return lines
+
+
+def _thread_line(thread: str, final: Mapping[str, Any]) -> str:
+    """``thread t1: turn 2, 4 messages remembered, taint KB, USER (tainted)``."""
+    taint = list(final.get("thread_taint", []))
+    verdict = "tainted" if is_tainted(Label(name) for name in taint) else "not tainted"
+    kept = len(final.get("history", []))
+    return (
+        f"thread {thread}: turn {final.get('turn', 0)}, {kept} messages remembered, "
+        f"taint {', '.join(taint) or 'none'} ({verdict})"
+    )
 
 
 # --- streaming (step S3.3) -------------------------------------------------------------------
@@ -140,6 +174,67 @@ class StreamedAnswer:
     streamed: str
 
 
+class StreamCollector:
+    """Turns the events of a streamed run into live writes, one event at a time.
+
+    Feed it every ``(mode, payload)`` pair of ``graph.stream(..., stream_mode=["custom", "values"])``
+    (or of ``astream``: the logic is the same, so the synchronous and the asynchronous loops share
+    it), then ask for ``result()``. A ``custom`` payload is a ``StreamEvent``: answer pieces go to
+    ``write`` as they arrive (the very first one without its leading whitespace, so the answer does
+    not start with a blank line); reasoning pieces go to ``note`` when ``show_thinking`` is on and are
+    otherwise reduced to one "thinking..." note, so the user knows the model is working and not
+    stuck. A ``values`` payload is the whole state after a step; the last one is the final state.
+    The pieces are the model's untrusted text: this class only passes them on as text, and the
+    caller prints them without interpreting them.
+    """
+
+    def __init__(
+        self,
+        *,
+        write: Callable[[str], None],
+        note: Callable[[str], None],
+        show_thinking: bool = False,
+    ) -> None:
+        self._write = write
+        self._note = note
+        self._show_thinking = show_thinking
+        self._final: dict[str, Any] | None = None
+        self._shown: list[str] = []
+        self._thinking_started = False
+        self._thinking_closed = False
+
+    def feed(self, mode: str, payload: Any) -> None:
+        """Handle one event; events of kinds this does not know are ignored."""
+        if mode == "values":
+            self._final = dict(payload)
+            return
+        if mode != "custom" or not isinstance(payload, Mapping):
+            return
+        piece = str(payload.get("text", ""))
+        kind = payload.get("event")
+        if kind == "thinking":
+            if not self._thinking_started:
+                self._thinking_started = True
+                self._note("thinking: " if self._show_thinking else "thinking...\n")
+            if self._show_thinking:
+                self._note(piece)
+        elif kind == "text":
+            if self._thinking_started and self._show_thinking and not self._thinking_closed:
+                self._thinking_closed = True
+                self._note("\n")
+            if not self._shown:
+                piece = piece.lstrip()
+            if piece:
+                self._shown.append(piece)
+                self._write(piece)
+
+    def result(self) -> StreamedAnswer:
+        """The final state and the text that was written live; ``ValueError`` if no state came."""
+        if self._final is None:
+            raise ValueError("the graph ended without a final state")
+        return StreamedAnswer(final=self._final, streamed="".join(self._shown))
+
+
 def consume_stream(
     events: Iterable[Any],
     *,
@@ -147,50 +242,18 @@ def consume_stream(
     note: Callable[[str], None],
     show_thinking: bool = False,
 ) -> StreamedAnswer:
-    """Turn ``graph.stream(..., stream_mode=["custom", "values"])`` into live writes.
+    """Run a whole synchronous stream through a ``StreamCollector``.
 
     ``events`` are ``(mode, payload)`` pairs (LangGraph types its stream as ``Any``, so this does
-    too, and unpacks each pair itself). A ``custom`` payload is a ``StreamEvent``: answer
-    pieces go to ``write`` as they arrive (the very first one without its leading whitespace, so the
-    answer does not start with a blank line); reasoning pieces go to ``note`` when ``show_thinking``
-    is on and are otherwise reduced to one "thinking..." note, so the user knows the model is
-    working and not stuck. A ``values`` payload is the whole state after a step; the last one is
-    the final state. The pieces are the model's untrusted text: this function only passes them on
-    as text, and the caller prints them without interpreting them.
+    too, and unpacks each pair itself: a mismatch fails loudly, here).
     """
-    final: dict[str, Any] | None = None
-    shown: list[str] = []
-    thinking_started = False
-    thinking_closed = False
-    for mode, payload in events:  # a pair per event; a mismatch fails loudly, here
-        if mode == "values":
-            final = dict(payload)
-            continue
-        if mode != "custom" or not isinstance(payload, Mapping):
-            continue
-        piece = str(payload.get("text", ""))
-        kind = payload.get("event")
-        if kind == "thinking":
-            if not thinking_started:
-                thinking_started = True
-                note("thinking: " if show_thinking else "thinking...\n")
-            if show_thinking:
-                note(piece)
-        elif kind == "text":
-            if thinking_started and show_thinking and not thinking_closed:
-                thinking_closed = True
-                note("\n")
-            if not shown:
-                piece = piece.lstrip()
-            if piece:
-                shown.append(piece)
-                write(piece)
-    if final is None:
-        raise ValueError("the graph ended without a final state")
-    return StreamedAnswer(final=final, streamed="".join(shown))
+    collector = StreamCollector(write=write, note=note, show_thinking=show_thinking)
+    for mode, payload in events:
+        collector.feed(mode, payload)
+    return collector.result()
 
 
-def format_after_stream(streamed: StreamedAnswer, *, model: str) -> str:
+def format_after_stream(streamed: StreamedAnswer, *, model: str, thread: str | None = None) -> str:
     """What to print once the stream is over (the cursor is at the end of the streamed answer).
 
     - Nothing was streamed: the whole answer, as ``format_answer`` prints it.
@@ -200,10 +263,10 @@ def format_after_stream(streamed: StreamedAnswer, *, model: str) -> str:
     """
     final = streamed.final
     if not streamed.streamed.strip():
-        return format_answer(final, model=model)
+        return format_answer(final, model=model, thread=thread)
     lines: list[str] = []
     answer = str(final["answer"])
-    if answer != str(final.get("raw_answer", answer)):
+    if answer != str(final.get("raw_answer") or answer):
         lines.extend(
             [
                 "corrected answer (the citation check removed a mark that names no source):",
@@ -211,5 +274,5 @@ def format_after_stream(streamed: StreamedAnswer, *, model: str) -> str:
                 "",
             ]
         )
-    lines.append(format_answer(final, model=model, include_answer=False))
+    lines.append(format_answer(final, model=model, include_answer=False, thread=thread))
     return "\n".join(lines).strip()

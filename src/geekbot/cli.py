@@ -5,13 +5,14 @@ yet are stubs: they say which step builds them and exit with code 2, so a script
 mistake "not built" for success.
 """
 
+import asyncio
 import json
 import logging
 import time
 from collections.abc import Sequence
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Any, NoReturn
+from typing import Annotated, NoReturn
 
 import typer
 
@@ -702,6 +703,16 @@ def ask(
         bool,
         typer.Option("--show-thinking", help="With --think: print the model's reasoning too."),
     ] = False,
+    thread: Annotated[
+        str | None,
+        typer.Option(
+            "--thread",
+            help="Keep a conversation under this name: the next `ask --thread` with the same name "
+            "remembers this question and answer. A follow-up such as 'and by month?' is rewritten "
+            "into a full question first (one extra model call). Without it every question stands "
+            "alone. See `geekbot thread show` and `thread delete`.",
+        ),
+    ] = None,
 ) -> None:
     """Answer a question from the knowledge base with the chat model (uses the GPU).
 
@@ -710,32 +721,37 @@ def ask(
     to answer from them. Citations that name no source are removed from the answer. Below the
     answer come the sources it cites, the sources the model read without citing them, and the
     readings of the run: where the time went, the time to the first token, and whether the model had
-    to be loaded. Only ready documents are searched. The storage lock is held for the whole command.
+    to be loaded. With --thread the conversation is saved in the data folder and later questions can
+    refer back to it. Only ready documents are searched. The storage lock is held for the whole
+    command.
     """
     # Imported here: LangGraph, LangChain and Chroma are slow to import, and `geekbot --version`
     # or `geekbot doctor` should not wait for them.
-    from geekbot.agent.graph import build_graph
+    from geekbot.agent.condense import CondenseOutput
     from geekbot.agent.packing import QuestionError, check_question, pack_prompt
     from geekbot.agent.render import (
+        StreamCollector,
         StreamedAnswer,
-        consume_stream,
         format_after_stream,
         format_answer,
         format_prompt,
     )
+    from geekbot.agent.runner import THREADS_DB, ThreadNameError, check_thread_name, run_turn
     from geekbot.agent.runtime import AgentContext
     from geekbot.index.dense import FingerprintMismatchError
     from geekbot.index.lock import StorageLockedError
     from geekbot.index.sqlite import DB_FILE_NAME
     from geekbot.index.workspace import Workspace
-    from geekbot.llm.chat import ChatError, make_chat_model
+    from geekbot.llm.chat import ChatError, make_chat_model, make_structured_model
     from geekbot.llm.models import swap_to_mode
     from geekbot.retrieval.factory import build_retriever
     from geekbot.retrieval.rerank import RerankError
 
     try:
         check_question(question)  # before any model is loaded: a mistake here should cost nothing
-    except QuestionError as error:
+        if thread is not None:
+            check_thread_name(thread)
+    except (QuestionError, ThreadNameError) as error:
         _fail(str(error))
     if show_thinking and not think:
         _fail("--show-thinking needs --think: without it the model does not reason")
@@ -746,8 +762,7 @@ def ask(
     if not (settings.data_dir / DB_FILE_NAME).is_file():
         _fail(nothing)
     model = settings.resolved_chat_model
-    final: dict[str, Any]
-    streamed: StreamedAnswer | None = None
+    answered: StreamedAnswer
     try:
         with Workspace.open(settings) as workspace:
             if workspace.dense.count() == 0:
@@ -763,38 +778,101 @@ def ask(
                 model=model,
                 top_k=top_k,
                 context_budget_tokens=settings.context_budget_tokens,
+                # Only a conversation has a follow-up to rewrite; a lone question has no history.
+                condenser=make_structured_model(
+                    settings, CondenseOutput, num_predict=settings.condense_num_predict
+                )
+                if thread is not None
+                else None,
+                history_budget_tokens=settings.history_budget_tokens,
+                history_keep_messages=settings.history_keep_messages,
             )
             typer.echo(f"asking {model}{' with thinking on' if think else ''}...", err=True)
-            graph = build_graph()
-            if stream:
-                streamed = consume_stream(
-                    graph.stream(
-                        {"question": question}, context=context, stream_mode=["custom", "values"]
-                    ),
+            collector = (
+                StreamCollector(
                     write=lambda piece: typer.echo(piece, nl=False),
                     note=lambda piece: typer.echo(piece, nl=False, err=True),
                     show_thinking=show_thinking,
                 )
-                final = streamed.final
-            else:
-                final = graph.invoke({"question": question}, context=context)
+                if stream
+                else None
+            )
+            answered = asyncio.run(
+                run_turn(
+                    question,
+                    context=context,
+                    thread=thread,
+                    threads_db=settings.data_dir / THREADS_DB,
+                    collector=collector,
+                )
+            )
     except StorageLockedError as error:
         _fail(str(error))
     except FingerprintMismatchError as error:
         _fail(f"{error}\nRun `geekbot ingest --reindex` to rebuild the vectors.")
     except (OllamaError, RerankError, ChatError) as error:
         _fail(_with_thinking_hint(str(error), think=think))
-    if streamed is not None:
-        if streamed.streamed.strip():
+    final = answered.final
+    if stream:
+        if answered.streamed.strip():
             typer.echo("\n")  # end the streamed line (it has no newline) and leave a blank line
-        typer.echo(format_after_stream(streamed, model=model))
+        typer.echo(format_after_stream(answered, model=model, thread=thread))
     else:
-        typer.echo(format_answer(final, model=model, show_thinking=show_thinking))
+        typer.echo(format_answer(final, model=model, show_thinking=show_thinking, thread=thread))
     if show_prompt:
+        # `remember` has already added this turn's two messages; the prompt held the ones before.
         packed = pack_prompt(
-            question, final.get("sources", []), budget_tokens=settings.context_budget_tokens
+            question,
+            final.get("sources", []),
+            budget_tokens=settings.context_budget_tokens,
+            history=final.get("history", [])[:-2],
+            history_budget_tokens=settings.history_budget_tokens,
         )
         typer.echo(f"\n{format_prompt(packed)}")
+
+
+thread_app = typer.Typer(help="Saved conversations (see `ask --thread`).", no_args_is_help=True)
+app.add_typer(thread_app, name="thread")
+
+
+@thread_app.command("show")
+def thread_show(
+    name: Annotated[str, typer.Argument(help="The name given to `ask --thread`.")],
+) -> None:
+    """Print what a saved conversation remembers: the messages, their labels and the taint."""
+    from geekbot.agent.runner import THREADS_DB, ThreadNameError, read_thread
+
+    settings = Settings()
+    try:
+        saved = asyncio.run(read_thread(settings.data_dir / THREADS_DB, name))
+    except ThreadNameError as error:
+        _fail(str(error))
+    if saved is None:
+        _fail(f"no thread named {name!r} (it is created by `geekbot ask --thread {name} ...`)")
+    history = saved.get("history", [])
+    typer.echo(f"thread {name}: {saved.get('turn', 0)} turns, {len(history)} messages remembered")
+    for message in history:
+        labels = ", ".join(message["labels"]) or "no labels"
+        typer.echo(f"  {message['id']} [{labels}] {message['content']}")
+    taint = ", ".join(saved.get("thread_taint", [])) or "none"
+    typer.echo(f"taint: {taint}")
+
+
+@thread_app.command("delete")
+def thread_delete(
+    name: Annotated[str, typer.Argument(help="The name given to `ask --thread`.")],
+) -> None:
+    """Forget a saved conversation completely (its memory and its taint). It cannot be undone."""
+    from geekbot.agent.runner import THREADS_DB, ThreadNameError, delete_thread
+
+    settings = Settings()
+    try:
+        existed = asyncio.run(delete_thread(settings.data_dir / THREADS_DB, name))
+    except ThreadNameError as error:
+        _fail(str(error))
+    if not existed:
+        _fail(f"no thread named {name!r}")
+    typer.echo(f"thread {name} deleted")
 
 
 def _with_thinking_hint(message: str, *, think: bool) -> str:

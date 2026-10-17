@@ -6,10 +6,21 @@ text in a prompt (who wrote it, how far it can be trusted) and derives the label
 the labels of everything in the prompt; that only works if there is exactly one function that puts text
 into a prompt, so this is also the one place that decides the labels (``PackedPrompt.labels``).
 
-**Layout.** A fixed system message, then one user message that holds the sources and, last, the
-question. The system message is read from ``prompts/system.md`` and is identical for every question,
-which lets Ollama reuse the work it did on that prefix (the "prefix KV cache", PLAN.md §6.5) instead
-of reading it again each time. Nothing that changes per question may go into it.
+**Layout.** A fixed system message, then one user message that holds, in this order, the earlier
+turns of the conversation (if the thread has any, S3.4), the sources and, last, the question. The
+system message is read from ``prompts/system.md`` and is identical for every question, which lets
+Ollama reuse the work it did on that prefix (the "prefix KV cache", PLAN.md §6.5) instead of reading it
+again each time. Nothing that changes per question may go into it. The earlier turns come before the
+sources because they only grow at their end, so a thread's next turn starts with the same text as its
+last one for as long as the history fits.
+
+**History (S3.4).** Earlier messages are quoted data too: an assistant message was written by a model
+that had read untrusted documents, and a model can repeat what a document told it to say, so it is
+marked line by line like a source, squeezed onto one line per message (a message cannot fake a new
+speaker with a line break), and stripped of its ``[n]`` marks (they numbered the sources of *that*
+turn and would mean the wrong chunk now). Whole turns are taken newest first until
+``history_budget_tokens`` is used. The labels of the messages that went in are part of the prompt's
+labels, which is how a thread stays tainted after a tainted answer (no laundering through history).
 
 **Data-marking.** The sources are untrusted text: a document can say "ignore your instructions". Each
 source is a header line (``[n] title | section | page``) followed by its text with ``> `` in front of
@@ -39,19 +50,24 @@ from typing import Final
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
-from geekbot.agent.state import SourceRef
+from geekbot.agent.citations import check_citations
+from geekbot.agent.state import HistoryMessage, SourceRef
 from geekbot.domain import Label
 from geekbot.ingest.chunking import estimate_tokens
 
 __all__ = [
     "DATAMARK",
+    "HISTORY_HEADING",
     "MAX_QUESTION_TOKENS",
     "SYSTEM_PROMPT",
+    "PackedHistory",
     "PackedPrompt",
     "QuestionError",
     "check_question",
     "datamark",
+    "history_line",
     "load_prompt",
+    "pack_history",
     "pack_prompt",
     "source_block",
     "source_header",
@@ -59,6 +75,7 @@ __all__ = [
 ]
 
 DATAMARK: Final = "> "
+HISTORY_HEADING: Final = "Conversation so far (earlier in this chat, quoted):"
 
 # The question's share of the prompt: about 4,000 characters, a long paragraph or two. With the
 # system prompt (about 250 tokens), the sources (3,000) and the answer (512) it keeps the whole
@@ -91,13 +108,15 @@ class PackedPrompt:
     """The messages to send, how many sources they contain (``1..used``), and their labels.
 
     ``labels`` are the §8.2 labels of everything in the messages: always ``USER`` (the question),
-    and ``KB`` when at least one source is in. The system prompt is the application's own text and
+    ``KB`` when at least one source is in, and whatever labels the earlier messages that went in
+    carry (``history_used`` says how many). The system prompt is the application's own text and
     carries no label.
     """
 
     messages: list[BaseMessage]
     used: int
     labels: frozenset[Label]
+    history_used: int = 0
 
 
 def check_question(question: str) -> None:
@@ -157,14 +176,73 @@ def source_block(source: SourceRef) -> str:
     return f"{source_header(source)}\n{datamark(source['text'])}"
 
 
-def pack_prompt(question: str, sources: Sequence[SourceRef], *, budget_tokens: int) -> PackedPrompt:
+def history_line(message: HistoryMessage) -> str:
+    """One earlier message as one marked line: ``> User: ...`` or ``> Assistant: ...``.
+
+    The text is squeezed onto one line (so it cannot start a line of its own that looks like another
+    speaker) and an assistant message loses its ``[n]`` marks: they numbered the sources of the turn
+    it came from, and in a new prompt ``[1]`` would name a different chunk.
+    """
+    if message["role"] == "assistant":
+        speaker, text = "Assistant", check_citations(message["content"], 0).text
+    else:
+        speaker, text = "User", message["content"]
+    return f"{DATAMARK}{speaker}: {_one_line(text)}".rstrip()
+
+
+@dataclass(frozen=True)
+class PackedHistory:
+    """The earlier messages that fit: their marked lines, how many, and the labels they carry."""
+
+    lines: list[str]
+    labels: frozenset[Label]
+
+    @property
+    def count(self) -> int:
+        return len(self.lines)
+
+
+def pack_history(history: Sequence[HistoryMessage], *, budget_tokens: int) -> PackedHistory:
+    """The newest whole turns of ``history`` that fit in ``budget_tokens``, oldest first.
+
+    Messages are taken from the end until one does not fit, and the packing stops there (a gap in
+    the middle of a conversation would make it read as something that was never said). A turn is a
+    user message and the answer to it, so a first message that is an answer is dropped: the model
+    would otherwise see a reply to a question it cannot see. With a budget below 1 or no history the
+    result is empty.
+    """
+    chosen: list[HistoryMessage] = []
+    spent = 0
+    if budget_tokens >= 1:
+        for message in reversed(history):
+            cost = estimate_tokens(history_line(message))
+            if spent + cost > budget_tokens:
+                break
+            chosen.append(message)
+            spent += cost
+    chosen.reverse()
+    while chosen and chosen[0]["role"] != "user":
+        chosen.pop(0)
+    labels = frozenset(Label(name) for message in chosen for name in message["labels"])
+    return PackedHistory(lines=[history_line(message) for message in chosen], labels=labels)
+
+
+def pack_prompt(
+    question: str,
+    sources: Sequence[SourceRef],
+    *,
+    budget_tokens: int,
+    history: Sequence[HistoryMessage] = (),
+    history_budget_tokens: int = 0,
+) -> PackedPrompt:
     """Build the prompt for ``question`` from as many of ``sources`` as fit in ``budget_tokens``.
 
     ``sources`` must already be numbered and in rank order. With none that fit (or none given),
     ``used`` is 0 and the user message says so; the graph does not send such a prompt (it answers
-    "nothing found" without calling the model), but this function stays total.
-    ``ValueError`` if ``budget_tokens`` is below 1; ``QuestionError`` if the question is empty or
-    too long (``check_question``).
+    "nothing found" without calling the model), but this function stays total. ``history`` is the
+    thread's earlier messages; the newest whole turns that fit in ``history_budget_tokens`` go in
+    front of the sources (none by default). ``ValueError`` if ``budget_tokens`` is below 1;
+    ``QuestionError`` if the question is empty or too long (``check_question``).
     """
     if budget_tokens < 1:
         raise ValueError(f"budget_tokens must be at least 1, got {budget_tokens}")
@@ -178,11 +256,16 @@ def pack_prompt(question: str, sources: Sequence[SourceRef], *, budget_tokens: i
             break  # stop, do not skip: skipping would leave a gap in the numbers the model sees
         blocks.append(block)
         spent += cost
+    earlier = pack_history(history, budget_tokens=history_budget_tokens)
+    conversation = (
+        f"{HISTORY_HEADING}\n" + "\n".join(earlier.lines) + "\n\n" if earlier.lines else ""
+    )
     listing = "\n\n".join(blocks) if blocks else "(no sources)"
-    user = f"Sources:\n\n{listing}\n\nQuestion: {question}"
+    user = f"{conversation}Sources:\n\n{listing}\n\nQuestion: {question}"
     labels = frozenset({Label.USER, Label.KB}) if blocks else frozenset({Label.USER})
     return PackedPrompt(
         messages=[SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=user)],
         used=len(blocks),
-        labels=labels,
+        labels=labels | earlier.labels,
+        history_used=earlier.count,
     )

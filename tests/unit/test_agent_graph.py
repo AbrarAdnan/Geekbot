@@ -167,14 +167,17 @@ def test_the_whole_final_state_is_plain_data_a_checkpointer_could_save() -> None
     assert json.loads(json.dumps(final)) == final
 
 
-def test_the_graph_has_the_four_steps_and_the_two_ends() -> None:
+def test_the_graph_has_its_seven_steps_and_the_two_ends() -> None:
     nodes = set(build_graph().get_graph().nodes)
     assert nodes == {
         "__start__",
+        "begin_turn",
+        "condense",
         "retrieve",
         "generate",
         "validate_citations",
         "no_context",
+        "remember",
         "__end__",
     }
 
@@ -227,7 +230,7 @@ def test_no_context_cites_nothing_and_skips_the_check() -> None:
     final = run(FakeRetriever([]), FakeChat(AIMessage(content="unused")))
     assert final["cited"] == []
     assert final["dropped_citations"] == []
-    assert "raw_answer" not in final  # the citation node did not run
+    assert final["raw_answer"] == ""  # the citation node did not run (begin_turn cleared it)
 
 
 # --- labels (S3.2) ---------------------------------------------------------------------------
@@ -394,9 +397,9 @@ def test_reasoning_pieces_are_sent_apart_and_kept_out_of_the_answer() -> None:
     assert final["generation"]["thinking_chars"] == len("Let me check. Source 1 says 90.")
 
 
-def test_no_reasoning_means_no_thinking_key_in_the_state() -> None:
+def test_no_reasoning_means_no_thinking_text_in_the_state() -> None:
     final = run(FakeRetriever(TWO_CHUNKS), FakeChat(AIMessage(content="ok [1]")))
-    assert "thinking" not in final
+    assert final["thinking"] == ""
     assert "thinking_chars" not in final["generation"]
 
 
