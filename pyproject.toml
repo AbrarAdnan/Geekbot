@@ -37,6 +37,12 @@ dependencies = [
     # The CPU cross-encoder reranker (S2.3). The package only; its model weights are downloaded
     # on first use, into the data folder, never at install time.
     "fastembed>=0.7",
+    # The answer graph (S3.1): a fixed LangGraph state machine, LangChain's message types, and the
+    # Ollama chat model. LangChain 1.x line (PLAN.md section 1); no agent loop, no `langchain` meta
+    # package.
+    "langchain-core>=1.0",
+    "langchain-ollama>=1.0",
+    "langgraph>=1.0",
 ]
 
 [project.optional-dependencies]

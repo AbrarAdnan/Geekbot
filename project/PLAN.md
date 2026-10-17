@@ -1,4 +1,4 @@
-# Geekbot v2 — implementation plan (rev 18)
+# Geekbot v2 — implementation plan (rev 19)
 
 > **The measured results are the product; the architecture exists to make them credible.**
 > (This line also opens the v2 README.)
@@ -182,6 +182,11 @@ project/
   - Reason: the user wants a working prototype first and is overseeing the build; the questions are not on the critical path until S2.6 needs them
   - Cost, stated: the author of the documents, the questions and the system is one, so v0 is easy mode and its numbers are never a headline. Every v0 item carries a "provisional" flag, and results from it are reported as "Claude-authored golden v0, provisional" (CLAUDE.md rule 8). D-065 stays provisional as well
   - §9's description of the golden corpus is unchanged otherwise; §11's S2.4 row no longer asks the user for ~1 h of curation now (that time moves to the review of v0 and the user's own set)
+- **rev 19** (2026-10-17, user decision after S2.4; D-068): **the answering path comes before the measured ladder: S3.1 to S3.4 now, then S2.6 and CP2, then S3.5** (§10, §11):
+  - The user wants a working prototype before the ablation. S2.6 (rungs R0–R7, leave-one-out, the embedder and reranker bake-offs, `calibrate.py`; a long CPU run) and the CP2 checkpoint (the first evidence table and the one-time v1 reference run) move from the end of Phase 2 to **just before S3.5**, because S3.5 (abstain) is the first step that needs an output of S2.6: the calibrated abstain threshold
+  - The order of work becomes: Phase 1 → S2.1 to S2.5 → S3.1 to S3.4 (C4 after S3.4) → S2.6 → CP2 → S3.5 → S3.6 → Phase 4 → Gate A. CP2's "review before Phase 3" becomes "review before S3.5"
+  - Until S2.6, the answering graph uses the retrieval defaults that already exist (hybrid with reranking, 50 candidates a side, rerank depth 30, top-k 5). They are starting points, not measurements, and the code and notes say so
+  - Cost, stated: the first four steps of Phase 3 are built on retrieval settings that the ablation has not checked yet. If S2.6 changes a default (the rerank depth, say) that is a configuration change, but prompts and packing written meanwhile may need a second look. Phase 2 is not finished until S2.6 runs. D-065 must still be revisited before S2.6 runs anything, and everything computed on golden v0 stays provisional (rev 18)
 
 ## 5. v1 findings (verified; all fixed by v2)
 
@@ -578,8 +583,8 @@ A simulated user denies every approval. The report gives bypasses k/N (target 0)
 | 0 Setup | A | conda env, tooling, CI, `doctor` |
 | C1–C3 CSV analyst in | A | the copied package, its adapter, `geekbot csv ask`; measured model swap + reproduction run |
 | 1 Ingestion & storage | A | incremental, crash-safe indexing into SQLite + Chroma |
-| 2 Retrieval & first evidence | A | hybrid retrieval + rerank; ⛳ **first ablation table** + the one-time v1 reference run |
-| 3 Answering with LangGraph | A | fast streaming answers with memory, citations, abstention; **C4** mode router + CSV branch |
+| 2 Retrieval & first evidence | A | hybrid retrieval + rerank, the metrics, golden v0; ⛳ **first ablation table** (S2.6) + the one-time v1 reference run (CP2), which **run after S3.4 and before S3.5** (rev 19) |
+| 3 Answering with LangGraph | A | fast streaming answers with memory, citations, abstention; **C4** mode router + CSV branch; S3.1 to S3.4 come first, S2.6 and CP2 before S3.5 (rev 19) |
 | 4 Server & UI | A | single-owner API, OpenAI-compatible endpoint, Streamlit client; **C5** CSV upload + mode picker; ⛳ **Gate A review** |
 | 5 Evidence | B | bench/VRAM/latency, answer eval + judge, **C6** CSV-mode eval, web + taint, injection eval, README; ⛳ **Gate B review** |
 | 6 Integration | C | MCP server; ⛳ **Gate C review** |
@@ -592,7 +597,7 @@ A simulated user denies every approval. The report gives bypasses k/N (target 0)
 - 🎮 = loads a model on the GPU (run when your Gigalogy work isn't using it)
 - **C1–C6** = the CSV track (rev 11). "C" stands for CSV, not Gate C.
 
-**Order of work:** P0 → P1 → Phase 0 → C1–C3 → Phase 1 → Phase 2 → CP2 → Phase 3 (C4 after S3.4) → Phase 4 (C5 after S4.4) → Gate A → Phase 5 (C6 after S5.2) → Gate B → Phase 6 → Gate C.
+**Order of work (rev 19):** P0 → P1 → Phase 0 → C1–C3 → Phase 1 → S2.1–S2.5 → S3.1–S3.4 (C4 after S3.4) → S2.6 → CP2 → S3.5 → S3.6 → Phase 4 (C5 after S4.4) → Gate A → Phase 5 (C6 after S5.2) → Gate B → Phase 6 → Gate C. (Before rev 19: …Phase 2 → CP2 → Phase 3….)
 
 ### Step P0 — Project notes bootstrap (this planning chat, right after approval; writes files only, runs nothing)
 - **`project/PLAN.md`:** this plan, verbatim.
@@ -664,8 +669,8 @@ A simulated user denies every approval. The report gives bypasses k/N (target 0)
 | **S2.3 Reranking** | bi-encoder vs cross-encoder, rerank depth vs latency | `retrieval/rerank.py` (fastembed CPU), latency timing | the rerank-depth timing harness (p50/p95) | `geekbot search --mode hybrid_rerank` |
 | **S2.4 Eval datasets** | qrels, BEIR, building a golden set, unanswerable questions | `evals/datasets.py`, `eval generate`, golden-set format (from `evals/datasets/golden-questions.md`); settle the deferred eval questions (D-033). **Claude writes golden v0 (the corpus and ~100 provisional items, rev 18, D-067); you review it and add your own set later** | the golden-set JSONL validator | `geekbot eval generate` 🎮 → curate |
 | **S2.5 Metrics and statistics** | nDCG, Recall, MRR; bootstrap CI, permutation test, Holm | `evals/metrics.py`, `stats.py`, the Holm test family (D-033) | nDCG@k against hand-computed tests, and the paired bootstrap CI | `pytest` |
-| **S2.6 Ablation + bake-offs** | ablation design, confounds, leave-one-out, threshold calibration | rungs R0–R7, LOO, embedder/reranker bake-offs, `calibrate.py`, report writer | the abstain-threshold calibration (F1-optimal sweep) | `geekbot eval retrieval --config evals/configs/ablation.toml` (CPU-heavy, long run) |
-| ⛳ **Checkpoint: first evidence** | — | one-time v1 reference run (D-034) + draft README results section; Phase 1–2 look-back | — | create the `geekbot-v1` env, then the v1 run 🎮 (commands given then); we review the ablation table and the v1 reference together **before Phase 3** |
+| **S2.6 Ablation + bake-offs** (runs after S3.4, before S3.5: rev 19) | ablation design, confounds, leave-one-out, threshold calibration | rungs R0–R7, LOO, embedder/reranker bake-offs, `calibrate.py`, report writer | the abstain-threshold calibration (F1-optimal sweep) | `geekbot eval retrieval --config evals/configs/ablation.toml` (CPU-heavy, long run) |
+| ⛳ **Checkpoint: first evidence** (after S2.6; rev 19) | — | one-time v1 reference run (D-034) + draft README results section; Phase 1–2 look-back | — | create the `geekbot-v1` env, then the v1 run 🎮 (commands given then); we review the ablation table and the v1 reference together **before S3.5** (was: before Phase 3) |
 
 ### Phase 3 — Answering with LangGraph
 | Step | 🧠 Learn | 🛠 Build | ✍️ You write | ▶ You run |
@@ -675,7 +680,7 @@ A simulated user denies every approval. The report gives bypasses k/N (target 0)
 | **S3.3 Streaming + speed** 🎮 | streaming, TTFT, measuring latency properly (warm vs cold, percentiles), thinking models, warm-up, `keep_alive` | streaming, think toggle, `RunStats` (TTFT, tok/s, loads) | TTFT and tok/s measurement in `RunStats` | `geekbot ask --stream` (watch TTFT) |
 | **S3.4 Memory and follow-ups** 🎮 | conversational RAG, checkpointers, structured output | `AsyncSqliteSaver` threads, `condense` node | the `condense` output schema + prompt | multi-turn `geekbot ask --thread t1` |
 | **C4 Mode switch in the graph** 🎮 | deterministic routing vs LLM routing, per-mode state, rewriting follow-ups for a tool with no memory | thread `mode`, the mode router (§7), the CSV branch (`condense` with the CSV model → `csv_ask` in a worker thread → `sanitize`), `TOOL` labels, the swap at mode entry | the mode router (a pure function) + its tests | `pytest` · a multi-turn `geekbot csv ask --thread` demo |
-| **S3.5 Abstain, cite_check, sanitize** | abstention, relevance vs entailment, markdown-image exfiltration | grade/abstain, post-stream `cite_check`, `sanitize.py` (G3, also on CSV replies) | the streaming-safe image stripper | `pytest` · unanswerable question demo |
+| **S3.5 Abstain, cite_check, sanitize** | abstention, relevance vs entailment, markdown-image exfiltration | grade/abstain (with the threshold calibrated in S2.6), post-stream `cite_check`, `sanitize.py` (G3, also on CSV replies) | the streaming-safe image stripper | `pytest` · unanswerable question demo |
 | **S3.6 Parallelism + resilience** 🎮 | parallel branches, `RetryPolicy`, stream events, SLO smoke testing | dense ‖ lexical branches, retries, step events, live SLO smoke; Phase 3 look-back | the `RetryPolicy` and parallel-branch wiring | `pytest -m live` |
 
 ### Phase 4 — Server and UI

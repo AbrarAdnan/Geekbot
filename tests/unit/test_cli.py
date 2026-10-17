@@ -24,7 +24,6 @@ def test_no_arguments_shows_help() -> None:
 @pytest.mark.parametrize(
     ("args", "step"),
     [
-        (["ask", "what is RAG?"], "S3.1"),
         (["serve"], "S4.1"),
     ],
 )

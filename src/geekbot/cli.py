@@ -10,7 +10,7 @@ import logging
 from collections.abc import Sequence
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, NoReturn
+from typing import Annotated, Any, NoReturn
 
 import typer
 
@@ -38,6 +38,7 @@ from geekbot.llm.vram import (
     run_command,
 )
 from geekbot.log import setup_logging
+from geekbot.retrieval import SearchMode
 from geekbot.swapcheck import format_swap_report, run_swap_cycles
 
 # show_locals off: a crash traceback must never print a local variable that holds a secret.
@@ -262,15 +263,6 @@ def ingest(
         raise typer.Exit(1)
 
 
-class SearchMode(StrEnum):
-    """The values of ``--mode`` for ``search``."""
-
-    DENSE = "dense"
-    LEXICAL = "lexical"
-    HYBRID = "hybrid"
-    HYBRID_RERANK = "hybrid_rerank"
-
-
 @app.command()
 def search(
     query: Annotated[str, typer.Argument(help="What to look for, in your own words.")],
@@ -305,10 +297,9 @@ def search(
     from geekbot.index.sqlite import DB_FILE_NAME, Store
     from geekbot.index.workspace import Workspace
     from geekbot.retrieval import RetrievalResult, format_result
-    from geekbot.retrieval.dense import DenseRetriever
-    from geekbot.retrieval.hybrid import HybridRetriever
+    from geekbot.retrieval.factory import build_retriever
     from geekbot.retrieval.lexical import LexicalRetriever
-    from geekbot.retrieval.rerank import FastembedScorer, Reranker, RerankError
+    from geekbot.retrieval.rerank import RerankError
 
     settings = Settings()
     setup_logging(settings.log_level)
@@ -329,24 +320,8 @@ def search(
             with Workspace.open(settings) as workspace:
                 if workspace.dense.count() == 0:
                     _fail(nothing)
-                dense = DenseRetriever(workspace.store, workspace.dense, workspace.embedder)
-                if mode is SearchMode.DENSE:
-                    result = dense.search(query, top_k)
-                else:
-                    hybrid = HybridRetriever(
-                        dense, LexicalRetriever(workspace.store), candidates=candidates
-                    )
-                    if mode is SearchMode.HYBRID:
-                        result = hybrid.search(query, top_k)
-                    else:
-                        scorer = FastembedScorer(
-                            settings.rerank_model,
-                            cache_dir=settings.data_dir / "models",
-                            threads=settings.rerank_threads,
-                        )
-                        result = Reranker(hybrid, scorer, depth=settings.rerank_depth).search(
-                            query, top_k
-                        )
+                retriever = build_retriever(mode, workspace, settings, candidates=candidates)
+                result = retriever.search(query, top_k)
     except StorageLockedError as error:
         _fail(str(error))
     except FingerprintMismatchError as error:
@@ -679,10 +654,94 @@ def eval_fetch(
         _fail(str(error))
 
 
-@app.command(context_settings=_STUB)
-def ask() -> None:
-    """Ask a question."""
-    _not_built("ask", "S3.1")
+@app.command()
+def ask(
+    question: Annotated[str, typer.Argument(help="Your question, in your own words.")],
+    top_k: Annotated[
+        int, typer.Option("--top-k", min=1, help="How many chunks to find and offer the model.")
+    ] = 5,
+    mode: Annotated[
+        SearchMode,
+        typer.Option(
+            "--mode",
+            help="How to find the chunks, as in `search`. The default adds the cross-encoder "
+            "(its first use downloads its model).",
+        ),
+    ] = SearchMode.HYBRID_RERANK,
+    candidates: Annotated[
+        int,
+        typer.Option(
+            "--candidates",
+            min=1,
+            help="hybrid and hybrid_rerank: how many chunks each side contributes before fusing.",
+        ),
+    ] = 50,
+    show_prompt: Annotated[
+        bool,
+        typer.Option("--show-prompt", help="Also print the exact messages the model received."),
+    ] = False,
+) -> None:
+    """Answer a question from the knowledge base with the chat model (uses the GPU).
+
+    The chat model is loaded explicitly first (the other mode's model is unloaded: they never share
+    the GPU), then the question runs through a fixed graph: find the best chunks, then ask the model
+    to answer from them. Below the answer come the sources the model was shown (the numbers match
+    its [n] marks) and the readings of the run: where the time went and whether the model had to be
+    loaded. Only ready documents are searched. The storage lock is held for the whole command.
+    """
+    # Imported here: LangGraph, LangChain and Chroma are slow to import, and `geekbot --version`
+    # or `geekbot doctor` should not wait for them.
+    from geekbot.agent.graph import build_graph
+    from geekbot.agent.packing import pack_prompt
+    from geekbot.agent.render import format_answer, format_prompt
+    from geekbot.agent.runtime import AgentContext
+    from geekbot.index.dense import FingerprintMismatchError
+    from geekbot.index.lock import StorageLockedError
+    from geekbot.index.sqlite import DB_FILE_NAME
+    from geekbot.index.workspace import Workspace
+    from geekbot.llm.chat import ChatError, make_chat_model
+    from geekbot.llm.models import swap_to_mode
+    from geekbot.retrieval.factory import build_retriever
+    from geekbot.retrieval.rerank import RerankError
+
+    settings = Settings()
+    setup_logging(settings.log_level)
+    nothing = "nothing is indexed yet; run `geekbot ingest <folder>` first"
+    # Opening the store would create an empty database (see `search`); a question never does.
+    if not (settings.data_dir / DB_FILE_NAME).is_file():
+        _fail(nothing)
+    model = settings.resolved_chat_model
+    final: dict[str, Any]
+    try:
+        with Workspace.open(settings) as workspace:
+            if workspace.dense.count() == 0:
+                _fail(nothing)
+            retriever = build_retriever(mode, workspace, settings, candidates=candidates)
+            with OllamaClient(settings.ollama_host) as client:
+                swap = swap_to_mode(client, settings, "chat")
+            released = f", unloaded {', '.join(swap.unloaded)}" if swap.unloaded else ""
+            typer.echo(f"{model} ready ({swap.warm_up_s:.1f} s to load{released})", err=True)
+            context = AgentContext(
+                retriever=retriever,
+                llm=make_chat_model(settings),
+                model=model,
+                top_k=top_k,
+                context_budget_tokens=settings.context_budget_tokens,
+            )
+            typer.echo(f"asking {model}...", err=True)
+            final = build_graph().invoke({"question": question}, context=context)
+    except StorageLockedError as error:
+        _fail(str(error))
+    except FingerprintMismatchError as error:
+        _fail(f"{error}\nRun `geekbot ingest --reindex` to rebuild the vectors.")
+    except (OllamaError, RerankError, ChatError) as error:
+        _fail(str(error))
+    typer.echo(format_answer(final, model=model))
+    if show_prompt:
+        packed = pack_prompt(
+            question, final.get("sources", []), budget_tokens=settings.context_budget_tokens
+        )
+        typer.echo(f"\n{format_prompt(packed)}")
 
 
 @app.command(context_settings=_STUB)
