@@ -135,6 +135,50 @@ class OllamaClient:
             {"model": model, "prompt": "", "stream": False, "keep_alive": 0},
         )
 
+    def generate(
+        self,
+        model: str,
+        prompt: str,
+        *,
+        system: str | None = None,
+        schema: dict[str, object] | None = None,
+        num_ctx: int,
+        keep_alive: str,
+        temperature: float = 0.3,
+        seed: int | None = None,
+    ) -> str:
+        """One non-streaming completion, constrained to JSON; return the raw reply text.
+
+        For work that is not a conversation: the eval question drafter (S2.4) is the first user.
+        ``schema`` is a JSON Schema that Ollama enforces while it generates (without one, the
+        reply is only promised to be *some* JSON). ``num_ctx`` and ``keep_alive`` must be the
+        values the model was warmed up with, or Ollama reloads it (R-2). A ``seed`` makes the
+        reply repeatable at a given temperature. The reply is never parsed here: the caller
+        validates it, because a model's JSON can still be the wrong shape. If ``response`` is
+        empty the ``thinking`` text is returned, as some models put the whole answer there.
+        """
+        options: dict[str, object] = {"temperature": temperature, "num_ctx": num_ctx}
+        if seed is not None:  # 0 is a real seed, so test for None
+            options["seed"] = seed
+        body: dict[str, object] = {
+            "model": model,
+            "prompt": prompt,
+            "stream": False,
+            "format": schema if schema is not None else "json",
+            "keep_alive": keep_alive,
+            "options": options,
+        }
+        if system is not None:
+            body["system"] = system
+        data = self._call("POST", "/api/generate", body)
+        text = data.get("response")
+        if not isinstance(text, str):
+            raise OllamaError(f"Ollama reply for {model} has no response text")
+        if text:
+            return text
+        thinking = data.get("thinking")
+        return thinking if isinstance(thinking, str) else ""
+
 
 # --- explicit swaps (step C3, PLAN.md §6.5 R-4) ---------------------------------------------
 

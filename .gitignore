@@ -32,3 +32,7 @@ condaenv.*.requirements.txt
 # CSV reproduction runs on the light profile are plumbing checks, never results (D-043);
 # only target-profile result files are committed (evals/csv/README.md)
 /evals/csv/results/repro-proto-*.json
+
+# Model-drafted golden questions are scratch to curate from, not data (S2.4). The curated
+# golden-questions.md and the golden.jsonl generated from it are committed.
+/evals/datasets/golden-draft.md
