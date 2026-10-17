@@ -8,9 +8,11 @@ the result must be predictable (BM25 finds exactly the documents that contain th
 """
 
 import ast
+import asyncio
 import math
 from collections.abc import Iterator, Sequence
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Self
 
 import pytest
@@ -20,6 +22,8 @@ from typer.testing import CliRunner
 from geekbot.agent.condense import CondenseOutput
 from geekbot.agent.nodes import NO_CONTEXT_ANSWER
 from geekbot.agent.packing import HISTORY_HEADING
+from geekbot.agent.runner import run_turn
+from geekbot.agent.runtime import AgentContext, UnavailableChat, UnavailableRetriever
 from geekbot.cli import app
 from geekbot.config import Settings
 from geekbot.index.embedder import EmbedderSpec, PrefixedEmbeddings
@@ -546,16 +550,64 @@ def test_show_prompt_in_a_thread_shows_the_earlier_turn_the_model_was_given(
     assert shown.rstrip().endswith(f"Question: {FOLLOW_UP}")
 
 
+def test_a_csv_thread_cannot_be_continued_as_a_chat_thread_and_nothing_is_loaded(
+    indexed: None, llm: FakeLlm, tmp_path: Path
+) -> None:
+    class Csv:
+        def ask(self, question: str, /) -> Any:
+            return SimpleNamespace(
+                markdown="North.", status="answered", model="m", seconds=1.0, model_load_ms=0
+            )
+
+    csv_context = AgentContext(
+        retriever=UnavailableRetriever(),
+        llm=UnavailableChat(),
+        model="m",
+        top_k=1,
+        context_budget_tokens=3000,
+        csv=Csv(),
+    )
+    threads_db = tmp_path / "data" / "threads.db"
+    asyncio.run(
+        run_turn(
+            "q?",
+            context=csv_context,
+            thread="t1",
+            threads_db=threads_db,
+            mode="csv",
+            csv_file="x.csv",
+        )
+    )
+    result = ask(BREAD, "--mode", "lexical", "--thread", "t1")
+    assert result.exit_code == 1
+    assert "csv conversation and cannot become a chat one" in result.output
+    assert llm.swaps == []  # refused before any model was loaded
+    assert llm.chat.calls == []
+
+
 def test_thread_show_lists_the_messages_with_their_labels_and_the_taint(
     indexed: None, llm: FakeLlm
 ) -> None:
     ask(BREAD, "--mode", "lexical", "--thread", "t1")
     result = runner.invoke(app, ["thread", "show", "t1"])
     assert result.exit_code == 0, result.output
-    assert "thread t1: 1 turns, 2 messages remembered" in result.output
+    assert "thread t1 (chat): 1 turns, 2 messages remembered" in result.output
     assert f"t1-user [USER] {BREAD}" in result.output
     assert f"t1-assistant [KB, USER] {ANSWER}" in result.output
     assert "taint: KB, USER" in result.output
+
+
+def test_thread_show_prints_each_message_on_one_line_and_cuts_a_long_one(
+    indexed: None, llm: FakeLlm
+) -> None:
+    long_answer = "Line one.\n\n| a | b |\n|---|---|\n" + "word " * 100 + "[1]"
+    llm.chat = FakeChat(AIMessage(content=long_answer))
+    ask(BREAD, "--mode", "lexical", "--thread", "t1")
+    lines = runner.invoke(app, ["thread", "show", "t1"]).output.splitlines()
+    answer_line = next(line for line in lines if line.startswith("  t1-assistant"))
+    assert answer_line.endswith("...")
+    assert "Line one. | a | b |" in answer_line  # the line breaks became spaces
+    assert len(lines) == 4  # the header, two messages, the taint
 
 
 def test_thread_show_and_delete_say_so_for_a_thread_that_does_not_exist(

@@ -167,7 +167,7 @@ def test_the_whole_final_state_is_plain_data_a_checkpointer_could_save() -> None
     assert json.loads(json.dumps(final)) == final
 
 
-def test_the_graph_has_its_seven_steps_and_the_two_ends() -> None:
+def test_the_graph_has_its_eight_steps_and_the_two_ends() -> None:
     nodes = set(build_graph().get_graph().nodes)
     assert nodes == {
         "__start__",
@@ -177,6 +177,7 @@ def test_the_graph_has_its_seven_steps_and_the_two_ends() -> None:
         "generate",
         "validate_citations",
         "no_context",
+        "csv_ask",
         "remember",
         "__end__",
     }
