@@ -17,7 +17,16 @@ import typer
 from geekbot import __version__
 from geekbot.config import Mode, Settings, mask_settings
 from geekbot.doctor import format_checks, has_failure, run_doctor
-from geekbot.evals import DEFAULT_RUNS, DEFAULT_SOURCE, DEFAULT_TIME_LIMIT_S, SUITE_NAMES
+from geekbot.evals import (
+    DEFAULT_CORPUS,
+    DEFAULT_GOLDEN_DRAFT,
+    DEFAULT_GOLDEN_JSONL,
+    DEFAULT_GOLDEN_MARKDOWN,
+    DEFAULT_RUNS,
+    DEFAULT_SOURCE,
+    DEFAULT_TIME_LIMIT_S,
+    SUITE_NAMES,
+)
 from geekbot.llm.models import OllamaClient, OllamaError, model_is_pulled
 from geekbot.llm.vram import (
     NVIDIA_SMI_MEMORY_COMMAND,
@@ -41,8 +50,10 @@ app = typer.Typer(
 )
 config_app = typer.Typer(help="Inspect the settings.", no_args_is_help=True)
 csv_app = typer.Typer(help="CSV analyst mode.", no_args_is_help=True)
+eval_app = typer.Typer(help="Evaluation data: golden set, BEIR sets.", no_args_is_help=True)
 app.add_typer(config_app, name="config")
 app.add_typer(csv_app, name="csv")
+app.add_typer(eval_app, name="eval")
 
 # Stubs accept any arguments, so `geekbot ask "hi"` reaches the "not built yet" message
 # instead of a usage error.
@@ -407,6 +418,265 @@ def rerank_timing(
     except (RerankError, ValueError) as error:
         _fail(str(error))
     typer.echo(format_depth_timings(settings.rerank_model, timings))
+
+
+# --- eval: the golden set and the public benchmarks (step S2.4) ------------------------------
+
+CorpusOption = Annotated[
+    Path,
+    typer.Option(
+        "--corpus",
+        help="The folder the corpus was ingested from. Document ids come from file paths, so "
+        "it must be the same folder (and spelling) that was given to `geekbot ingest`.",
+    ),
+]
+
+
+def _echo_problems(problems: Sequence[object]) -> None:
+    for problem in problems:
+        typer.echo(str(problem), err=True)
+
+
+@eval_app.command("import")
+def eval_import(
+    source: Annotated[
+        Path, typer.Option("--source", help="The filled-in question template.")
+    ] = DEFAULT_GOLDEN_MARKDOWN,
+    out: Annotated[
+        Path, typer.Option("--out", help="The JSON Lines file to write.")
+    ] = DEFAULT_GOLDEN_JSONL,
+    corpus: CorpusOption = DEFAULT_CORPUS,
+) -> None:
+    """Turn the question template into golden.jsonl. Nothing is written while it has errors.
+
+    Edit the markdown, never the JSONL: the JSONL is overwritten every time. Uses no model.
+    """
+    from geekbot.evals.datasets import (
+        assign_splits,
+        describe_set,
+        list_corpus_files,
+        validate_golden,
+        write_golden,
+    )
+    from geekbot.evals.golden_md import import_markdown
+
+    if not source.is_file():
+        _fail(f"{source} does not exist")
+    result = import_markdown(source.read_text(encoding="utf-8"))
+    corpus_files = list_corpus_files(corpus) if corpus.is_dir() else None
+    if corpus_files is None:
+        typer.echo(f"note: {corpus} is not a folder; source file names are not checked", err=True)
+    report = validate_golden(result.items, corpus_files=corpus_files)
+    problems = [*result.problems, *report.problems]
+    typer.echo(
+        f"read {len(result.items)} items from {source} ({len(result.blank)} template blocks left "
+        "blank)"
+    )
+    _echo_problems(problems)
+    errors = sum(1 for problem in problems if problem.severity == "error")
+    if errors:
+        typer.echo(f"{errors} errors: {out} was not written", err=True)
+        raise typer.Exit(1)
+    write_golden(out, result.items)
+    typer.echo(describe_set(result.items, assign_splits(result.items)))
+    typer.echo(f"wrote {out}")
+
+
+@eval_app.command("validate")
+def eval_validate(
+    golden: Annotated[
+        Path, typer.Option("--golden", help="The JSON Lines file to check.")
+    ] = DEFAULT_GOLDEN_JSONL,
+    corpus: CorpusOption = DEFAULT_CORPUS,
+    check_index: Annotated[
+        bool,
+        typer.Option(
+            "--check-index",
+            help="Also check that every source is a ready document in the knowledge base. "
+            "Needs `geekbot ingest` to have run on the corpus folder; takes the storage lock.",
+        ),
+    ] = False,
+) -> None:
+    """Check golden.jsonl and show how it splits into development and test items. No model."""
+    from geekbot.evals.datasets import (
+        GoldenFormatError,
+        assign_splits,
+        describe_set,
+        list_corpus_files,
+        load_golden,
+        unindexed_sources,
+        validate_golden,
+    )
+    from geekbot.index.lock import StorageLockedError
+    from geekbot.index.sqlite import DB_FILE_NAME, Store
+
+    if not golden.is_file():
+        _fail(f"{golden} does not exist; run `geekbot eval import` first")
+    try:
+        items = load_golden(golden)
+    except GoldenFormatError as error:
+        _fail(f"{golden}: {error}")
+    corpus_files = list_corpus_files(corpus) if corpus.is_dir() else None
+    report = validate_golden(items, corpus_files=corpus_files)
+    _echo_problems(report.problems)
+    failed = not report.ok
+    if report.ok:
+        typer.echo(describe_set(items, assign_splits(items)))
+    if check_index and report.ok:
+        settings = Settings()
+        setup_logging(settings.log_level)
+        if not (settings.data_dir / DB_FILE_NAME).is_file():
+            _fail("nothing is indexed yet; run `geekbot ingest <folder>` first")
+        try:
+            with Store(settings.data_dir) as store:
+                ready = {document.doc_id for document in store.list_documents("ready")}
+        except StorageLockedError as error:
+            _fail(str(error))
+        missing = unindexed_sources(items, corpus, ready)
+        for item_id, path in missing:
+            typer.echo(f"error: {item_id}: {path} is not a ready document in the index", err=True)
+        failed = failed or bool(missing)
+    if failed:
+        raise typer.Exit(1)
+    typer.echo("ok")
+
+
+@eval_app.command("generate")
+def eval_generate(
+    count: Annotated[
+        int, typer.Option("--count", min=0, help="How many answerable questions to draft.")
+    ] = 40,
+    unanswerable: Annotated[
+        int, typer.Option("--unanswerable", min=0, help="How many unanswerable ones to draft.")
+    ] = 10,
+    corpus: CorpusOption = DEFAULT_CORPUS,
+    out: Annotated[
+        Path, typer.Option("--out", help="The markdown file of drafts to curate from.")
+    ] = DEFAULT_GOLDEN_DRAFT,
+    seed: Annotated[int, typer.Option("--seed", help="Which passages, and the model's seed.")] = 0,
+    force: Annotated[
+        bool, typer.Option("--force", help="Overwrite the draft file if it exists.")
+    ] = False,
+) -> None:
+    """Draft questions from stored passages with the chat model (uses the GPU).
+
+    The output is a markdown file to copy from, never data: you keep, reword or drop every draft.
+    Needs the corpus ingested (`geekbot ingest`), but not the embedder. Multi-hop and multi-turn
+    questions are not drafted; write those yourself.
+    """
+    from geekbot.evals.draft import (
+        DRAFT_SCHEMA,
+        candidate_chunks,
+        make_drafts,
+        render_drafts,
+        spread_picks,
+    )
+    from geekbot.index.lock import StorageLockedError
+    from geekbot.index.sqlite import DB_FILE_NAME, Store
+    from geekbot.llm.models import swap_to_mode
+
+    settings = Settings()
+    setup_logging(settings.log_level)
+    if count + unanswerable == 0:
+        _fail("nothing to draft: --count and --unanswerable are both 0")
+    if out.exists() and not force:
+        _fail(f"{out} exists; copy what you want from it, then move it away or use --force")
+    if not (settings.data_dir / DB_FILE_NAME).is_file():
+        _fail("nothing is indexed yet; run `geekbot ingest <folder>` first")
+    try:
+        with Store(settings.data_dir) as store:
+            groups = candidate_chunks(store, corpus)
+    except StorageLockedError as error:
+        _fail(str(error))
+    picks = spread_picks(groups, count + unanswerable, f"draft-{seed}")
+    if not picks:
+        _fail(f"no usable passages (300 to 3000 characters) in the ready documents under {corpus}")
+    if len(picks) < count + unanswerable:
+        typer.echo(f"note: only {len(picks)} usable passages, fewer than asked for", err=True)
+    model = settings.resolved_chat_model
+    try:
+        with OllamaClient(settings.ollama_host) as client:
+            swap = swap_to_mode(client, settings, "chat")
+            typer.echo(f"{model} loaded in {swap.warm_up_s:.1f} s; drafting {len(picks)} questions")
+
+            def generate(system: str, prompt: str) -> str:
+                return client.generate(
+                    model,
+                    prompt,
+                    system=system,
+                    schema=DRAFT_SCHEMA,
+                    num_ctx=settings.chat_num_ctx,
+                    keep_alive=settings.keep_alive,
+                    seed=seed,
+                )
+
+            answerable = make_drafts(picks[:count], "single_hop", generate, corpus)
+            near_misses = picks[count : count + unanswerable]
+            unanswered = make_drafts(near_misses, "unanswerable", generate, corpus)
+    except OllamaError as error:
+        _fail(str(error))
+    drafts = [*answerable.drafts, *unanswered.drafts]
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(
+        render_drafts(drafts, model=model, profile=settings.profile), encoding="utf-8", newline="\n"
+    )
+    failed = answerable.failed + unanswered.failed
+    typer.echo(f"wrote {len(drafts)} drafts to {out} ({failed} replies were unusable)")
+
+
+@eval_app.command("fetch")
+def eval_fetch(
+    datasets: Annotated[
+        list[str] | None,
+        typer.Argument(help="scifact and/or nfcorpus. Default: both."),
+    ] = None,
+    force: Annotated[
+        bool, typer.Option("--force", help="Download again even if already unpacked.")
+    ] = False,
+    destination: Annotated[
+        Path | None,
+        typer.Option("--dest", help="Where to keep them. Default: <data dir>/beir."),
+    ] = None,
+) -> None:
+    """Download the BEIR datasets once and print what each split holds (network, no model).
+
+    The first download of a dataset records its SHA-256 beside the data (trust on first use);
+    every later download must match it.
+    """
+    import httpx
+
+    from geekbot.evals.beir import (
+        DATASET_NAMES,
+        HEADLINE_SPLIT,
+        TUNING_SPLIT,
+        BeirError,
+        fetch_beir,
+        load_beir,
+    )
+
+    settings = Settings()
+    setup_logging(settings.log_level)
+    names = datasets or list(DATASET_NAMES)
+    unknown = [name for name in names if name not in DATASET_NAMES]
+    if unknown:
+        _fail(f"unknown dataset(s) {', '.join(unknown)}; choose from {', '.join(DATASET_NAMES)}")
+    root = destination or settings.data_dir / "beir"
+    try:
+        with httpx.Client(follow_redirects=True, timeout=60.0) as client:
+            for name in names:
+                fetched = fetch_beir(name, root, client=client, force=force)
+                if not fetched.downloaded:
+                    typer.echo(f"{name}: already unpacked in {fetched.folder}")
+                else:
+                    note = " (first download: recorded as the reference)"
+                    typer.echo(
+                        f"{name}: downloaded {fetched.size_bytes / 1e6:.1f} MB, "
+                        f"sha256 {fetched.sha256}{note if fetched.new_checksum else ''}"
+                    )
+                for split in (TUNING_SPLIT[name], HEADLINE_SPLIT):
+                    typer.echo(f"  {load_beir(fetched.folder, split).summary()}")
+    except BeirError as error:
+        _fail(str(error))
 
 
 @app.command(context_settings=_STUB)
