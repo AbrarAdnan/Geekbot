@@ -26,7 +26,6 @@ from geekbot.llm.models import OllamaError, SwapResult
 pytestmark = pytest.mark.usefixtures("clean_geekbot_env")
 
 runner = CliRunner()
-REPO_TEMPLATE = Path(__file__).resolve().parents[2] / "evals" / "datasets" / "golden-questions.md"
 DIM = 8
 SPEC = EmbedderSpec(
     model="fake",
@@ -205,12 +204,18 @@ def test_import_of_a_missing_source_is_an_error(tmp_path: Path) -> None:
     assert "does not exist" in result.output
 
 
-def test_import_of_the_blank_template_finds_nothing_to_write(tmp_path: Path) -> None:
+def test_import_of_a_blank_template_finds_nothing_to_write(tmp_path: Path) -> None:
     out = tmp_path / "golden.jsonl"
-    result = run("eval", "import", "--source", str(REPO_TEMPLATE), "--out", str(out))
+    blank = (
+        "### S-001\n- **Question:**\n- **Where the answer is:**\n- **Must include:**\n"
+        "- **Notes:**\n\n### U-001\n- **Question:**\n- **Why it can't be answered:**\n"
+        "- **Notes:**\n"
+    )
+    source = write_questions(tmp_path, blank)
+    result = run("eval", "import", "--source", str(source), "--out", str(out))
     assert result.exit_code == 1
     assert "read 0 items" in result.output
-    assert "4 template blocks left blank" in result.output
+    assert "2 template blocks left blank" in result.output
     assert "the golden set is empty" in result.output
     assert not out.exists()
 

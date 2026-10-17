@@ -204,9 +204,9 @@ def test_a_filled_template_validates_and_round_trips_through_the_jsonl() -> None
     assert parse_golden(dump_golden(items)) == list(items)
 
 
-def test_the_template_in_the_repo_is_all_blank_and_has_no_problems() -> None:
-    """The shipped template must stay importable: its worked example is fenced, its blocks empty."""
+def test_the_questions_file_in_the_repo_imports_cleanly() -> None:
+    """The shipped file must stay importable: its worked example is fenced, no block is blank."""
     result = import_markdown(TEMPLATE.read_text(encoding="utf-8"))
-    assert result.items == ()
-    assert result.blank == ("S-001", "M-001", "T-001", "U-001")
     assert result.problems == ()
+    assert result.blank == ()
+    assert len(result.items) == 100  # golden v0: 50 + 15 + 15 + 20 (D-067)

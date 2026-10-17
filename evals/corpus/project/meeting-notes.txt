@@ -1,0 +1,71 @@
+PROJECT LANTERN: MEETING NOTES
+Brightwater Studio. Notes kept by Daniel Reyes.
+
+----------------------------------------------------------------
+3 March 2025: Kickoff
+Present: Maya Okafor, Daniel Reyes, Priya Nair, Tomasz Lewandowski, Hannah Frost, Samir Haddad.
+
+Decisions
+- Go ahead with a local assistant on one workstation, as recommended in the vendor memo of 28 February.
+- Name of the project: Project Lantern.
+- Daniel Reyes owns the project. Maya Okafor is the sponsor.
+
+Actions
+- Priya Nair: order the hardware by 17 March.
+- Tomasz Lewandowski: draft the AI use policy for approval by 21 March.
+- Samir Haddad: confirm the budget of 17,258 pounds for the first year.
+
+----------------------------------------------------------------
+10 March 2025: Policy draft
+Present: Maya Okafor, Daniel Reyes, Tomasz Lewandowski, Hannah Frost.
+
+Discussion
+- Tomasz proposed keeping chat logs for 30 days, to keep the amount of stored client material small.
+- Hannah said designers go back to a client thread up to three months later, for example when a client returns after a pause, and a 30 day limit would lose that context.
+- Maya agreed with Hannah.
+
+Decisions
+- Chat logs are kept for 90 days, not 30.
+- Audit logs, which hold no conversation text, are kept for a year.
+
+Actions
+- Tomasz Lewandowski: update the draft and send it to Maya.
+
+----------------------------------------------------------------
+7 April 2025: Pilot starts
+Present: Daniel Reyes, Priya Nair, Hannah Frost, Samir Haddad, Leo Park.
+
+Decisions
+- The pilot runs for four weeks, from 7 April to 2 May.
+- Pilot users are Hannah Frost, Daniel Reyes, Samir Haddad and Leo Park. Hannah leads the group.
+
+Actions
+- Priya Nair: shorten the context length and measure again, because the first benchmark missed the response time target.
+- Hannah Frost: ask pilot users to fill in a short survey in the last week.
+
+----------------------------------------------------------------
+5 May 2025: Pilot review
+Present: Maya Okafor, Daniel Reyes, Priya Nair, Tomasz Lewandowski, Hannah Frost.
+
+Findings
+- The four pilot users sent 1,386 prompts.
+- There were four incidents during the pilot, INC-001 to INC-004. One was serious enough to be level S2: INC-003, where a client draft was pasted into the wrong project workspace.
+- After INC-003 the team decided to show the workspace name as a banner at the top of every chat. Priya Nair made the change on 24 April.
+- The satisfaction score from the survey was 4.3 out of 5.
+- The 95th percentile response time is now 2.8 seconds, inside the target of 3 seconds.
+
+Decisions
+- Roll out to all 12 staff on 12 May.
+- Everyone must attend a 45 minute training session first. Sessions are on 5 May and 6 May.
+
+----------------------------------------------------------------
+12 June 2025: After INC-006
+Present: Maya Okafor, Daniel Reyes, Tomasz Lewandowski.
+
+Findings
+- INC-006, on 3 June, was a member of staff using an outside cloud AI tool for Amber data. Level S2. Tomasz reviewed it and found no client data left the studio in a form that could be read by others, but the rule had still been broken.
+- INC-005, on 20 May, was the retention job not running for one night because its cron entry was lost in a system update. Priya restored it and added a check that raises an alert when the job has not run.
+
+Decisions
+- Tomasz will run a 20 minute refresher for all staff in June.
+- A reminder about the data classes goes at the top of the staff FAQ.
