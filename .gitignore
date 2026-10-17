@@ -1,38 +1,4 @@
-# v1 runtime files (v1 is removed at step S4.4)
-/chroma
-/uploaded
-/rag_ui.sqlite
-
-# Python bytecode, build output and tool caches
-__pycache__/
-*.py[cod]
-*.egg-info/
-/build/
-/dist/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.hypothesis/
-.coverage
-htmlcov/
-
-# Environments: the project uses the conda env `geekbot`, which lives outside the repo
-venv/
-.venv/
-# temporary file conda writes next to environment.yml while it runs pip
-condaenv.*.requirements.txt
-
-# Local data (SQLite, Chroma, the storage lock) and secrets
-/data/
-.env
-
-# Reference copies of other projects, for reading only (e.g. Gigalogy while doing step C1)
-/scratch/
-
-# CSV reproduction runs on the light profile are plumbing checks, never results (D-043);
-# only target-profile result files are committed (evals/csv/README.md)
-/evals/csv/results/repro-proto-*.json
-
-# Model-drafted golden questions are scratch to curate from, not data (S2.4). The curated
-# golden-questions.md and the golden.jsonl generated from it are committed.
-/evals/datasets/golden-draft.md
+__pycache__
+chroma
+uploaded
+rag_ui.sqlite
