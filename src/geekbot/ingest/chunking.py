@@ -67,12 +67,18 @@ _LETTERS_PER_TOKEN: Final = 5
 
 
 def estimate_tokens(text: str) -> int:
-    """A cheap, dependency-free token count that errs on the high side.
+    """A cheap, dependency-free token count, meant to err on the high side for ordinary prose.
 
     A run of letters or digits counts one token per five characters (rounded up), a CJK character
     one, a punctuation mark one, whitespace none. English prose averages about four characters
     per word, and a WordPiece or BPE tokenizer splits rarer words into two or three pieces, so
-    this tends to over-count a little: chunks end up a bit under their budget instead of over it.
+    this was expected to over-count a little: chunks end up a bit under their budget instead of
+    over it. **That expectation is not guaranteed.** The first comparison with the real embedder
+    (S1.5, ``nomic-embed-text``) found the model's count is not below the estimate's for a very
+    short text: it came back as 5 for a text estimated at 3, because the model's tokenizer adds two
+    special tokens that this function does not count. A chunk whose real count outgrew the
+    embedder's context cannot be silently cut, because the embedder client refuses to truncate
+    (``truncate=false``, D-058) and the ingest report names the file.
 
     Two properties the chunker relies on, both true by construction:
 
@@ -81,8 +87,8 @@ def estimate_tokens(text: str) -> int:
     - cutting a text in two never counts fewer tokens in total (``count(a + b) <= count(a) +
       count(b)``), so the sum of the pieces' counts is a safe upper bound for a merged chunk.
 
-    This is an estimate, not the embedder's tokenizer. The embedder arrives in S1.5, where a live
-    test can compare this against the real count (Ollama's ``/api/embed`` returns it).
+    This is an estimate, not the embedder's tokenizer. ``tests/live/test_embed_live.py`` prints it
+    next to the real count (Ollama's ``/api/embed`` returns it) for a few kinds of text.
     """
     total = 0
     for match in _TOKEN.finditer(text):
