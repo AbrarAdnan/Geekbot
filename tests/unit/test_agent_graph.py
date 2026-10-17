@@ -1,4 +1,4 @@
-"""Tests for step S3.1: the answer graph, its nodes, and the generate step (this step's ✍️ piece).
+"""Tests for steps S3.1 and S3.2: the answer graph, its nodes, generate and the citation check.
 
 No model, no Ollama, no database: the retriever and the chat model are small fakes that record what
 they were asked, and the graph is run for real, so the wiring (which node follows which, what lands in
@@ -16,12 +16,15 @@ from geekbot.agent.nodes import (
     NO_CONTEXT_ANSWER,
     generation_stats,
     has_sources,
+    label_names,
     message_text,
+    section_trail,
     source_refs,
+    validate_citations,
 )
 from geekbot.agent.runtime import AgentContext
 from geekbot.agent.state import AgentState
-from geekbot.domain import Chunk, ScoredChunk
+from geekbot.domain import Chunk, Label, ScoredChunk
 from geekbot.llm.chat import ChatError
 from geekbot.retrieval import RetrievalResult
 
@@ -144,9 +147,102 @@ def test_the_whole_final_state_is_plain_data_a_checkpointer_could_save() -> None
     assert json.loads(json.dumps(final)) == final
 
 
-def test_the_graph_has_the_three_steps_and_the_two_ends() -> None:
+def test_the_graph_has_the_four_steps_and_the_two_ends() -> None:
     nodes = set(build_graph().get_graph().nodes)
-    assert nodes == {"__start__", "retrieve", "generate", "no_context", "__end__"}
+    assert nodes == {
+        "__start__",
+        "retrieve",
+        "generate",
+        "validate_citations",
+        "no_context",
+        "__end__",
+    }
+
+
+# --- citations (S3.2) ------------------------------------------------------------------------
+
+
+def test_a_citation_to_a_missing_source_is_removed_and_the_raw_text_is_kept() -> None:
+    chat = FakeChat(AIMessage(content="Ninety days [1], but only in Paris [7]."))
+    final = run(FakeRetriever(TWO_CHUNKS), chat)
+    assert final["answer"] == "Ninety days [1], but only in Paris."
+    assert final["raw_answer"] == "Ninety days [1], but only in Paris [7]."
+    assert final["cited"] == [1]
+    assert final["dropped_citations"] == [7]
+
+
+def test_the_check_uses_the_number_of_sources_in_the_prompt_not_the_number_retrieved() -> None:
+    """Three chunks came back but only two fit: ``[3]`` was never shown, so it goes."""
+    three = [*TWO_CHUNKS, scored(3, "word " * 200)]  # too big for the budget below
+    chat = FakeChat(AIMessage(content="Seven years [3]."))
+    final = run(FakeRetriever(three), chat, top_k=3, budget=100)
+    assert final["used"] == 2
+    assert final["answer"] == "Seven years."
+    assert final["dropped_citations"] == [3]
+
+
+def test_an_answer_that_cites_nothing_is_passed_on_and_says_so() -> None:
+    final = run(FakeRetriever(TWO_CHUNKS), FakeChat(AIMessage(content="Ninety days.")))
+    assert final["answer"] == "Ninety days."
+    assert final["cited"] == []
+    assert final["dropped_citations"] == []
+
+
+def test_a_reply_of_nothing_but_missing_citations_is_an_error_not_a_blank_answer() -> None:
+    with pytest.raises(ChatError, match="nothing but citations"):
+        run(FakeRetriever(TWO_CHUNKS), FakeChat(AIMessage(content=" [9] ")))
+
+
+def test_the_citation_node_reads_the_state_and_changes_only_its_own_keys() -> None:
+    update = validate_citations({"answer": "A [1] B [4].", "used": 2})
+    assert update == {
+        "answer": "A [1] B.",
+        "raw_answer": "A [1] B [4].",
+        "cited": [1],
+        "dropped_citations": [4],
+    }
+
+
+def test_no_context_cites_nothing_and_skips_the_check() -> None:
+    final = run(FakeRetriever([]), FakeChat(AIMessage(content="unused")))
+    assert final["cited"] == []
+    assert final["dropped_citations"] == []
+    assert "raw_answer" not in final  # the citation node did not run
+
+
+# --- labels (S3.2) ---------------------------------------------------------------------------
+
+
+def test_an_answer_built_from_documents_carries_the_user_and_kb_labels() -> None:
+    final = run(FakeRetriever(TWO_CHUNKS), FakeChat(AIMessage(content="ok [1]")))
+    assert final["answer_labels"] == ["KB", "USER"]
+
+
+def test_an_answer_the_application_wrote_itself_carries_no_labels() -> None:
+    chat = FakeChat(AIMessage(content="unused"))
+    assert run(FakeRetriever([]), chat)["answer_labels"] == []  # nothing retrieved
+    assert run(FakeRetriever(TWO_CHUNKS), chat, budget=5)["answer_labels"] == []  # nothing fit
+
+
+def test_label_names_are_sorted_plain_strings() -> None:
+    assert label_names({Label.USER, Label.KB}) == ["KB", "USER"]
+    assert label_names([]) == []
+
+
+# --- the source header (S3.2) ----------------------------------------------------------------
+
+
+def test_a_first_heading_that_only_repeats_the_title_is_dropped() -> None:
+    title = "Lantern staff FAQ"
+    assert section_trail(title, (title, "Conversations")) == "Conversations"
+    assert section_trail(title, ("lantern  STAFF faq",)) == ""  # case and spacing do not matter
+    ref = source_refs([scored(1, "a", title="Handbook", section=("Handbook", "Retention"))])[0]
+    assert ref["section"] == "Retention"
+
+
+def test_a_heading_that_differs_from_the_title_stays() -> None:
+    assert section_trail("Handbook", ("Retention", "Handbook")) == "Retention > Handbook"
+    assert section_trail("Handbook", ()) == ""
 
 
 # --- what the model call reports -------------------------------------------------------------

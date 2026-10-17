@@ -1,4 +1,4 @@
-"""The steps of the answer graph (step S3.1, PLAN.md §7).
+"""The steps of the answer graph (steps S3.1 and S3.2, PLAN.md §7).
 
 A node is a plain function: it receives the state (and the run's context), does one thing, and
 returns *only the keys it changes*. LangGraph merges the returned keys into the state and follows the
@@ -11,16 +11,17 @@ event loop stays free (PLAN.md §6.3) without rewriting a line here.
 """
 
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Final, Literal
 
 from langchain_core.messages import BaseMessage
 from langgraph.runtime import Runtime
 
+from geekbot.agent.citations import check_citations
 from geekbot.agent.packing import pack_prompt
 from geekbot.agent.runtime import AgentContext
 from geekbot.agent.state import AgentState, SourceRef
-from geekbot.domain import ScoredChunk
+from geekbot.domain import Label, ScoredChunk
 from geekbot.llm.chat import ChatError
 
 __all__ = [
@@ -28,10 +29,13 @@ __all__ = [
     "generate",
     "generation_stats",
     "has_sources",
+    "label_names",
     "message_text",
     "no_context",
     "retrieve",
+    "section_trail",
     "source_refs",
+    "validate_citations",
 ]
 
 # What the user is told when there is nothing to answer from. S3.5 replaces this stop-gap with a real
@@ -40,6 +44,23 @@ __all__ = [
 NO_CONTEXT_ANSWER: Final = "I could not find anything about that in the documents."
 
 _NANOSECONDS: Final = 1e9  # Ollama reports its durations in nanoseconds
+
+
+def _same_words(left: str, right: str) -> bool:
+    return left.casefold().split() == right.casefold().split()
+
+
+def section_trail(title: str, section_path: Sequence[str]) -> str:
+    """The heading trail as ``A > B``, without a first heading that only repeats the title.
+
+    A Markdown file whose first heading is its title would otherwise show up as
+    ``Lantern staff FAQ | Lantern staff FAQ > Your conversations``, in the prompt and under the
+    answer. Only the first element is compared, ignoring case and spacing.
+    """
+    trail = list(section_path)
+    if trail and _same_words(trail[0], title):
+        trail = trail[1:]
+    return " > ".join(trail)
 
 
 def source_refs(chunks: Sequence[ScoredChunk]) -> list[SourceRef]:
@@ -51,12 +72,17 @@ def source_refs(chunks: Sequence[ScoredChunk]) -> list[SourceRef]:
             title=scored.chunk.title,
             path=scored.chunk.path,
             page=scored.chunk.page,
-            section=" > ".join(scored.chunk.section_path),
+            section=section_trail(scored.chunk.title, scored.chunk.section_path),
             text=scored.chunk.text,
             score=scored.score,
         )
         for rank, scored in enumerate(chunks, start=1)
     ]
+
+
+def label_names(labels: Iterable[Label]) -> list[str]:
+    """Labels as sorted plain strings, the form the state keeps them in (a set is not JSON)."""
+    return sorted(label.value for label in labels)
 
 
 def retrieve(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any]:
@@ -72,9 +98,20 @@ def has_sources(state: AgentState) -> Literal["generate", "no_context"]:
 
 
 def no_context(state: AgentState) -> dict[str, Any]:
-    """Answer 'nothing found' without calling the model."""
+    """Answer 'nothing found' without calling the model.
+
+    The answer is the application's own sentence, so it cites nothing and carries no labels: no
+    model call happened, and nothing a document wrote went into it (PLAN.md §8.2).
+    """
     del state  # the answer does not depend on it
-    return {"answer": NO_CONTEXT_ANSWER, "used": 0, "generation": {}}
+    return {
+        "answer": NO_CONTEXT_ANSWER,
+        "used": 0,
+        "cited": [],
+        "dropped_citations": [],
+        "answer_labels": [],
+        "generation": {},
+    }
 
 
 def message_text(message: BaseMessage) -> str:
@@ -138,15 +175,17 @@ def generate(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any
        the caller handles one kind of exception whatever library raised it.
     3. The reply's text must not be empty: a model that spent its whole budget thinking would
        otherwise produce a blank answer that looks like success. That is a ``ChatError`` too.
-    4. The node returns the answer, how many sources the prompt held (``used``) and the call's
-       readings (``generation_stats``). Nothing else changes in the state.
+    4. The node returns the answer, how many sources the prompt held (``used``), the labels of
+       the prompt (they become the answer's, PLAN.md §8.2) and the call's readings
+       (``generation_stats``). Nothing else changes in the state. The answer is still the model's
+       raw text: ``validate_citations`` runs next.
     """
     context = runtime.context
     packed = pack_prompt(
         state["question"], state["sources"], budget_tokens=context.context_budget_tokens
     )
     if packed.used == 0:
-        return {"answer": NO_CONTEXT_ANSWER, "used": 0, "generation": {}}
+        return no_context(state)
     started = time.perf_counter()
     try:
         reply = context.llm.invoke(packed.messages)
@@ -160,5 +199,26 @@ def generate(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any
     return {
         "answer": answer,
         "used": packed.used,
+        "answer_labels": label_names(packed.labels),
         "generation": generation_stats(reply, seconds),
+    }
+
+
+def validate_citations(state: AgentState) -> dict[str, Any]:
+    """Remove the ``[n]`` marks from the answer that name no source the prompt held (S3.2).
+
+    The model's own text is kept as ``raw_answer`` so nothing is lost (an evaluation can compare the
+    two); ``answer`` becomes the checked text, ``cited`` the marks that remain and
+    ``dropped_citations`` the numbers that were removed. A reply that was nothing but invalid marks
+    would become an empty answer, which is an error like any other empty reply, not a blank result.
+    """
+    raw = state["answer"]
+    check = check_citations(raw, state["used"])
+    if not check.text:
+        raise ChatError("the chat model's reply held nothing but citations to missing sources")
+    return {
+        "answer": check.text,
+        "raw_answer": raw,
+        "cited": list(check.cited),
+        "dropped_citations": list(check.dropped),
     }

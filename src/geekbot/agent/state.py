@@ -42,5 +42,9 @@ class AgentState(TypedDict, total=False):
     sources: list[SourceRef]  # every chunk retrieval returned, best first
     retrieval_ms: dict[str, float]  # per stage, from the retriever's own timings
     used: int  # how many of the sources made it into the prompt
-    answer: str
+    answer: str  # what the user sees; after S3.2's check, without citations that point nowhere
+    raw_answer: str  # the model's own text, before the citation check (absent when it was not run)
+    cited: list[int]  # the valid [n] marks left in the answer, first appearance first
+    dropped_citations: list[int]  # the marks the check removed because no such source was shown
+    answer_labels: list[str]  # PLAN.md §8.2: the labels of everything in the prompt, sorted
     generation: dict[str, float]  # what the model call took; see nodes.generation_stats

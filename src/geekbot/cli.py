@@ -685,14 +685,15 @@ def ask(
 
     The chat model is loaded explicitly first (the other mode's model is unloaded: they never share
     the GPU), then the question runs through a fixed graph: find the best chunks, then ask the model
-    to answer from them. Below the answer come the sources the model was shown (the numbers match
-    its [n] marks) and the readings of the run: where the time went and whether the model had to be
-    loaded. Only ready documents are searched. The storage lock is held for the whole command.
+    to answer from them. Citations that name no source are removed from the answer. Below the
+    answer come the sources it cites, the sources the model read without citing them, and the
+    readings of the run: where the time went and whether the model had to be loaded. Only ready
+    documents are searched. The storage lock is held for the whole command.
     """
     # Imported here: LangGraph, LangChain and Chroma are slow to import, and `geekbot --version`
     # or `geekbot doctor` should not wait for them.
     from geekbot.agent.graph import build_graph
-    from geekbot.agent.packing import pack_prompt
+    from geekbot.agent.packing import QuestionError, check_question, pack_prompt
     from geekbot.agent.render import format_answer, format_prompt
     from geekbot.agent.runtime import AgentContext
     from geekbot.index.dense import FingerprintMismatchError
@@ -704,6 +705,10 @@ def ask(
     from geekbot.retrieval.factory import build_retriever
     from geekbot.retrieval.rerank import RerankError
 
+    try:
+        check_question(question)  # before any model is loaded: a mistake here should cost nothing
+    except QuestionError as error:
+        _fail(str(error))
     settings = Settings()
     setup_logging(settings.log_level)
     nothing = "nothing is indexed yet; run `geekbot ingest <folder>` first"

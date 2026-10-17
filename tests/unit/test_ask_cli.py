@@ -146,9 +146,10 @@ def test_the_answer_comes_with_its_sources_and_the_readings_of_the_run(
     result = ask("how do I bake bread", "--mode", "lexical", "--top-k", "2")
     assert result.exit_code == 0, result.output
     assert ANSWER in result.output
-    assert "Sources:" in result.output
+    assert "Sources cited:" in result.output
     assert "[1] bread.md" in result.output
     assert "zebras.md" not in result.output  # only the sources the model was shown
+    assert "labels: KB, USER (tainted)" in result.output
     assert "retrieval: total " in result.output
     assert "gemma3:4b: " in result.output  # the model line
     assert "model load 0.00 s" in result.output
@@ -175,7 +176,66 @@ def test_show_prompt_prints_the_exact_messages(indexed: None, llm: FakeLlm) -> N
     result = ask("bread", "--mode", "lexical", "--show-prompt")
     assert "--- system ---" in result.output
     assert "--- human ---" in result.output
+    assert "> Bread needs flour and sourdough bread uses a starter." in result.output  # data-marked
     assert "Question: bread" in result.output
+
+
+# --- citations -------------------------------------------------------------------------------
+
+
+def test_a_citation_to_a_source_that_was_not_shown_is_removed_and_named(
+    indexed: None, llm: FakeLlm
+) -> None:
+    llm.chat = FakeChat(AIMessage(content="Use flour [1] and a pinch of salt [4]."))
+    result = ask("how do I bake bread", "--mode", "lexical")
+    assert result.exit_code == 0, result.output
+    assert "Use flour [1] and a pinch of salt." in result.output
+    assert "[4]" in result.output  # named in the note below, not in the answer
+    assert "removed from the answer (no such source in the prompt): [4]" in result.output
+
+
+def test_sources_the_answer_does_not_cite_are_listed_apart(indexed: None, llm: FakeLlm) -> None:
+    llm.chat = FakeChat(AIMessage(content="Only the first one matters [1]."))
+    result = ask("bread river", "--mode", "lexical", "--top-k", "2")
+    assert result.exit_code == 0, result.output
+    listing = result.output.split("Sources cited:")[1]
+    cited, _, not_cited = listing.partition("Read, not cited:")
+    # Which of the two documents ranks first does not matter: each is in exactly one group.
+    assert ("bread.md" in cited) != ("river.md" in cited)
+    assert ("bread.md" in not_cited) != ("river.md" in not_cited)
+    assert ("bread.md" in cited) != ("bread.md" in not_cited)
+
+
+def test_an_answer_that_cites_nothing_lists_what_the_model_read(
+    indexed: None, llm: FakeLlm
+) -> None:
+    llm.chat = FakeChat(AIMessage(content="I could not find it in the documents."))
+    result = ask("how do I bake bread", "--mode", "lexical")
+    assert "Sources cited:" not in result.output
+    assert "Read, but the answer cites none:" in result.output
+    assert "[1] bread.md" in result.output
+
+
+# --- the question ----------------------------------------------------------------------------
+
+
+def test_an_empty_question_is_refused_before_any_model_is_loaded(
+    indexed: None, llm: FakeLlm
+) -> None:
+    result = ask("   ", "--mode", "lexical")
+    assert result.exit_code == 1
+    assert "error: the question is empty" in result.output
+    assert llm.swaps == []
+
+
+def test_a_question_that_is_too_long_is_refused_before_any_model_is_loaded(
+    indexed: None, llm: FakeLlm
+) -> None:
+    result = ask("word " * 5000, "--mode", "lexical")
+    assert result.exit_code == 1
+    assert "the question is too long" in result.output
+    assert llm.swaps == []
+    assert llm.chat.calls == []
 
 
 # --- a question with nothing to answer from --------------------------------------------------
@@ -187,7 +247,8 @@ def test_a_question_with_no_matching_chunk_is_answered_without_calling_the_model
     result = ask("zzzz qqqq", "--mode", "lexical")
     assert result.exit_code == 0, result.output
     assert NO_CONTEXT_ANSWER in result.output
-    assert "Sources:" not in result.output
+    assert "Sources" not in result.output
+    assert "labels:" not in result.output  # the application wrote that sentence, not a document
     assert llm.chat.calls == []
 
 

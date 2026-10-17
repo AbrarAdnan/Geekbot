@@ -79,6 +79,12 @@ def test_a_real_question_gets_a_grounded_answer_from_the_right_document(tmp_path
         text = answered["answer"].lower()
         assert "ninety" in text or "90" in text
         assert answered["generation"].get("load_seconds", 0.0) < MAX_LOAD_SECONDS
+        # S3.2: whatever the model wrote, no mark left in the answer points at a missing source.
+        # Whether it cited at all is only shown (a 4B model may not): that is a quality question.
+        assert all(1 <= n <= answered["used"] for n in answered["cited"])
+        assert answered["answer_labels"] == ["KB", "USER"]
+        print(f"\nraw answer : {answered['raw_answer']!r}")
+        print(f"cited      : {answered['cited']}, removed: {answered['dropped_citations']}")
 
         # Not asserted, only shown: a question the documents cannot answer. What the model does
         # here is S3.5's concern (abstain); S3.1's prompt only asks it to say it could not find it.

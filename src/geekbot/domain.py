@@ -2,11 +2,13 @@
 
 A record here is data and nothing else: no behaviour that touches a store, a model or the disk, so
 the ingest, index, retrieval and agent packages can all import it without importing one another.
-S1.4 adds the ones the store hands out; the plan's other records (``Citation``, ``RunStats``,
-``Label``) arrive with the steps that first need them.
+S1.4 adds the ones the store hands out; S3.2 adds ``Label``. The plan's other records
+(``Citation``, ``RunStats``) arrive with the steps that first need them.
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Final, Literal
 
 # The outbox states of a document (PLAN.md §6.4): its chunk rows are written while it is
@@ -15,6 +17,33 @@ from typing import Final, Literal
 # allowed is the pipeline's rule (S1.6); the store only checks that the state is one of these.
 DocState = Literal["pending", "embedding", "ready", "failed"]
 DOC_STATES: Final[tuple[DocState, ...]] = ("pending", "embedding", "ready", "failed")
+
+
+class Label(StrEnum):
+    """Who wrote a piece of text, which decides how far an answer built on it can be trusted.
+
+    PLAN.md §8.2: every piece of text that goes into a prompt has a label, and a model call's
+    output carries the union of the labels of everything in its prompt. ``USER`` is the person at the
+    keyboard; ``KB`` text came out of an ingested document; ``WEB`` from a web page; ``TOOL`` from a
+    tool's output (CSV mode); ``UNKNOWN`` is anything whose origin cannot be shown (for example an
+    assistant message a client sends back to the stateless API).
+    """
+
+    USER = "USER"
+    KB = "KB"
+    WEB = "WEB"
+    TOOL = "TOOL"
+    UNKNOWN = "UNKNOWN"
+
+
+# Text that someone other than the user wrote, or whose author is unknown. A prompt that holds any of
+# it can steer the model, so what the model produces from it is *tainted* (§8.2).
+TAINTED_LABELS: Final = frozenset({Label.KB, Label.WEB, Label.TOOL, Label.UNKNOWN})
+
+
+def is_tainted(labels: Iterable[Label]) -> bool:
+    """Whether any of the labels is one that an outsider's text carries (``USER`` alone is not)."""
+    return not TAINTED_LABELS.isdisjoint(labels)
 
 
 def embedding_text(header: str, text: str, *, with_header: bool) -> str:
