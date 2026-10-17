@@ -446,6 +446,16 @@ def test_rerank_timing_checks_its_depths(cli: None) -> None:
         assert "--depths" in result.output
 
 
+def test_rerank_timing_never_creates_a_knowledge_base(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GEEKBOT_DATA_DIR", str(tmp_path / "mistyped"))
+    result = runner.invoke(app, ["rerank-timing", "--query", "x", "--depths", "1"])
+    assert result.exit_code == 1
+    assert "geekbot ingest" in result.output
+    assert not (tmp_path / "mistyped").exists()
+
+
 def test_rerank_timing_needs_a_query(cli: None) -> None:
     assert runner.invoke(app, ["rerank-timing"]).exit_code == 2
 

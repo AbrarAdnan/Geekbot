@@ -224,6 +224,20 @@ def test_a_second_ingest_of_unchanged_files_embeds_nothing(
     assert ws.dense.count() == count
 
 
+def test_an_unchanged_file_costs_no_chunk_text_reads_and_still_reports_its_chunk_count(
+    ws: Workspace, docs: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = ingest_folder(ws, docs)
+
+    def forbidden(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("an unchanged file must not load its chunks just to count them")
+
+    monkeypatch.setattr(ws.store, "document_chunks", forbidden)
+    second = ingest_folder(ws, docs)
+    assert [o.status for o in second] == ["unchanged", "unchanged"]
+    assert [o.chunks for o in second] == [o.chunks for o in first]
+
+
 def test_the_report_adds_up(ws: Workspace, docs: Path) -> None:
     files, _ = collect_files([docs])
     report = ingestor(ws).ingest(files)

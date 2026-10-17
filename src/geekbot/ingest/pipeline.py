@@ -231,9 +231,12 @@ class Ingestor:
             if on_file is not None:
                 on_file(outcome)
 
+        # One query for every document's chunk count, so an unchanged file costs a hash and a row
+        # lookup, and no chunk text is read just to be counted.
+        counts = {doc_id: len(ids) for doc_id, ids in self._store.chunk_ids_by_document().items()}
         todo: list[tuple[Path, str]] = []
         for path in files:
-            checked = self._check_unchanged(path)
+            checked = self._check_unchanged(path, counts)
             if isinstance(checked, FileOutcome):
                 finish(checked)
             else:
@@ -264,7 +267,7 @@ class Ingestor:
 
     # --- one file ---
 
-    def _check_unchanged(self, path: Path) -> FileOutcome | str:
+    def _check_unchanged(self, path: Path, chunk_counts: dict[str, int]) -> FileOutcome | str:
         """A ``FileOutcome`` if the file needs no work (or cannot be read), else its content hash."""
         try:
             file_hash = file_hash_of(path)
@@ -277,9 +280,7 @@ class Ingestor:
             and existing.file_hash == file_hash
             and existing.pipeline_version == self._version
         ):
-            return FileOutcome(
-                path, "unchanged", chunks=len(self._store.document_chunks(existing.doc_id))
-            )
+            return FileOutcome(path, "unchanged", chunks=chunk_counts.get(existing.doc_id, 0))
         return file_hash
 
     def _store_parsed(self, parsed: ParsedFile, file_hash: str) -> FileOutcome:

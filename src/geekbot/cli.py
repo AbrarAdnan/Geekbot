@@ -275,7 +275,7 @@ def search(
     # Imported here: chromadb is slow to import and `geekbot --version` should not wait for it.
     from geekbot.index.dense import FingerprintMismatchError
     from geekbot.index.lock import StorageLockedError
-    from geekbot.index.sqlite import Store
+    from geekbot.index.sqlite import DB_FILE_NAME, Store
     from geekbot.index.workspace import Workspace
     from geekbot.retrieval import RetrievalResult, format_result
     from geekbot.retrieval.dense import DenseRetriever
@@ -286,6 +286,10 @@ def search(
     settings = Settings()
     setup_logging(settings.log_level)
     nothing = "nothing is indexed yet; run `geekbot ingest <folder>` first"
+    # Opening the store would create an empty database, so a mistyped GEEKBOT_DATA_DIR would
+    # silently become a new, empty knowledge base. A search never creates one.
+    if not (settings.data_dir / DB_FILE_NAME).is_file():
+        _fail(nothing)
     result: RetrievalResult
     try:
         if mode is SearchMode.LEXICAL:
@@ -347,7 +351,7 @@ def rerank_timing(
     this machine now (PLAN.md section 6.5 gives retrieval plus reranking 400 ms at p95).
     """
     from geekbot.index.lock import StorageLockedError
-    from geekbot.index.sqlite import Store
+    from geekbot.index.sqlite import DB_FILE_NAME, Store
     from geekbot.retrieval.rerank import FastembedScorer, RerankError
     from geekbot.retrieval.rerank_timing import format_depth_timings, measure_rerank_depths
 
@@ -360,6 +364,9 @@ def rerank_timing(
     if not chosen:
         _fail("--depths needs at least one number")
     needed = max(chosen)
+    # Opening the store would create an empty database (see `search`); a timing run never does.
+    if not (settings.data_dir / DB_FILE_NAME).is_file():
+        _fail("nothing is indexed yet; run `geekbot ingest <folder>` first")
     try:
         with Store(settings.data_dir) as store:
             passages: list[str] = []
