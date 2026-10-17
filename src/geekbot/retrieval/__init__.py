@@ -13,13 +13,29 @@ it inside SQLite.
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Final, Protocol
 
 from geekbot.domain import ScoredChunk
 
-__all__ = ["EXCERPT_CHARS", "RetrievalResult", "Retriever", "format_result"]
+__all__ = ["EXCERPT_CHARS", "RetrievalResult", "Retriever", "SearchMode", "format_result"]
 
 EXCERPT_CHARS: Final = 200
+
+
+class SearchMode(StrEnum):
+    """The ways of finding chunks, by name: ``geekbot search --mode`` and ``geekbot ask --mode``.
+
+    They are rungs of the ablation ladder (PLAN.md §9): each adds one thing to the one before.
+    ``retrieval.factory.build_retriever`` turns a name into a retriever. The enum lives here, in
+    a module that imports almost nothing, so the CLI can use it as an option type without paying
+    for Chroma or fastembed at start-up.
+    """
+
+    DENSE = "dense"
+    LEXICAL = "lexical"
+    HYBRID = "hybrid"
+    HYBRID_RERANK = "hybrid_rerank"
 
 
 @dataclass(frozen=True)

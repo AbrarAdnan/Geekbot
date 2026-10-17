@@ -106,6 +106,14 @@ class Settings(BaseSettings):
     rerank_model: str = "Xenova/ms-marco-MiniLM-L-6-v2"
     rerank_depth: int = Field(default=30, gt=0)
     rerank_threads: int | None = Field(default=None, gt=0)
+    # The answer graph (step S3.1, PLAN §6.5, §7). The cap on the reply, the sampling temperature
+    # and the room for sources in the prompt are starting points, not measurements: S3.3 measures
+    # speed and S5.1 sweeps the settings. ``chat_num_ctx`` above is what the model is warmed up
+    # with and must also be what every query sends (R-2), which is why the chat model is built
+    # from these settings and not from literals.
+    chat_num_predict: int = Field(default=512, gt=0)
+    chat_temperature: float = Field(default=0.2, ge=0.0, le=2.0)
+    context_budget_tokens: int = Field(default=3000, gt=0)
     csv_llm_timeout_s: int = Field(default=60, gt=0)  # one Ollama call
     csv_question_time_limit_s: int = Field(default=60, gt=0)  # one question
     data_dir: Path = Path("data")
