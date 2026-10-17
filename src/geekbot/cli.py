@@ -96,6 +96,16 @@ def _read_ps() -> list[LoadedModel]:
     return parse_ollama_ps(run_command(OLLAMA_PS_COMMAND))
 
 
+def _probe_embedder(settings: Settings) -> None:
+    """Embed one short text on the CPU, so `doctor` can see where the embedder ends up."""
+    from geekbot.index.embedder import OllamaEmbeddingsClient
+
+    with OllamaEmbeddingsClient(
+        settings.ollama_host, settings.embed_model, num_gpu=0, keep_alive=settings.keep_alive
+    ) as embedder:
+        embedder.embed_query("doctor probe")
+
+
 @app.command()
 def doctor(
     warmup: Annotated[
@@ -132,7 +142,13 @@ def doctor(
     chosen: Mode = "csv" if mode is ModeChoice.CSV else "chat"
     with OllamaClient(settings.ollama_host) as client:
         checks = run_doctor(
-            settings, client, warm_up=warmup, read_gpu=_read_gpu, read_ps=_read_ps, mode=chosen
+            settings,
+            client,
+            warm_up=warmup,
+            read_gpu=_read_gpu,
+            read_ps=_read_ps,
+            mode=chosen,
+            probe_embedder=lambda: _probe_embedder(settings),
         )
     typer.echo(format_checks(checks))
     if has_failure(checks):

@@ -6,7 +6,8 @@ inputs. ``run_doctor`` only collects the data and calls them. Statuses:
 - PASS: as required.
 - WARN: works, but numbers or speed may suffer.
 - FAIL: a plan rule is broken (the command exits with code 1).
-- SKIP: the thing doesn't exist yet; the detail names the step that builds it.
+- SKIP: not checked, and the detail says why (the thing is not built yet, or the run was told
+  not to load anything, or the other mode does not need it).
 
 Step C3 adds ``--mode``: the doctor checks the *active mode's* model (chat or CSV). Getting that
 model onto the GPU is an explicit swap (unload the other mode's model, wait, warm up), so a
@@ -15,9 +16,11 @@ mode check also proves the swap leaves the new model 100% on the GPU and the old
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal, Protocol
 
 from geekbot.config import Mode, Settings
+from geekbot.index.lock import StorageLock, StorageLockedError
 from geekbot.llm.models import OllamaError, SwapResult, same_model, swap_to_mode
 from geekbot.llm.vram import CommandError, GpuMemory, LoadedModel
 
@@ -61,6 +64,61 @@ def check_models_pulled(
             detail = f"{model}: run `ollama pull {model}`"
             checks.append(Check(f"{label} model pulled", status_if_missing, detail))
     return checks
+
+
+def check_embedder_pulled(model: str, available: list[str], *, mode: Mode = "chat") -> Check:
+    """The embedder (``nomic-embed-text`` by default) must exist in chat mode (FAIL); CSV mode
+    does not use it, so there it only warns."""
+    if any(same_model(model, name) for name in available):
+        return Check("embedder model pulled", "PASS", model)
+    status: Status = "FAIL" if mode == "chat" else "WARN"
+    return Check("embedder model pulled", status, f"{model}: run `ollama pull {model}`")
+
+
+def check_embedder_on_cpu(model: str, loaded: list[LoadedModel]) -> Check:
+    """PLAN §6.5: the embedder runs on the CPU, so the chat model keeps the whole GPU.
+
+    Looked at after a probe embedding, in ``ollama ps``: the embedder must be listed and must be
+    100% CPU (it is asked for with ``num_gpu = 0``). Any share on the GPU takes VRAM from the chat
+    model, which breaks rule R-1, so that is a FAIL.
+    """
+    entry = next((m for m in loaded if same_model(m.name, model)), None)
+    if entry is None:
+        return Check(
+            "embedder on CPU",
+            "WARN",
+            f"{model} is not listed by `ollama ps` after the probe, so its placement is unknown",
+        )
+    if entry.gpu_percent == 0:
+        return Check("embedder on CPU", "PASS", f"{model}: 100% CPU")
+    return Check(
+        "embedder on CPU",
+        "FAIL",
+        f"{model}: {entry.gpu_percent}% on the GPU (it must be 100% CPU so the chat model keeps "
+        "the whole GPU)",
+    )
+
+
+def check_storage_lock(data_dir: Path) -> Check:
+    """Is the exclusive storage lock free? (PLAN §6.2: exactly one process owns the storage.)
+
+    Takes the lock and lets it go at once. A held lock is a WARN, not a FAIL: it normally means
+    a running Geekbot server owns the data folder, which is how it should be. A folder that does
+    not exist yet is nobody's, so it is free (and the check does not create it).
+    """
+    if not data_dir.exists():
+        return Check("storage lock free", "PASS", f"no data folder yet at {data_dir}")
+    lock = StorageLock(data_dir)
+    try:
+        lock.acquire()
+    except StorageLockedError:
+        return Check(
+            "storage lock free",
+            "WARN",
+            f"another Geekbot process owns {data_dir} (a running server?)",
+        )
+    lock.release()
+    return Check("storage lock free", "PASS", f"{data_dir} is free")
 
 
 def check_gpu_memory(
@@ -148,12 +206,17 @@ def run_doctor(
     read_gpu: Callable[[], GpuMemory],
     read_ps: Callable[[], list[LoadedModel]],
     mode: Mode = "chat",
+    probe_embedder: Callable[[], None] | None = None,
 ) -> list[Check]:
     """Collect the facts and run every check. With ``warm_up`` the mode's model is loaded.
 
     ``read_gpu`` and ``read_ps`` return parsed data (the CLI builds them from the real commands
     plus the parsers), so the doctor itself never depends on the text format of any tool.
     The warm-up is a swap: the other mode's model is unloaded first (R-4).
+
+    ``probe_embedder`` embeds one short text with the real embedder on the CPU (the CLI passes it;
+    it raises ``OllamaError`` if that fails). It is only called in chat mode with ``warm_up``,
+    because it loads a model, and the "embedder on CPU" check reads ``ollama ps`` right after.
     """
     try:
         version = client.version()
@@ -170,6 +233,7 @@ def run_doctor(
         Check("ollama", "PASS", f"version {version} at {settings.ollama_host}"),
         Check("profile", "PASS", f"{settings.profile}: chat {chat}, csv {csv}; checking {mode}"),
         *check_models_pulled(chat, csv, available, mode=mode),
+        check_embedder_pulled(settings.embed_model, available, mode=mode),
     ]
     # If our model is already loaded (keep_alive keeps it for a while), the memory in use
     # includes it, so a high "before" figure is not another program's fault.
@@ -212,15 +276,51 @@ def run_doctor(
         )
         checks.append(after_check)
 
-    checks += [
-        Check("embedder on CPU", "SKIP", "not built yet (step S1.5)"),
-        Check("storage lock free", "SKIP", "not built yet (step S1.4)"),
-    ]
+    checks.append(
+        _embedder_cpu_check(
+            settings.embed_model,
+            available,
+            mode=mode,
+            warm_up=warm_up,
+            probe_embedder=probe_embedder,
+            read_ps=read_ps,
+        )
+    )
+    checks.append(check_storage_lock(settings.data_dir))
     if mode == "chat":
         checks.append(
             Check("CSV model residency after a swap", "SKIP", "run `geekbot doctor --mode csv`")
         )
     return checks
+
+
+def _embedder_cpu_check(
+    model: str,
+    available: list[str],
+    *,
+    mode: Mode,
+    warm_up: bool,
+    probe_embedder: Callable[[], None] | None,
+    read_ps: Callable[[], list[LoadedModel]],
+) -> Check:
+    """Probe the embedder and read where it ended up, or say why that was not done."""
+    name = "embedder on CPU"
+    if mode != "chat":
+        return Check(name, "SKIP", "CSV mode does not use the embedder")
+    if not any(same_model(model, pulled) for pulled in available):
+        return Check(name, "SKIP", f"{model} is not pulled")
+    if not warm_up:
+        return Check(name, "SKIP", "not probed (--no-warmup loads nothing)")
+    if probe_embedder is None:
+        return Check(name, "SKIP", "no embedder probe was given")
+    try:
+        probe_embedder()
+    except OllamaError as error:
+        return Check(name, "FAIL", f"the probe embedding failed: {error}")
+    try:
+        return check_embedder_on_cpu(model, read_ps())
+    except (CommandError, ValueError) as error:
+        return Check(name, "WARN", f"cannot read `ollama ps`: {error}")
 
 
 def format_checks(checks: list[Check]) -> str:
