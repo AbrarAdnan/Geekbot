@@ -7,6 +7,7 @@ mistake "not built" for success.
 
 import json
 import logging
+import time
 from collections.abc import Sequence
 from enum import StrEnum
 from pathlib import Path
@@ -680,6 +681,27 @@ def ask(
         bool,
         typer.Option("--show-prompt", help="Also print the exact messages the model received."),
     ] = False,
+    stream: Annotated[
+        bool,
+        typer.Option(
+            "--stream",
+            help="Print the answer as the model writes it. The readings then show the time to "
+            "the first token. A citation the check removes cannot be taken back from the "
+            "screen: the corrected answer is printed after the stream.",
+        ),
+    ] = False,
+    think: Annotated[
+        bool,
+        typer.Option(
+            "--think",
+            help="Let the model reason before it answers: slower, and only for a model with a "
+            "thinking mode. Off by default (PLAN.md section 6.5).",
+        ),
+    ] = False,
+    show_thinking: Annotated[
+        bool,
+        typer.Option("--show-thinking", help="With --think: print the model's reasoning too."),
+    ] = False,
 ) -> None:
     """Answer a question from the knowledge base with the chat model (uses the GPU).
 
@@ -687,14 +709,20 @@ def ask(
     the GPU), then the question runs through a fixed graph: find the best chunks, then ask the model
     to answer from them. Citations that name no source are removed from the answer. Below the
     answer come the sources it cites, the sources the model read without citing them, and the
-    readings of the run: where the time went and whether the model had to be loaded. Only ready
-    documents are searched. The storage lock is held for the whole command.
+    readings of the run: where the time went, the time to the first token, and whether the model had
+    to be loaded. Only ready documents are searched. The storage lock is held for the whole command.
     """
     # Imported here: LangGraph, LangChain and Chroma are slow to import, and `geekbot --version`
     # or `geekbot doctor` should not wait for them.
     from geekbot.agent.graph import build_graph
     from geekbot.agent.packing import QuestionError, check_question, pack_prompt
-    from geekbot.agent.render import format_answer, format_prompt
+    from geekbot.agent.render import (
+        StreamedAnswer,
+        consume_stream,
+        format_after_stream,
+        format_answer,
+        format_prompt,
+    )
     from geekbot.agent.runtime import AgentContext
     from geekbot.index.dense import FingerprintMismatchError
     from geekbot.index.lock import StorageLockedError
@@ -709,6 +737,8 @@ def ask(
         check_question(question)  # before any model is loaded: a mistake here should cost nothing
     except QuestionError as error:
         _fail(str(error))
+    if show_thinking and not think:
+        _fail("--show-thinking needs --think: without it the model does not reason")
     settings = Settings()
     setup_logging(settings.log_level)
     nothing = "nothing is indexed yet; run `geekbot ingest <folder>` first"
@@ -717,6 +747,7 @@ def ask(
         _fail(nothing)
     model = settings.resolved_chat_model
     final: dict[str, Any]
+    streamed: StreamedAnswer | None = None
     try:
         with Workspace.open(settings) as workspace:
             if workspace.dense.count() == 0:
@@ -728,25 +759,195 @@ def ask(
             typer.echo(f"{model} ready ({swap.warm_up_s:.1f} s to load{released})", err=True)
             context = AgentContext(
                 retriever=retriever,
-                llm=make_chat_model(settings),
+                llm=make_chat_model(settings, think=think),
                 model=model,
                 top_k=top_k,
                 context_budget_tokens=settings.context_budget_tokens,
             )
-            typer.echo(f"asking {model}...", err=True)
-            final = build_graph().invoke({"question": question}, context=context)
+            typer.echo(f"asking {model}{' with thinking on' if think else ''}...", err=True)
+            graph = build_graph()
+            if stream:
+                streamed = consume_stream(
+                    graph.stream(
+                        {"question": question}, context=context, stream_mode=["custom", "values"]
+                    ),
+                    write=lambda piece: typer.echo(piece, nl=False),
+                    note=lambda piece: typer.echo(piece, nl=False, err=True),
+                    show_thinking=show_thinking,
+                )
+                final = streamed.final
+            else:
+                final = graph.invoke({"question": question}, context=context)
     except StorageLockedError as error:
         _fail(str(error))
     except FingerprintMismatchError as error:
         _fail(f"{error}\nRun `geekbot ingest --reindex` to rebuild the vectors.")
     except (OllamaError, RerankError, ChatError) as error:
-        _fail(str(error))
-    typer.echo(format_answer(final, model=model))
+        _fail(_with_thinking_hint(str(error), think=think))
+    if streamed is not None:
+        if streamed.streamed.strip():
+            typer.echo("\n")  # end the streamed line (it has no newline) and leave a blank line
+        typer.echo(format_after_stream(streamed, model=model))
+    else:
+        typer.echo(format_answer(final, model=model, show_thinking=show_thinking))
     if show_prompt:
         packed = pack_prompt(
             question, final.get("sources", []), budget_tokens=settings.context_budget_tokens
         )
         typer.echo(f"\n{format_prompt(packed)}")
+
+
+def _with_thinking_hint(message: str, *, think: bool) -> str:
+    """Add what to do when ``--think`` met a model that cannot think (Ollama says so itself)."""
+    if think and "support thinking" in message:
+        return f"{message}\nDrop --think, or choose a chat model with a thinking mode."
+    return message
+
+
+@app.command("ask-timing")
+def ask_timing(
+    question: Annotated[
+        list[str],
+        typer.Option("--question", help="A question to time (repeat the option for several)."),
+    ],
+    cold_rounds: Annotated[
+        int,
+        typer.Option(
+            "--cold-rounds",
+            min=0,
+            help="How many times to unload the chat model, load it again and time the first "
+            "question (0 skips the cold rounds).",
+        ),
+    ] = 3,
+    warm_runs: Annotated[
+        int,
+        typer.Option(
+            "--warm-runs",
+            min=1,
+            help="How many times to ask every question once the model is warm.",
+        ),
+    ] = 5,
+    top_k: Annotated[
+        int, typer.Option("--top-k", min=1, help="How many chunks to find and offer the model.")
+    ] = 5,
+    mode: Annotated[
+        SearchMode, typer.Option("--mode", help="How to find the chunks, as in `ask`.")
+    ] = SearchMode.HYBRID_RERANK,
+    candidates: Annotated[
+        int,
+        typer.Option(
+            "--candidates",
+            min=1,
+            help="hybrid and hybrid_rerank: how many chunks each side contributes before fusing.",
+        ),
+    ] = 50,
+    think: Annotated[
+        bool, typer.Option("--think", help="Time the answers with thinking on.")
+    ] = False,
+) -> None:
+    """Time answers properly: the first question after a fresh load, then steady state (GPU).
+
+    Loads the chat model onto the GPU, so run it when nothing else uses the GPU. First one retrieval
+    is made and timed alone (a new process loads the reranker on its first use; that cost is
+    reported apart, not mixed into any run). Then each cold round unloads the chat model, loads it
+    again and times the first question, which is how the server starts; then every question is asked
+    in turn ``--warm-runs`` times with the model warm. The report gives p50, p95 and the maximum of
+    the time to the first token, the whole answer, retrieval and tokens per second, how many runs
+    had the model loaded again during a question (the plan wants none), and Ollama's prompt token
+    count per run. The numbers are wall-clock readings for the named model, on this machine, now.
+    """
+    from geekbot.agent.graph import build_graph
+    from geekbot.agent.latency import (
+        LatencyError,
+        LatencyRun,
+        format_latency_report,
+        measure_latency,
+    )
+    from geekbot.agent.packing import QuestionError, check_question
+    from geekbot.agent.runtime import AgentContext
+    from geekbot.domain import RunStats
+    from geekbot.index.dense import FingerprintMismatchError
+    from geekbot.index.lock import StorageLockedError
+    from geekbot.index.sqlite import DB_FILE_NAME
+    from geekbot.index.workspace import Workspace
+    from geekbot.llm.chat import ChatError, make_chat_model
+    from geekbot.llm.models import swap_to_mode, unload_and_wait
+    from geekbot.retrieval.factory import build_retriever
+    from geekbot.retrieval.rerank import RerankError
+
+    try:
+        for text in question:
+            check_question(text)
+    except QuestionError as error:
+        _fail(str(error))
+    settings = Settings()
+    setup_logging(settings.log_level)
+    nothing = "nothing is indexed yet; run `geekbot ingest <folder>` first"
+    if not (settings.data_dir / DB_FILE_NAME).is_file():
+        _fail(nothing)
+    model = settings.resolved_chat_model
+    try:
+        with Workspace.open(settings) as workspace, OllamaClient(settings.ollama_host) as client:
+            if workspace.dense.count() == 0:
+                _fail(nothing)
+            retriever = build_retriever(mode, workspace, settings, candidates=candidates)
+            swap = swap_to_mode(client, settings, "chat")
+            typer.echo(f"{model} ready ({swap.warm_up_s:.1f} s to load)", err=True)
+            context = AgentContext(
+                retriever=retriever,
+                llm=make_chat_model(settings, think=think),
+                model=model,
+                top_k=top_k,
+                context_budget_tokens=settings.context_budget_tokens,
+            )
+            graph = build_graph()
+            typer.echo("one retrieval first, timed apart (it loads the reranker)...", err=True)
+            began = time.perf_counter()
+            retriever.search(question[0], top_k)
+            first_retrieval_ms = (time.perf_counter() - began) * 1000
+
+            def run_once(text: str) -> LatencyRun:
+                typer.echo(f"  asking: {text[:60]}", err=True)
+                final = graph.invoke({"question": text}, context=context)
+                generation = final.get("generation")
+                if not generation:
+                    raise LatencyError(
+                        f"no source was found for {text!r}, so the model was never called; "
+                        "time a question the documents can answer"
+                    )
+                timings = final.get("retrieval_ms", {})
+                return LatencyRun(
+                    question=text,
+                    stats=RunStats.from_mapping(generation),
+                    retrieval_ms=timings.get("total"),
+                    stages_ms={name: ms for name, ms in timings.items() if name != "total"},
+                )
+
+            def cold_start() -> None:
+                typer.echo("unloading the chat model and loading it again...", err=True)
+                unload_and_wait(client, [model])
+                swap_to_mode(client, settings, "chat")
+
+            report = measure_latency(
+                run_once,
+                cold_start,
+                question,
+                model=model,
+                cold_rounds=cold_rounds,
+                warm_runs=warm_runs,
+                first_retrieval_ms=first_retrieval_ms,
+            )
+    except StorageLockedError as error:
+        _fail(str(error))
+    except FingerprintMismatchError as error:
+        _fail(f"{error}\nRun `geekbot ingest --reindex` to rebuild the vectors.")
+    except (OllamaError, RerankError, ChatError, LatencyError) as error:
+        _fail(_with_thinking_hint(str(error), think=think))
+    setup = (
+        f"chat model {model} ({settings.profile} profile) · retrieval {mode.value}, top-k {top_k}, "
+        f"thinking {'on' if think else 'off'} · {cold_rounds} cold rounds, {warm_runs} warm passes"
+    )
+    typer.echo(format_latency_report(report, setup=setup))
 
 
 @app.command(context_settings=_STUB)

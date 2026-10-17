@@ -112,6 +112,10 @@ class Settings(BaseSettings):
     # with and must also be what every query sends (R-2), which is why the chat model is built
     # from these settings and not from literals.
     chat_num_predict: int = Field(default=512, gt=0)
+    # With thinking on (``geekbot ask --think``) the reasoning is generated tokens too, so the reply
+    # cap has to leave room for it (step S3.3). An unmeasured guess: S3.3's live run shows how many
+    # tokens a thinking model really spends, and only a model with a thinking mode can be tried.
+    chat_think_num_predict: int = Field(default=2048, gt=0)
     chat_temperature: float = Field(default=0.2, ge=0.0, le=2.0)
     context_budget_tokens: int = Field(default=3000, gt=0)
     csv_llm_timeout_s: int = Field(default=60, gt=0)  # one Ollama call

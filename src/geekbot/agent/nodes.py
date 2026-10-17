@@ -1,36 +1,35 @@
-"""The steps of the answer graph (steps S3.1 and S3.2, PLAN.md §7).
+"""The steps of the answer graph (steps S3.1 to S3.3, PLAN.md §7).
 
 A node is a plain function: it receives the state (and the run's context), does one thing, and
 returns *only the keys it changes*. LangGraph merges the returned keys into the state and follows the
 edges. Nothing here knows about LangGraph's machinery beyond the ``Runtime`` argument, which is how a
-node reaches the retriever and the chat model, so each node can be called directly in a test.
+node reaches the retriever, the chat model and the stream writer, so each node can be called directly
+in a test.
 
-The nodes are ordinary (synchronous) functions on purpose. When S3.3 and S3.4 run the graph with
-``astream`` and an async checkpointer, LangGraph runs a synchronous node in a worker thread, so the
-event loop stays free (PLAN.md §6.3) without rewriting a line here.
+The nodes are ordinary (synchronous) functions on purpose. When S3.4 runs the graph with ``astream``
+and an async checkpointer, LangGraph runs a synchronous node in a worker thread, so the event loop
+stays free (PLAN.md §6.3) without rewriting a line here.
 """
 
 import time
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from typing import Any, Final, Literal
 
-from langchain_core.messages import BaseMessage
 from langgraph.runtime import Runtime
 
 from geekbot.agent.citations import check_citations
 from geekbot.agent.packing import pack_prompt
 from geekbot.agent.runtime import AgentContext
-from geekbot.agent.state import AgentState, SourceRef
+from geekbot.agent.state import AgentState, SourceRef, StreamEvent
 from geekbot.domain import Label, ScoredChunk
 from geekbot.llm.chat import ChatError
+from geekbot.llm.streaming import read_stream
 
 __all__ = [
     "NO_CONTEXT_ANSWER",
     "generate",
-    "generation_stats",
     "has_sources",
     "label_names",
-    "message_text",
     "no_context",
     "retrieve",
     "section_trail",
@@ -42,8 +41,6 @@ __all__ = [
 # decision (grade the sources, abstain below a calibrated threshold); until then the one rule is that
 # a model is never asked to answer without sources, because a small model would answer from memory.
 NO_CONTEXT_ANSWER: Final = "I could not find anything about that in the documents."
-
-_NANOSECONDS: Final = 1e9  # Ollama reports its durations in nanoseconds
 
 
 def _same_words(left: str, right: str) -> bool:
@@ -114,71 +111,29 @@ def no_context(state: AgentState) -> dict[str, Any]:
     }
 
 
-def message_text(message: BaseMessage) -> str:
-    """The text of a model reply, whether it came as a string or as a list of content blocks."""
-    content = message.content
-    if isinstance(content, str):
-        return content.strip()
-    parts: list[str] = []
-    for block in content:
-        if isinstance(block, str):
-            parts.append(block)
-        elif block.get("type") == "text":
-            parts.append(str(block.get("text", "")))
-    return "".join(parts).strip()
-
-
-def _number(metadata: Mapping[str, Any], key: str) -> float | None:
-    value = metadata.get(key)
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        return None
-    return float(value)
-
-
-def generation_stats(reply: BaseMessage, seconds: float) -> dict[str, float]:
-    """What one model call reported, in plain numbers (all optional but ``seconds``).
-
-    ``seconds`` is the wall-clock time Geekbot measured around the call. The rest comes from the
-    numbers Ollama puts in the reply: ``load_seconds`` is how long it spent loading the model for
-    this call (it must be close to 0 after a warm-up, rule R-2: a large value means the model was
-    reloaded during a query), ``prompt_tokens`` and ``output_tokens`` are token counts, and
-    ``tokens_per_second`` is output tokens over generation time. These are the raw readings; the
-    proper run statistics (time to first token, percentiles) are S3.3's job.
-    """
-    stats = {"seconds": seconds}
-    metadata = reply.response_metadata
-    load = _number(metadata, "load_duration")
-    if load is not None:
-        stats["load_seconds"] = load / _NANOSECONDS
-    prompt_tokens = _number(metadata, "prompt_eval_count")
-    if prompt_tokens is not None:
-        stats["prompt_tokens"] = prompt_tokens
-    output_tokens = _number(metadata, "eval_count")
-    if output_tokens is not None:
-        stats["output_tokens"] = output_tokens
-        generating = _number(metadata, "eval_duration")
-        if generating:
-            stats["tokens_per_second"] = output_tokens / (generating / _NANOSECONDS)
-    return stats
-
-
 def generate(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any]:
-    """Ask the chat model to answer from the packed sources. This step's ✍️ piece.
+    """Ask the chat model to answer from the packed sources, streaming. The S3.1 ✍️ piece.
 
-    ✍️ Written by Claude (prototyping mode, D-047); on the ✍️ backlog in STATUS.md. In order:
+    ✍️ Written by Claude (prototyping mode, D-047); on the ✍️ backlog in STATUS.md. S3.3 made it
+    stream; the reading of the stream is ``llm.streaming.read_stream``. In order:
 
     1. ``pack_prompt`` builds the messages from the question and the retrieved sources, within the
        context budget. If not even one source fits, the model is not called and the answer is
        ``NO_CONTEXT_ANSWER`` (a model must never answer without sources).
-    2. The chat model is called once. Any failure (Ollama down, model missing, a server error)
-       becomes a single ``ChatError`` that names the model and keeps the original as its cause, so
-       the caller handles one kind of exception whatever library raised it.
+    2. The chat model is called once, as a stream, and every piece is sent to the graph's stream
+       writer as it arrives (a ``StreamEvent``; nobody is listening under plain ``invoke``, and the
+       writer then does nothing). Any failure (Ollama down, model missing, a server error, a stream
+       that breaks half way) becomes a single ``ChatError`` that names the model and keeps the
+       original as its cause, so the caller handles one kind of exception whatever library
+       raised it.
     3. The reply's text must not be empty: a model that spent its whole budget thinking would
-       otherwise produce a blank answer that looks like success. That is a ``ChatError`` too.
+       otherwise produce a blank answer that looks like success. That is a ``ChatError`` too, and
+       the message says so when reasoning text did arrive.
     4. The node returns the answer, how many sources the prompt held (``used``), the labels of
-       the prompt (they become the answer's, PLAN.md §8.2) and the call's readings
-       (``generation_stats``). Nothing else changes in the state. The answer is still the model's
-       raw text: ``validate_citations`` runs next.
+       the prompt (they become the answer's, PLAN.md §8.2), the call's readings (``RunStats``,
+       time to first token included) and, if the model reasoned, its reasoning. Nothing else
+       changes in the state. The answer is still the model's raw text: ``validate_citations`` runs
+       next, after the stream, on the finished text.
     """
     context = runtime.context
     packed = pack_prompt(
@@ -186,22 +141,43 @@ def generate(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any
     )
     if packed.used == 0:
         return no_context(state)
+    emit = runtime.stream_writer
+
+    def send(event: Literal["text", "thinking"]) -> Callable[[str], None]:
+        def write(piece: str) -> None:
+            emit(StreamEvent(event=event, text=piece))
+
+        return write
+
+    # The clock starts before the stream is created, so a model whose `stream` already sends the
+    # request when called is not credited with a time to first token it did not have.
     started = time.perf_counter()
     try:
-        reply = context.llm.invoke(packed.messages)
+        result = read_stream(
+            context.llm.stream(packed.messages),
+            started=started,
+            on_text=send("text"),
+            on_thinking=send("thinking"),
+        )
     except Exception as error:
         detail = f"{type(error).__name__}: {error}"
         raise ChatError(f"the chat model {context.model!r} failed ({detail})") from error
-    seconds = time.perf_counter() - started
-    answer = message_text(reply)
-    if not answer:
-        raise ChatError(f"the chat model {context.model!r} returned no text")
-    return {
-        "answer": answer,
+    if not result.text:
+        spent = (
+            " (it spent its whole reply budget thinking; raise GEEKBOT_CHAT_THINK_NUM_PREDICT)"
+            if result.thinking
+            else ""
+        )
+        raise ChatError(f"the chat model {context.model!r} returned no text{spent}")
+    update: dict[str, Any] = {
+        "answer": result.text,
         "used": packed.used,
         "answer_labels": label_names(packed.labels),
-        "generation": generation_stats(reply, seconds),
+        "generation": result.stats.as_dict(),
     }
+    if result.thinking:
+        update["thinking"] = result.thinking
+    return update
 
 
 def validate_citations(state: AgentState) -> dict[str, Any]:

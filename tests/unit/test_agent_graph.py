@@ -1,4 +1,4 @@
-"""Tests for steps S3.1 and S3.2: the answer graph, its nodes, generate and the citation check.
+"""Tests for steps S3.1 to S3.3: the answer graph, its nodes, generate, streaming and the citation check.
 
 No model, no Ollama, no database: the retriever and the chat model are small fakes that record what
 they were asked, and the graph is run for real, so the wiring (which node follows which, what lands in
@@ -6,18 +6,17 @@ the state) is what is tested. The fakes satisfy the same two Protocols the real 
 """
 
 import json
-from collections.abc import Sequence
+import threading
+from collections.abc import Iterator, Sequence
 
 import pytest
-from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
 
 from geekbot.agent.graph import build_graph
 from geekbot.agent.nodes import (
     NO_CONTEXT_ANSWER,
-    generation_stats,
     has_sources,
     label_names,
-    message_text,
     section_trail,
     source_refs,
     validate_citations,
@@ -25,7 +24,7 @@ from geekbot.agent.nodes import (
 from geekbot.agent.runtime import AgentContext
 from geekbot.agent.state import AgentState
 from geekbot.domain import Chunk, Label, ScoredChunk
-from geekbot.llm.chat import ChatError
+from geekbot.llm.chat import ChatError, ChatModel
 from geekbot.retrieval import RetrievalResult
 
 MODEL = "fake-model:1b"
@@ -68,34 +67,55 @@ class FakeRetriever:
 
 
 class FakeChat:
-    """Answers with a canned message, or raises, and remembers the messages it was given."""
+    """Streams a canned reply, or raises, and remembers the messages it was given.
 
-    def __init__(self, reply: BaseMessage | Exception) -> None:
+    ``reply`` is sent as one chunk, unless ``pieces`` says how to cut it up. A reply that is an
+    exception is raised when the stream is first read, as a real client raises on the first
+    ``next``. Only ``stream`` exists: it is the one method the graph needs (``llm.chat.ChatModel``).
+    """
+
+    def __init__(
+        self, reply: BaseMessage | Exception, *, pieces: Sequence[AIMessageChunk] | None = None
+    ) -> None:
         self.reply = reply
+        self.pieces = pieces
         self.calls: list[list[BaseMessage]] = []
 
-    def invoke(self, messages: list[BaseMessage], /) -> BaseMessage:
+    def stream(self, messages: list[BaseMessage], /) -> Iterator[BaseMessage]:
         self.calls.append(messages)
         if isinstance(self.reply, Exception):
             raise self.reply
-        return self.reply
+        if self.pieces is not None:
+            yield from self.pieces
+            return
+        yield AIMessageChunk(
+            content=self.reply.content,
+            response_metadata=self.reply.response_metadata,
+            additional_kwargs=self.reply.additional_kwargs,
+        )
 
 
-def run(
-    retriever: FakeRetriever,
-    chat: FakeChat,
-    question: str = "How long are chats kept?",
-    *,
-    top_k: int = 3,
-    budget: int = 3000,
-) -> AgentState:
-    context = AgentContext(
+def context_for(
+    retriever: FakeRetriever, chat: ChatModel, *, top_k: int = 3, budget: int = 3000
+) -> AgentContext:
+    return AgentContext(
         retriever=retriever,
         llm=chat,
         model=MODEL,
         top_k=top_k,
         context_budget_tokens=budget,
     )
+
+
+def run(
+    retriever: FakeRetriever,
+    chat: ChatModel,
+    question: str = "How long are chats kept?",
+    *,
+    top_k: int = 3,
+    budget: int = 3000,
+) -> AgentState:
+    context = context_for(retriever, chat, top_k=top_k, budget=budget)
     final: AgentState = build_graph().invoke({"question": question}, context=context)
     return final
 
@@ -254,6 +274,7 @@ def test_the_readings_of_the_call_are_taken_from_ollamas_metadata() -> None:
         response_metadata={
             "load_duration": 250_000_000,
             "prompt_eval_count": 800,
+            "prompt_eval_duration": 400_000_000,
             "eval_count": 40,
             "eval_duration": 2_000_000_000,
         },
@@ -262,27 +283,144 @@ def test_the_readings_of_the_call_are_taken_from_ollamas_metadata() -> None:
     assert generation["seconds"] >= 0
     assert generation["load_seconds"] == pytest.approx(0.25)
     assert generation["prompt_tokens"] == 800
+    assert generation["prompt_eval_seconds"] == pytest.approx(0.4)
     assert generation["output_tokens"] == 40
     assert generation["tokens_per_second"] == pytest.approx(20.0)
 
 
+def test_the_time_to_first_token_is_measured_and_cannot_exceed_the_whole_call() -> None:
+    generation = run(FakeRetriever(TWO_CHUNKS), FakeChat(AIMessage(content="ok")))["generation"]
+    assert 0 <= generation["first_token_seconds"] <= generation["seconds"]
+
+
 def test_a_reply_without_metadata_still_gives_the_wall_clock_time() -> None:
-    reply = AIMessage(content="ok")
-    assert set(generation_stats(reply, 1.5)) == {"seconds"}
-    assert generation_stats(reply, 1.5)["seconds"] == 1.5
+    generation = run(FakeRetriever(TWO_CHUNKS), FakeChat(AIMessage(content="ok")))["generation"]
+    assert set(generation) == {"seconds", "first_token_seconds"}
 
 
-def test_odd_metadata_is_ignored_not_trusted() -> None:
-    reply = AIMessage(
-        content="ok",
-        response_metadata={"load_duration": "fast", "eval_count": True, "prompt_eval_count": None},
+# --- streaming (S3.3) ------------------------------------------------------------------------
+
+
+def streamed_events(chat: ChatModel) -> list[object]:
+    """The custom events a listener receives while the graph runs (``stream_mode="custom"``)."""
+    graph = build_graph()
+    return list(
+        graph.stream(
+            {"question": "How long are chats kept?"},
+            context=context_for(FakeRetriever(TWO_CHUNKS), chat),
+            stream_mode="custom",
+        )
     )
-    assert generation_stats(reply, 1.0) == {"seconds": 1.0}
 
 
-def test_no_generation_time_means_no_tokens_per_second() -> None:
-    reply = AIMessage(content="ok", response_metadata={"eval_count": 10, "eval_duration": 0})
-    assert generation_stats(reply, 1.0) == {"seconds": 1.0, "output_tokens": 10.0}
+def test_every_piece_of_the_answer_is_sent_to_whoever_listens_as_it_arrives() -> None:
+    chat = FakeChat(
+        AIMessage(content=""),
+        pieces=[AIMessageChunk(content="Ninety "), AIMessageChunk(content="days [1].")],
+    )
+    assert streamed_events(chat) == [
+        {"event": "text", "text": "Ninety "},
+        {"event": "text", "text": "days [1]."},
+    ]
+
+
+def test_the_streamed_run_ends_in_the_same_state_as_a_plain_invoke() -> None:
+    pieces = [AIMessageChunk(content="Ninety "), AIMessageChunk(content="days [1] and [9].")]
+    context = context_for(FakeRetriever(TWO_CHUNKS), FakeChat(AIMessage(content=""), pieces=pieces))
+    graph = build_graph()
+    modes = ["custom", "values"]
+    events = list(graph.stream({"question": "q"}, context=context, stream_mode=modes))
+    final = [payload for mode, payload in events if mode == "values"][-1]
+    assert final["answer"] == "Ninety days [1] and."  # the check ran after the stream
+    assert final["raw_answer"] == "Ninety days [1] and [9]."
+    assert final["dropped_citations"] == [9]
+    assert [payload["text"] for mode, payload in events if mode == "custom"] == [
+        "Ninety ",
+        "days [1] and [9].",
+    ]
+
+
+def test_the_first_piece_reaches_the_listener_before_the_model_has_finished() -> None:
+    """Streaming must be live: the consumer sees piece one while the model is still working.
+
+    The model below refuses to produce its second piece until the consumer has received the first.
+    If LangGraph only delivered the events after the node returned, this would wait for the gate
+    and fail instead of passing.
+    """
+    first_seen = threading.Event()
+
+    class WaitsForTheListener:
+        def stream(self, messages: list[BaseMessage], /) -> Iterator[BaseMessage]:
+            yield AIMessageChunk(content="First ")
+            assert first_seen.wait(timeout=10), "the first piece never reached the listener"
+            yield AIMessageChunk(content="second [1].")
+
+    graph = build_graph()
+    context = context_for(FakeRetriever(TWO_CHUNKS), WaitsForTheListener())
+    received: list[object] = []
+    for event in graph.stream({"question": "q"}, context=context, stream_mode="custom"):
+        received.append(event)
+        first_seen.set()
+    assert received == [
+        {"event": "text", "text": "First "},
+        {"event": "text", "text": "second [1]."},
+    ]
+
+
+def test_with_nobody_listening_the_same_node_just_returns_the_answer() -> None:
+    chat = FakeChat(AIMessage(content=""), pieces=[AIMessageChunk(content="Ninety days [1].")])
+    assert run(FakeRetriever(TWO_CHUNKS), chat)["answer"] == "Ninety days [1]."
+
+
+def test_reasoning_pieces_are_sent_apart_and_kept_out_of_the_answer() -> None:
+    chat = FakeChat(
+        AIMessage(content=""),
+        pieces=[
+            AIMessageChunk(content="", additional_kwargs={"reasoning_content": "Let me check. "}),
+            AIMessageChunk(
+                content="", additional_kwargs={"reasoning_content": "Source 1 says 90."}
+            ),
+            AIMessageChunk(content="Ninety days [1]."),
+        ],
+    )
+    assert streamed_events(chat) == [
+        {"event": "thinking", "text": "Let me check. "},
+        {"event": "thinking", "text": "Source 1 says 90."},
+        {"event": "text", "text": "Ninety days [1]."},
+    ]
+    final = run(FakeRetriever(TWO_CHUNKS), chat)
+    assert final["answer"] == "Ninety days [1]."
+    assert final["thinking"] == "Let me check. Source 1 says 90."
+    assert final["generation"]["thinking_chars"] == len("Let me check. Source 1 says 90.")
+
+
+def test_no_reasoning_means_no_thinking_key_in_the_state() -> None:
+    final = run(FakeRetriever(TWO_CHUNKS), FakeChat(AIMessage(content="ok [1]")))
+    assert "thinking" not in final
+    assert "thinking_chars" not in final["generation"]
+
+
+def test_a_model_that_spent_its_whole_budget_thinking_says_so() -> None:
+    chat = FakeChat(
+        AIMessage(content=""),
+        pieces=[AIMessageChunk(content="", additional_kwargs={"reasoning_content": "Hmm..."})],
+    )
+    with pytest.raises(ChatError, match="returned no text.*thinking.*THINK_NUM_PREDICT"):
+        run(FakeRetriever(TWO_CHUNKS), chat)
+
+
+def test_a_stream_that_breaks_half_way_is_one_chat_error_with_the_cause_kept() -> None:
+    original = ConnectionError("the connection dropped")
+
+    class BreaksHalfWay:
+        def stream(self, messages: list[BaseMessage], /) -> Iterator[BaseMessage]:
+            yield AIMessageChunk(content="Ninety ")
+            raise original
+
+    with pytest.raises(ChatError) as raised:
+        run(FakeRetriever(TWO_CHUNKS), BreaksHalfWay())
+    assert "ConnectionError: the connection dropped" in str(raised.value)
+    assert raised.value.__cause__ is original
 
 
 # --- nothing to answer from ------------------------------------------------------------------
@@ -332,16 +470,6 @@ def test_a_reply_with_no_text_is_an_error_not_a_blank_answer(content: str | list
 
 
 # --- small helpers ---------------------------------------------------------------------------
-
-
-def test_message_text_reads_a_string_or_a_list_of_content_blocks() -> None:
-    assert message_text(AIMessage(content="  plain  ")) == "plain"
-    blocks: list[str | dict[str, object]] = [
-        {"type": "text", "text": "Hello, "},
-        {"type": "image_url", "image_url": "ignored"},
-        "world",
-    ]
-    assert message_text(AIMessage(content=blocks)) == "Hello, world"
 
 
 def test_source_refs_number_the_chunks_from_one_and_join_the_heading_trail() -> None:
