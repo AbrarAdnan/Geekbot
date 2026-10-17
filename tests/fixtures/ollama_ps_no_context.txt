@@ -1,2 +1,0 @@
-NAME         ID              SIZE      PROCESSOR    UNTIL
-gemma3:4b    68ceab7e468a    3.0 GB    100% GPU     4 minutes from now
