@@ -1,4 +1,4 @@
-# Geekbot v2 — implementation plan (rev 17)
+# Geekbot v2 — implementation plan (rev 18)
 
 > **The measured results are the product; the architecture exists to make them credible.**
 > (This line also opens the v2 README.)
@@ -177,6 +177,11 @@ project/
   - LangChain's splitters return text without positions, and the plan needs `char_start` / `char_end` for citations and an exact "no text is lost" property; a hand-written splitter makes every chunk an exact slice of the document text
   - §6.4's "where LangChain is used" no longer lists splitters; `ingest/chunking.py` joins the places where our own code is used
   - Token counts for chunk sizes come from a dependency-free estimate; the embedder's real tokenizer is compared with it at S1.5. `hypothesis` enters the `[dev]` extra at S1.2 (its first use), not S1.3
+- **rev 18** (S2.4, 2026-10-17, user decision; D-067): **Claude writes the first golden corpus and golden questions; the user's come later** (§9, §11 S2.4, §12 "Your time"):
+  - The ~15-document golden corpus and ~100 questions are drafted by Claude as **"golden v0", provisional** (a fictional studio's AI-rollout documents, all original, in the formats the loaders support). The user reviews them and adds their own questions after the prototype works, in a **separate `golden-user.jsonl`**, scored on its own as the independent set (adding them to v0 would move v0's development/test split)
+  - Reason: the user wants a working prototype first and is overseeing the build; the questions are not on the critical path until S2.6 needs them
+  - Cost, stated: the author of the documents, the questions and the system is one, so v0 is easy mode and its numbers are never a headline. Every v0 item carries a "provisional" flag, and results from it are reported as "Claude-authored golden v0, provisional" (CLAUDE.md rule 8). D-065 stays provisional as well
+  - §9's description of the golden corpus is unchanged otherwise; §11's S2.4 row no longer asks the user for ~1 h of curation now (that time moves to the review of v0 and the user's own set)
 
 ## 5. v1 findings (verified; all fixed by v2)
 
@@ -516,7 +521,7 @@ A simulated user denies every approval. The report gives bypasses k/N (target 0)
   - Downloaded at runtime with checksums; HF mirror as fallback.
   - Chunk hits are aggregated to doc level (max).
   - Wording: "standard BEIR datasets with standard metrics".
-- **System-specific behavioral evaluation:** the golden corpus (~15 docs). ~100 items: ~50 single-hop, ~15 multi-hop, ~15 multi-turn, ~20 unanswerable. No general-superiority claims.
+- **System-specific behavioral evaluation:** the golden corpus (~15 docs). ~100 items: ~50 single-hop, ~15 multi-hop, ~15 multi-turn, ~20 unanswerable. No general-superiority claims. **Golden v0 is written by Claude and provisional (rev 18, D-067); the user's own questions come later as a separate `golden-user.jsonl`, scored separately.**
 - **Measurement hierarchy:** retrieval metrics → deterministic answer checks (citation hit, abstention accuracy, must-include recall, invalid-citation rate) → human labels → calibrated judge (supporting only).
 - **Primary metrics (pre-registered):** nDCG@10 on SciFact, nDCG@10 on NFCorpus, Recall@5 on golden, with Holm–Bonferroni across them. Everything else is descriptive.
 - **Ablation, one variable per rung:** cumulative, in a fixed order, with the embedder held at `nomic-embed-text`, run on BEIR and golden, latency recorded per rung.
@@ -657,7 +662,7 @@ A simulated user denies every approval. The report gives bypasses k/N (target 0)
 | **S2.1 Dense retrieval** | asymmetric retrieval, task prefixes, the "ready-only" filter | `retrieval/dense.py`, `geekbot search` | turning Chroma hits back into SQLite chunk rows, dropping chunks that aren't ready | `geekbot search "…"` |
 | **S2.2 BM25 + RRF** | lexical vs semantic retrieval, why fuse by rank not score | `retrieval/lexical.py`, `fusion.py` | RRF (Reciprocal Rank Fusion), against my tests | `pytest` · `geekbot search --mode hybrid` |
 | **S2.3 Reranking** | bi-encoder vs cross-encoder, rerank depth vs latency | `retrieval/rerank.py` (fastembed CPU), latency timing | the rerank-depth timing harness (p50/p95) | `geekbot search --mode hybrid_rerank` |
-| **S2.4 Eval datasets** | qrels, BEIR, building a golden set, unanswerable questions | `evals/datasets.py`, `eval generate`, golden-set format (from `evals/datasets/golden-questions.md`); settle the deferred eval questions (D-033). **You curate ~100 items** (~1 h) | the golden-set JSONL validator | `geekbot eval generate` 🎮 → curate |
+| **S2.4 Eval datasets** | qrels, BEIR, building a golden set, unanswerable questions | `evals/datasets.py`, `eval generate`, golden-set format (from `evals/datasets/golden-questions.md`); settle the deferred eval questions (D-033). **Claude writes golden v0 (the corpus and ~100 provisional items, rev 18, D-067); you review it and add your own set later** | the golden-set JSONL validator | `geekbot eval generate` 🎮 → curate |
 | **S2.5 Metrics and statistics** | nDCG, Recall, MRR; bootstrap CI, permutation test, Holm | `evals/metrics.py`, `stats.py`, the Holm test family (D-033) | nDCG@k against hand-computed tests, and the paired bootstrap CI | `pytest` |
 | **S2.6 Ablation + bake-offs** | ablation design, confounds, leave-one-out, threshold calibration | rungs R0–R7, LOO, embedder/reranker bake-offs, `calibrate.py`, report writer | the abstain-threshold calibration (F1-optimal sweep) | `geekbot eval retrieval --config evals/configs/ablation.toml` (CPU-heavy, long run) |
 | ⛳ **Checkpoint: first evidence** | — | one-time v1 reference run (D-034) + draft README results section; Phase 1–2 look-back | — | create the `geekbot-v1` env, then the v1 run 🎮 (commands given then); we review the ablation table and the v1 reference together **before Phase 3** |
@@ -814,6 +819,6 @@ A simulated user denies every approval. The report gives bypasses k/N (target 0)
   - a review and green light per step
   - **one ✍️ piece per step** (usually 20–60 lines)
   - the C1 code tour of `csv_analyst`
-  - ~1 h to curate the golden set (S2.4)
+  - ~1 h to review golden v0 and add your own questions (S2.4, rev 18; after the prototype works)
   - ~1 h to blind-label ~60 answers (S5.2)
 - **For fast answers and valid benchmarks:** keep the GPU free of other heavy work (Gigalogy runs, games, GPU-accelerated browsers). `doctor` and `bench` show what's using it.

@@ -1,0 +1,58 @@
+BRIGHTWATER STUDIO
+DATA HANDLING STANDARD FOR LANTERN
+Version 1.1, 14 April 2025. Owner: Tomasz Lewandowski, security and privacy officer.
+
+This standard says where Lantern keeps data, how long, and how it is removed. It supports the AI use policy, which sets the rules for people. Where the two seem to differ, the policy wins and Tomasz must be told.
+
+1. WHERE DATA LIVES
+
+1.1 Everything Lantern stores is on lantern-01, in the locked comms cupboard. Nothing is stored with an outside provider except the weekly encrypted backup copy (see section 5).
+
+1.2 There are three data folders on lantern-01:
+    - /srv/lantern/uploads holds documents that staff upload into a project workspace.
+    - /srv/lantern/chat_logs holds one file per day with the conversations people had.
+    - /srv/lantern/audit holds the audit log.
+
+1.3 The audit log records who asked, when, in which workspace, and how many tokens the answer used. It never records the text of a prompt or of an answer.
+
+2. ACCESS
+
+2.1 Lantern can be reached only from the office network, subnet 192.168.10.0/24. No port is open to the internet.
+
+2.2 Every person has an individual account. Shared accounts are not allowed.
+
+2.3 There are two administrators, Priya Nair and Tomasz Lewandowski. Both use multi-factor sign-in. Administrators can read the audit log and disable accounts. They do not read chat logs unless Tomasz opens an incident.
+
+3. RETENTION
+
+3.1 The periods are:
+
+    Chat logs ............................ 90 days
+    Audit logs ........................... 365 days
+    Uploaded documents ................... until the project is closed, plus 12 months
+    Backups .............................. 30 days
+    Incident records ..................... three years
+
+3.2 A chat log is removed by the nightly retention job at 02:30, once it is more than 90 days old. Uploaded documents are not removed by the job. The operations lead, Daniel Reyes, removes them by hand when a project has been closed for 12 months, and records the date.
+
+3.3 Because backups are kept for 30 days, a chat log that has just been deleted can still exist in a backup for up to 30 days. The longest a chat can therefore survive anywhere is 120 days.
+
+4. LEGAL HOLD
+
+4.1 To stop deletion during an incident, create an empty file called LEGAL_HOLD in /srv/lantern. While it is there the retention job deletes nothing.
+
+4.2 Only Tomasz Lewandowski may order the file to be removed, after the incident review.
+
+5. BACKUPS
+
+5.1 A backup runs every night at 01:00 to the office NAS.
+
+5.2 Every Sunday at 03:00 an encrypted copy goes to cloud storage in an EU region. The key stays in the office safe.
+
+5.3 A restore is tested once a year. The first test, on 2 May 2025, restored 310 GB in 47 minutes.
+
+6. DELETION
+
+6.1 Deleting a file means removing it from the disk. Lantern keeps no recycle bin.
+
+6.2 Deleting a workspace deletes its uploads and its chat logs immediately. Backups are not edited: they expire by age.
