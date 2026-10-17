@@ -58,6 +58,8 @@ app.add_typer(config_app, name="config")
 app.add_typer(csv_app, name="csv")
 app.add_typer(eval_app, name="eval")
 
+THREAD_SHOW_WIDTH = 160  # how much of a message `geekbot thread show` prints on its line
+
 # Stubs accept any arguments, so `geekbot ask "hi"` reaches the "not built yet" message
 # instead of a usage error.
 _STUB = {"allow_extra_args": True, "ignore_unknown_options": True}
@@ -728,6 +730,7 @@ def ask(
     # Imported here: LangGraph, LangChain and Chroma are slow to import, and `geekbot --version`
     # or `geekbot doctor` should not wait for them.
     from geekbot.agent.condense import CondenseOutput
+    from geekbot.agent.mode import ModeError, choose_mode
     from geekbot.agent.packing import QuestionError, check_question, pack_prompt
     from geekbot.agent.render import (
         StreamCollector,
@@ -736,7 +739,13 @@ def ask(
         format_answer,
         format_prompt,
     )
-    from geekbot.agent.runner import THREADS_DB, ThreadNameError, check_thread_name, run_turn
+    from geekbot.agent.runner import (
+        THREADS_DB,
+        ThreadNameError,
+        check_thread_name,
+        read_thread,
+        run_turn,
+    )
     from geekbot.agent.runtime import AgentContext
     from geekbot.index.dense import FingerprintMismatchError
     from geekbot.index.lock import StorageLockedError
@@ -761,6 +770,13 @@ def ask(
     # Opening the store would create an empty database (see `search`); a question never does.
     if not (settings.data_dir / DB_FILE_NAME).is_file():
         _fail(nothing)
+    if thread is not None:
+        # A thread keeps the mode it started with: say so before any model is loaded (C4).
+        saved = asyncio.run(read_thread(settings.data_dir / THREADS_DB, thread))
+        try:
+            choose_mode(saved.get("mode") if saved else None, "chat")
+        except ModeError as error:
+            _fail(str(error))
     model = settings.resolved_chat_model
     answered: StreamedAnswer
     try:
@@ -804,13 +820,14 @@ def ask(
                     thread=thread,
                     threads_db=settings.data_dir / THREADS_DB,
                     collector=collector,
+                    mode="chat",
                 )
             )
     except StorageLockedError as error:
         _fail(str(error))
     except FingerprintMismatchError as error:
         _fail(f"{error}\nRun `geekbot ingest --reindex` to rebuild the vectors.")
-    except (OllamaError, RerankError, ChatError) as error:
+    except (OllamaError, RerankError, ChatError, ModeError) as error:
         _fail(_with_thinking_hint(str(error), think=think))
     final = answered.final
     if stream:
@@ -850,10 +867,16 @@ def thread_show(
     if saved is None:
         _fail(f"no thread named {name!r} (it is created by `geekbot ask --thread {name} ...`)")
     history = saved.get("history", [])
-    typer.echo(f"thread {name}: {saved.get('turn', 0)} turns, {len(history)} messages remembered")
+    mode, csv_file = saved.get("mode"), saved.get("csv_file")
+    kind = (f" ({mode}, {csv_file})" if csv_file else f" ({mode})") if mode else ""
+    typer.echo(
+        f"thread {name}{kind}: {saved.get('turn', 0)} turns, {len(history)} messages remembered"
+    )
     for message in history:
         labels = ", ".join(message["labels"]) or "no labels"
-        typer.echo(f"  {message['id']} [{labels}] {message['content']}")
+        text = " ".join(message["content"].split())  # a CSV answer is a whole table: one line each
+        shown = text if len(text) <= THREAD_SHOW_WIDTH else text[:THREAD_SHOW_WIDTH] + "..."
+        typer.echo(f"  {message['id']} [{labels}] {shown}")
     taint = ", ".join(saved.get("thread_taint", [])) or "none"
     typer.echo(f"taint: {taint}")
 
@@ -1066,13 +1089,25 @@ def csv_describe(file: CsvFile) -> None:
 def csv_ask(
     file: CsvFile,
     question: Annotated[str, typer.Argument(help="Your question about the data.")],
+    thread: Annotated[
+        str | None,
+        typer.Option(
+            "--thread",
+            help="Keep a conversation about this file under this name (a CSV thread: its mode is "
+            "fixed). A follow-up such as 'and by month?' is rewritten into a full question first, "
+            "because the analysis package has no memory. Pass the same file each time. Without it "
+            "every question stands alone.",
+        ),
+    ] = None,
 ) -> None:
     """Ask a question about a CSV file (uses the CSV model, so it needs a free GPU).
 
     The reply goes to stdout. A footer on stderr names the model, profile, status, time and the
     time spent loading the model, so a pasted result always says which model produced it
     (D-043). Exit code 0 means the tool worked (even if the data could not answer); 1 means the
-    question failed or Ollama, the model or the file was not usable.
+    question failed or Ollama, the model or the file was not usable. With --thread the question
+    runs through the answer graph in CSV mode (the CSV model is loaded explicitly first, the chat
+    model is unloaded) and the conversation is saved like a chat thread (`geekbot thread show`).
     """
     from geekbot.csv_mode.adapter import CsvAnalyst, CsvLoadError, find_problem
 
@@ -1081,6 +1116,9 @@ def csv_ask(
     problem = find_problem(settings)
     if problem is not None:
         _fail(problem)
+    if thread is not None:
+        _csv_ask_in_thread(file, question, thread, settings)
+        return
     try:
         with CsvAnalyst.open(file, settings) as analyst:
             answer = analyst.ask(question)
@@ -1093,6 +1131,85 @@ def csv_ask(
         err=True,
     )
     if answer.failed:
+        raise typer.Exit(1)
+
+
+def _csv_ask_in_thread(file: Path, question: str, thread: str, settings: Settings) -> None:
+    """One turn of a CSV conversation: the answer graph in CSV mode, saved under ``thread`` (C4)."""
+    from geekbot.agent.condense import CondenseOutput
+    from geekbot.agent.mode import ModeError, choose_mode
+    from geekbot.agent.packing import QuestionError, check_question
+    from geekbot.agent.render import format_answer
+    from geekbot.agent.runner import (
+        THREADS_DB,
+        ThreadNameError,
+        check_thread_name,
+        read_thread,
+        run_turn,
+    )
+    from geekbot.agent.runtime import AgentContext, UnavailableChat, UnavailableRetriever
+    from geekbot.csv_mode.adapter import CsvAnalyst, CsvLoadError
+    from geekbot.index.lock import StorageLock, StorageLockedError
+    from geekbot.llm.chat import ChatError, make_structured_model
+    from geekbot.llm.models import swap_to_mode
+
+    model = settings.resolved_csv_model
+    threads_db = settings.data_dir / THREADS_DB
+    try:
+        check_question(question)  # before any model is loaded: a mistake here should cost nothing
+        check_thread_name(thread)
+        saved = asyncio.run(read_thread(threads_db, thread))
+        choose_mode(
+            saved.get("mode") if saved else None, "csv"
+        )  # a chat thread stays a chat thread
+    except (QuestionError, ThreadNameError, ModeError) as error:
+        _fail(str(error))
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        with StorageLock(settings.data_dir), CsvAnalyst.open(file, settings) as analyst:
+            with OllamaClient(settings.ollama_host) as client:
+                swap = swap_to_mode(client, settings, "csv")
+            released = f", unloaded {', '.join(swap.unloaded)}" if swap.unloaded else ""
+            typer.echo(f"{model} ready ({swap.warm_up_s:.1f} s to load{released})", err=True)
+            context = AgentContext(
+                retriever=UnavailableRetriever(),
+                llm=UnavailableChat(),
+                model=model,
+                top_k=1,
+                context_budget_tokens=settings.context_budget_tokens,
+                # The rewrite uses the CSV model, the one on the GPU, with the context size it was
+                # warmed up with (R-2): the package keeps no memory, so a follow-up needs it.
+                condenser=make_structured_model(
+                    settings,
+                    CondenseOutput,
+                    num_predict=settings.condense_num_predict,
+                    model=model,
+                    num_ctx=settings.csv_num_ctx,
+                ),
+                history_budget_tokens=settings.history_budget_tokens,
+                history_keep_messages=settings.history_keep_messages,
+                csv=analyst,
+            )
+            typer.echo(f"asking {model} about {file.name}...", err=True)
+            answered = asyncio.run(
+                run_turn(
+                    question,
+                    context=context,
+                    thread=thread,
+                    threads_db=threads_db,
+                    mode="csv",
+                    csv_file=file.name,
+                )
+            )
+    except StorageLockedError as error:
+        _fail(str(error))
+    except CsvLoadError as error:
+        _fail(str(error))
+    except (OllamaError, ChatError, ModeError) as error:
+        _fail(str(error))
+    final = answered.final
+    typer.echo(format_answer(final, model=model, thread=thread))
+    if final.get("csv_status") == "failed":
         raise typer.Exit(1)
 
 

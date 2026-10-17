@@ -57,11 +57,18 @@ class AgentState(TypedDict, total=False):
     Only ``question`` is given at the start of a turn. Without a checkpointer every run starts from
     nothing. With one (``geekbot ask --thread``) the keys below are saved after every step and the
     next turn starts from them, so ``begin_turn`` first resets the keys that belong to one turn only
-    (everything up to ``generation``): without that, a turn that finds nothing would still show the
-    previous turn's sources. ``history``, ``thread_taint`` and ``turn`` are the thread's memory.
+    (everything from ``standalone_question`` to ``generation``, and ``requested_mode`` and
+    ``csv_status``): without that, a turn that finds nothing would still show the previous turn's
+    sources. ``history``, ``thread_taint``, ``turn``, ``mode`` and ``csv_file`` are the thread's own.
     """
 
     question: str
+    requested_mode: (
+        str  # input only: the mode the caller asks for ("chat" or "csv"), "" if none (C4)
+    )
+    mode: str  # the thread's mode, fixed at its first turn (C4): "chat" or "csv"
+    csv_file: str  # CSV mode: the name of the file the thread was started on (display only)
+    csv_status: str  # CSV mode: the package's verdict for this turn: answered, abstained, ...
     standalone_question: str  # what retrieval searches for: the question, or its rewrite (S3.4)
     condense_seconds: float  # how long the rewrite took (only on a follow-up)
     condense_error: str  # why the rewrite fell back to the user's own words (only if it failed)

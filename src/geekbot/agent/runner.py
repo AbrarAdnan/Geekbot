@@ -27,6 +27,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from geekbot.agent.graph import build_graph
 from geekbot.agent.render import StreamCollector, StreamedAnswer
 from geekbot.agent.runtime import AgentContext
+from geekbot.agent.state import AgentState
 
 __all__ = [
     "THREADS_DB",
@@ -71,6 +72,8 @@ async def run_turn(
     thread: str | None = None,
     threads_db: Path | None = None,
     collector: StreamCollector | None = None,
+    mode: str | None = None,
+    csv_file: str | None = None,
 ) -> StreamedAnswer:
     """Answer one question; with ``thread`` the conversation before it is remembered and extended.
 
@@ -79,6 +82,11 @@ async def run_turn(
     ``streamed`` is empty. Either way the result carries the graph's final state. Errors the graph
     raises (``ChatError`` and the like) propagate unchanged, and a turn that raised is not saved as
     a remembered turn (``remember`` is the last step).
+
+    ``mode`` is the mode the caller asks for, ``"chat"`` or ``"csv"`` (C4): a thread's first turn
+    takes it, a later turn must agree with the thread's saved mode or ``ModeError`` is raised before
+    anything runs (``agent.mode.choose_mode``). ``csv_file`` is the name of the CSV file in play,
+    kept in the state for display.
     """
     async with contextlib.AsyncExitStack() as stack:
         saver: AsyncSqliteSaver | None = None
@@ -92,13 +100,18 @@ async def run_turn(
             )
             config = thread_config(thread)
         graph = build_graph(saver)
+        turn: AgentState = {"question": question}
+        if mode:
+            turn["requested_mode"] = mode
+        if csv_file:
+            turn["csv_file"] = csv_file
         if collector is None:
-            final = await graph.ainvoke({"question": question}, config, context=context)
+            final = await graph.ainvoke(turn, config, context=context)
             return StreamedAnswer(final=dict(final), streamed="")
-        async for mode, payload in graph.astream(
-            {"question": question}, config, context=context, stream_mode=["custom", "values"]
+        async for event_mode, payload in graph.astream(
+            turn, config, context=context, stream_mode=["custom", "values"]
         ):
-            collector.feed(mode, payload)
+            collector.feed(event_mode, payload)
         return collector.result()
 
 

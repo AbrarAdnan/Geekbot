@@ -209,6 +209,55 @@ def test_the_answer_can_be_left_out_because_it_was_already_streamed() -> None:
     assert shown.startswith("Sources cited:")
 
 
+def csv_state(**changes: Any) -> dict[str, Any]:
+    return final_state(
+        mode="csv",
+        sources=[],
+        used=0,
+        cited=[],
+        answer="North has the highest total revenue, 520.",
+        raw_answer="",
+        answer_labels=["TOOL", "USER"],
+        retrieval_ms={},
+        generation={"seconds": 2.5, "load_seconds": 0.02},
+        csv_status="answered",
+        thread_taint=["TOOL", "USER"],
+        history=[{}, {}],
+        turn=1,
+        **changes,
+    )
+
+
+def test_a_csv_answer_shows_its_status_labels_and_the_thread_in_csv_mode() -> None:
+    shown = format_answer(csv_state(), model="qwen-fake:3b", thread="t1")
+    assert shown.startswith("North has the highest total revenue, 520.")
+    assert "csv status: answered" in shown
+    assert "labels: TOOL, USER (tainted)" in shown
+    assert "qwen-fake:3b: 2.50 s, model load 0.02 s" in shown
+    assert shown.splitlines()[-1] == (
+        "thread t1 (csv): turn 1, 2 messages remembered, taint TOOL, USER (tainted)"
+    )
+    assert "Sources" not in shown
+
+
+def test_a_csv_follow_up_says_asked_as_not_searched_as() -> None:
+    state = csv_state(
+        question="And by month?",
+        standalone_question="What is the revenue by month?",
+        condense_seconds=0.4,
+    )
+    shown = format_answer(state, model="m")
+    assert 'asked as: "What is the revenue by month?"' in shown
+    assert "searched as" not in shown
+    failed = format_answer(csv_state(condense_error="ValueError: x"), model="m")
+    assert "rewrite failed, asked with your own words: ValueError: x" in failed
+
+
+def test_a_chat_follow_up_still_says_searched_as() -> None:
+    state = final_state(question="And logs?", standalone_question="How long are audit logs kept?")
+    assert 'searched as: "How long are audit logs kept?"' in format_answer(state, model="m")
+
+
 def test_the_reasoning_is_printed_only_on_request() -> None:
     final = final_state(thinking="Source 1 says 90.\nSo ninety.")
     assert "thinking (" not in format_answer(final, model=MODEL)

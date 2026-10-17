@@ -1,19 +1,80 @@
-"""What the answer graph is given to work with (steps S3.1 to S3.4, PLAN.md §7).
+"""What the answer graph is given to work with (steps S3.1 to S3.4 and C4, PLAN.md §7).
 
 LangGraph separates two kinds of input. The **state** is the data that changes as the graph runs and
-is saved between steps. The **context** is fixed for one run and is not data: here, the retriever and
-the chat models. Putting them in the state would make the state impossible to serialize (S3.4's
-checkpointer saves it), and putting them in module globals would make the graph impossible to test
-without patching. The graph declares ``context_schema=AgentContext`` and a node receives it as
-``runtime.context``.
+is saved between steps. The **context** is fixed for one run and is not data: here, the retriever, the
+chat models and (in CSV mode) the loaded table. Putting them in the state would make the state
+impossible to serialize (S3.4's checkpointer saves it), and putting them in module globals would make
+the graph impossible to test without patching. The graph declares ``context_schema=AgentContext`` and a
+node receives it as ``runtime.context``.
 """
 
+from collections.abc import Iterator
 from dataclasses import dataclass
+from typing import Protocol
+
+from langchain_core.messages import BaseMessage
 
 from geekbot.llm.chat import ChatModel, StructuredChat
-from geekbot.retrieval import Retriever
+from geekbot.retrieval import RetrievalResult, Retriever
 
-__all__ = ["AgentContext"]
+__all__ = [
+    "AgentContext",
+    "CsvReply",
+    "CsvTool",
+    "UnavailableChat",
+    "UnavailableRetriever",
+]
+
+
+class CsvReply(Protocol):
+    """What the graph needs from one answered CSV question (``csv_mode.adapter.CsvAnswer`` has it)."""
+
+    @property
+    def markdown(self) -> str:
+        """The reply as the package renders it: the answer, its confidence, the SQL, a result table."""
+        ...
+
+    @property
+    def status(self) -> str:
+        """``answered``, ``abstained``, ``needs_clarification`` or ``failed``."""
+        ...
+
+    @property
+    def model(self) -> str:
+        """The model tag that produced it."""
+        ...
+
+    @property
+    def seconds(self) -> float: ...
+
+    @property
+    def model_load_ms(self) -> int: ...
+
+
+class CsvTool(Protocol):
+    """A loaded CSV that answers questions about itself (``csv_mode.adapter.CsvAnalyst``).
+
+    ``ask`` blocks for seconds (it makes several model calls and runs SQL), so the graph calls it from
+    a node, which LangGraph runs in a worker thread (PLAN.md §6.3). The graph is typed against this
+    Protocol and not against the adapter so that ``agent`` never imports the CSV package (§6.7: only
+    ``geekbot.csv_mode`` may) and a test passes a fake.
+    """
+
+    def ask(self, question: str, /) -> CsvReply: ...
+
+
+class UnavailableRetriever:
+    """The retriever of a run that has no knowledge base (a CSV conversation): it refuses to search."""
+
+    def search(self, query: str, k: int) -> RetrievalResult:
+        raise RuntimeError("this run has no knowledge base: it is a CSV conversation")
+
+
+class UnavailableChat:
+    """The chat model of a run that has none loaded (a CSV conversation): it refuses to answer."""
+
+    def stream(self, messages: list[BaseMessage], /) -> Iterator[BaseMessage]:
+        raise RuntimeError("this run has no chat model loaded: it is a CSV conversation")
 
 
 @dataclass(frozen=True)
@@ -24,10 +85,13 @@ class AgentContext:
     retrieval is asked for, and ``context_budget_tokens`` how much of the prompt they may take
     (``Settings.context_budget_tokens`` has the default: one place says 3,000).
 
-    The rest is conversation memory (S3.4). ``condenser`` is the model call that rewrites a follow-up
-    into a standalone question; without one, a follow-up is searched for as the user typed it.
-    ``history_budget_tokens`` is how much of a prompt the earlier turns may take and
+    The next three are conversation memory (S3.4). ``condenser`` is the model call that rewrites a
+    follow-up into a standalone question; without one, a follow-up is searched for as the user typed
+    it. ``history_budget_tokens`` is how much of a prompt the earlier turns may take and
     ``history_keep_messages`` how many messages a thread remembers.
+
+    ``csv`` (C4) is the loaded CSV of a CSV conversation; ``None`` in chat mode. A run is one mode or
+    the other: a CSV run passes ``UnavailableRetriever`` and ``UnavailableChat``, a chat run no CSV.
     """
 
     retriever: Retriever
@@ -38,3 +102,4 @@ class AgentContext:
     condenser: StructuredChat | None = None
     history_budget_tokens: int = 1000
     history_keep_messages: int = 40
+    csv: CsvTool | None = None

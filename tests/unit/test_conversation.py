@@ -20,7 +20,8 @@ from hypothesis import strategies as st
 from langchain_core.messages import AIMessageChunk, BaseMessage
 
 from geekbot.agent.condense import CondenseOutput
-from geekbot.agent.nodes import NO_CONTEXT_ANSWER, begin_turn, needs_condense, remember
+from geekbot.agent.mode import route_after_begin
+from geekbot.agent.nodes import NO_CONTEXT_ANSWER, begin_turn, remember
 from geekbot.agent.packing import HISTORY_HEADING
 from geekbot.agent.runner import (
     ThreadNameError,
@@ -446,9 +447,10 @@ def test_begin_turn_clears_what_belongs_to_one_turn_and_leaves_the_memory_alone(
 
 
 def test_a_turn_is_a_follow_up_exactly_when_the_thread_has_history() -> None:
-    assert needs_condense({"question": "q"}) == "retrieve"
-    assert needs_condense({"question": "q", "history": []}) == "retrieve"
-    assert needs_condense({"question": "q", "history": [{"id": "x"}]}) == "condense"  # type: ignore[typeddict-item]
+    assert route_after_begin({"question": "q"}) == "retrieve"
+    assert route_after_begin({"question": "q", "history": []}) == "retrieve"
+    one: Any = [{"id": "x"}]
+    assert route_after_begin({"question": "q", "history": one}) == "condense"
 
 
 LABEL_SETS = st.lists(

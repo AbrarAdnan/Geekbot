@@ -61,6 +61,7 @@ def make_structured_model(
     *,
     num_predict: int,
     model: str | None = None,
+    num_ctx: int | None = None,
 ) -> StructuredChat:
     """A ``ChatOllama`` whose reply Ollama constrains to ``schema`` and LangChain parses into it.
 
@@ -69,14 +70,16 @@ def make_structured_model(
     loads anything. Differences: ``num_predict`` is the small cap the call needs (PLAN.md §6.5: 96
     for the rewrite of a follow-up), the temperature is 0 (a rewrite should be repeatable), and thinking
     is off. ``method="json_schema"`` sends the schema as Ollama's ``format``, so the output is
-    constrained while it is generated, not repaired afterwards.
+    constrained while it is generated, not repaired afterwards. For a CSV conversation (C4) pass the
+    CSV model as ``model`` and its context size as ``num_ctx`` (the CSV model is warmed up with
+    ``csv_num_ctx``, not ``chat_num_ctx``): the rewrite must use the model that is on the GPU.
     """
     from langchain_ollama import ChatOllama  # type: ignore[import-untyped, unused-ignore]
 
     chat = ChatOllama(
         model=model or settings.resolved_chat_model,
         base_url=settings.ollama_host,
-        num_ctx=settings.chat_num_ctx,
+        num_ctx=num_ctx or settings.chat_num_ctx,
         num_predict=num_predict,
         keep_alive=settings.keep_alive,
         temperature=0.0,

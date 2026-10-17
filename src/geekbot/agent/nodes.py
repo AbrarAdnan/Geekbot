@@ -24,6 +24,7 @@ from langgraph.runtime import Runtime
 
 from geekbot.agent.citations import check_citations
 from geekbot.agent.condense import CondenseOutput, build_condense_messages, clean_standalone
+from geekbot.agent.mode import choose_mode
 from geekbot.agent.packing import pack_prompt
 from geekbot.agent.runtime import AgentContext
 from geekbot.agent.state import AgentState, HistoryMessage, SourceRef, StreamEvent
@@ -35,10 +36,10 @@ __all__ = [
     "NO_CONTEXT_ANSWER",
     "begin_turn",
     "condense",
+    "csv_ask",
     "generate",
     "has_sources",
     "label_names",
-    "needs_condense",
     "no_context",
     "remember",
     "retrieve",
@@ -100,11 +101,20 @@ def begin_turn(state: AgentState) -> dict[str, Any]:
     With a checkpointer the state is saved after every step and the next question starts from it, so
     a key one turn wrote would still be there in the next: a turn that finds nothing would show the
     previous turn's sources and a reply with no citation check would show its raw text. Every key that
-    belongs to one turn is therefore set to its empty value here (the thread's memory, ``history``,
-    ``thread_taint`` and ``turn``, is left alone), and the search text starts as the user's own
-    words; ``condense`` replaces it on a follow-up. Without a checkpointer this changes nothing.
+    belongs to one turn is therefore set to its empty value here (the thread's own keys, ``history``,
+    ``thread_taint``, ``turn``, ``mode`` and ``csv_file``, are left alone), and the search text starts
+    as the user's own words; ``condense`` replaces it on a follow-up. Without a checkpointer this
+    changes nothing.
+
+    This is also where the turn's **mode** is settled (C4): the thread's saved mode and the mode the
+    caller asked for (``requested_mode``, input only) go through ``choose_mode``, which keeps a saved
+    mode, takes the requested one on a thread's first turn and refuses a contradiction (``ModeError``).
+    The result is stored in ``mode`` for the router and for the next turn.
     """
     return {
+        "mode": choose_mode(state.get("mode"), state.get("requested_mode")),
+        "requested_mode": "",
+        "csv_status": "",
         "standalone_question": state["question"],
         "condense_seconds": 0.0,
         "condense_error": "",
@@ -120,15 +130,6 @@ def begin_turn(state: AgentState) -> dict[str, Any]:
         "thinking": "",
         "generation": {},
     }
-
-
-def needs_condense(state: AgentState) -> Literal["condense", "retrieve"]:
-    """A conditional edge: a follow-up (the thread has history) is rewritten first; turn one is not.
-
-    A plain function of the state, no model call. This is what keeps the first question of a thread at
-    zero model calls before retrieval (PLAN.md §7).
-    """
-    return "condense" if state.get("history") else "retrieve"
 
 
 def _one_line(text: str) -> str:
@@ -293,6 +294,43 @@ def validate_citations(state: AgentState) -> dict[str, Any]:
         "raw_answer": raw,
         "cited": list(check.cited),
         "dropped_citations": list(check.dropped),
+    }
+
+
+def csv_ask(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any]:
+    """Answer from the thread's CSV file (CSV mode, step C4): one call into the copied package.
+
+    The package has no memory, so what it is asked is ``standalone_question``: the user's words on a
+    first turn, and on a follow-up the rewrite that ``condense`` made with the CSV model (PLAN.md
+    §6.7). The call blocks for seconds, which is why this is a plain node: LangGraph runs it in a
+    worker thread and the event loop stays free (§6.3). Every status the package can report
+    (answered, abstained, needs clarification, failed) is an answer the user should read, so all of
+    them come back as the turn's ``answer``; only an exception is an error, and it is wrapped in a
+    ``ChatError`` like a failed chat model.
+
+    The answer is labelled ``TOOL`` and ``USER`` (PLAN.md §8.2): its text is built from the cells of a
+    file someone else wrote, which can say anything, so the thread becomes tainted exactly as it does
+    from documents. There are no sources and no citations. The readings are the time the package took
+    and how long Ollama spent loading the model for it (rule R-2), under the keys the terminal prints.
+    """
+    context = runtime.context
+    if context.csv is None:
+        raise ChatError("this is a CSV conversation but no CSV file is loaded")
+    question = state.get("standalone_question") or state["question"]
+    try:
+        reply = context.csv.ask(question)
+    except Exception as error:
+        detail = f"{type(error).__name__}: {error}"
+        raise ChatError(f"the CSV analyst ({context.model!r}) failed ({detail})") from error
+    text = reply.markdown.strip()
+    if not text:
+        raise ChatError(f"the CSV analyst ({context.model!r}) returned no text")
+    return {
+        "answer": text,
+        "used": 0,
+        "answer_labels": label_names({Label.USER, Label.TOOL}),
+        "csv_status": reply.status,
+        "generation": {"seconds": reply.seconds, "load_seconds": reply.model_load_ms / 1000},
     }
 
 

@@ -136,25 +136,32 @@ def format_answer(
 def _rewrite_lines(final: Mapping[str, Any]) -> list[str]:
     """What retrieval searched for when it was not the user's own words, and a failed rewrite."""
     lines: list[str] = []
+    verb = (
+        "asked" if final.get("mode") == "csv" else "searched"
+    )  # a table is asked, documents searched
     searched = str(final.get("standalone_question", ""))
     if searched and searched != str(final.get("question", searched)):
-        lines.append(f'searched as: "{searched}"')
+        lines.append(f'{verb} as: "{searched}"')
     error = str(final.get("condense_error", ""))
     if error:
-        lines.append(f"rewrite failed, searched with your own words: {error}")
+        lines.append(f"rewrite failed, {verb} with your own words: {error}")
     seconds = float(final.get("condense_seconds", 0.0))
     if seconds > 0:
         lines.append(f"rewrite: {seconds:.2f} s")
+    status = str(final.get("csv_status", ""))
+    if status:
+        lines.append(f"csv status: {status}")
     return lines
 
 
 def _thread_line(thread: str, final: Mapping[str, Any]) -> str:
-    """``thread t1: turn 2, 4 messages remembered, taint KB, USER (tainted)``."""
+    """``thread t1: turn 2, 4 messages remembered, taint KB, USER (tainted)`` (``(csv)`` in CSV mode)."""
     taint = list(final.get("thread_taint", []))
     verdict = "tainted" if is_tainted(Label(name) for name in taint) else "not tainted"
     kept = len(final.get("history", []))
+    kind = " (csv)" if final.get("mode") == "csv" else ""
     return (
-        f"thread {thread}: turn {final.get('turn', 0)}, {kept} messages remembered, "
+        f"thread {thread}{kind}: turn {final.get('turn', 0)}, {kept} messages remembered, "
         f"taint {', '.join(taint) or 'none'} ({verdict})"
     )
 
