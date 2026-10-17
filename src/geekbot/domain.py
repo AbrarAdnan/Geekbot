@@ -2,14 +2,14 @@
 
 A record here is data and nothing else: no behaviour that touches a store, a model or the disk, so
 the ingest, index, retrieval and agent packages can all import it without importing one another.
-S1.4 adds the ones the store hands out; S3.2 adds ``Label``. The plan's other records
-(``Citation``, ``RunStats``) arrive with the steps that first need them.
+S1.4 adds the ones the store hands out; S3.2 adds ``Label``; S3.3 adds ``RunStats``. The plan's
+other record (``Citation``) arrives with the step that first needs it.
 """
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Final, Literal
+from typing import Final, Literal, Self
 
 # The outbox states of a document (PLAN.md §6.4): its chunk rows are written while it is
 # ``pending``, its vectors while it is ``embedding``, and retrieval may only see it once it is
@@ -44,6 +44,72 @@ TAINTED_LABELS: Final = frozenset({Label.KB, Label.WEB, Label.TOOL, Label.UNKNOW
 def is_tainted(labels: Iterable[Label]) -> bool:
     """Whether any of the labels is one that an outsider's text carries (``USER`` alone is not)."""
     return not TAINTED_LABELS.isdisjoint(labels)
+
+
+@dataclass(frozen=True)
+class RunStats:
+    """What one chat-model call cost, in plain numbers (PLAN.md §6.5, step S3.3).
+
+    - ``seconds``: wall-clock time of the call, from asking to the last token.
+    - ``first_token_s``: time to the first piece of *answer* text, the TTFT that the latency targets
+      are written on. ``None`` when no answer text ever arrived. Reasoning text does not count: a
+      model that thinks for ten seconds has not yet shown the user anything.
+    - ``load_s``: how long Ollama spent loading the model for this call. After a warm-up it must be
+      close to 0 (rule R-2); seconds here mean the model was reloaded during a question.
+    - ``prompt_tokens`` and ``prompt_eval_s``: how many prompt tokens Ollama processed for this call
+      and how long that took. Ollama can reuse the work it did for an unchanged start of the prompt
+      (the fixed system message), so on a warm server these should be smaller than the prompt.
+    - ``output_tokens``: tokens the model wrote, reasoning included. ``tokens_per_second`` is those
+      over the time Ollama itself spent generating them (not including loading or reading the prompt).
+    - ``thinking_chars``: characters of reasoning text that streamed (0 when thinking is off).
+
+    A reading Ollama did not report is ``None`` and is left out of ``as_dict``: an absent number is
+    not a zero. ``as_dict`` / ``from_mapping`` are the plain-data form the graph's state keeps (a
+    checkpointer can only save plain data, and the numbers are all floats there).
+    """
+
+    seconds: float
+    first_token_s: float | None = None
+    load_s: float | None = None
+    prompt_tokens: int | None = None
+    prompt_eval_s: float | None = None
+    output_tokens: int | None = None
+    tokens_per_second: float | None = None
+    thinking_chars: int = 0
+
+    def as_dict(self) -> dict[str, float]:
+        """The readings that exist, under the keys ``agent.render`` prints (see ``from_mapping``)."""
+        named: dict[str, float | None] = {
+            "seconds": self.seconds,
+            "first_token_seconds": self.first_token_s,
+            "load_seconds": self.load_s,
+            "prompt_tokens": self.prompt_tokens,
+            "prompt_eval_seconds": self.prompt_eval_s,
+            "output_tokens": self.output_tokens,
+            "tokens_per_second": self.tokens_per_second,
+            "thinking_chars": self.thinking_chars or None,
+        }
+        return {name: value for name, value in named.items() if value is not None}
+
+    @classmethod
+    def from_mapping(cls, values: Mapping[str, float]) -> Self:
+        """The inverse of ``as_dict``. ``ValueError`` without ``seconds``: nothing was timed."""
+        if "seconds" not in values:
+            raise ValueError("the readings have no 'seconds': no model call was timed")
+
+        def whole(name: str) -> int | None:
+            return round(values[name]) if name in values else None
+
+        return cls(
+            seconds=values["seconds"],
+            first_token_s=values.get("first_token_seconds"),
+            load_s=values.get("load_seconds"),
+            prompt_tokens=whole("prompt_tokens"),
+            prompt_eval_s=values.get("prompt_eval_seconds"),
+            output_tokens=whole("output_tokens"),
+            tokens_per_second=values.get("tokens_per_second"),
+            thinking_chars=whole("thinking_chars") or 0,
+        )
 
 
 def embedding_text(header: str, text: str, *, with_header: bool) -> str:

@@ -50,9 +50,36 @@ def test_the_limits_come_from_the_settings() -> None:
     assert chat.temperature == 0.0
 
 
+def test_thinking_on_asks_for_reasoning_and_gets_a_bigger_reply_budget() -> None:
+    config = settings(chat_num_predict=64, chat_think_num_predict=640)
+    thinking = make_chat_model(config, think=True)
+    assert thinking.reasoning is True
+    assert thinking.num_predict == 640  # the reasoning is generated tokens too
+    plain = make_chat_model(config)
+    assert plain.reasoning is False
+    assert plain.num_predict == 64
+
+
+def test_thinking_changes_nothing_that_would_make_ollama_reload_the_model() -> None:
+    config = settings(chat_num_ctx=4096, keep_alive="10m")
+    thinking = make_chat_model(config, think=True)
+    assert thinking.num_ctx == config.chat_num_ctx
+    assert thinking.keep_alive == config.keep_alive
+
+
+def test_the_default_thinking_budget_leaves_room_for_the_reasoning() -> None:
+    config = settings()
+    assert config.chat_think_num_predict > config.chat_num_predict
+
+
 @pytest.mark.parametrize(
     "bad",
-    [{"chat_num_predict": 0}, {"chat_temperature": 3.0}, {"context_budget_tokens": 0}],
+    [
+        {"chat_num_predict": 0},
+        {"chat_think_num_predict": 0},
+        {"chat_temperature": 3.0},
+        {"context_budget_tokens": 0},
+    ],
 )
 def test_nonsense_limits_are_refused_at_start_up(bad: dict[str, object]) -> None:
     with pytest.raises(ValidationError):

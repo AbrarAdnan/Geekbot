@@ -11,9 +11,9 @@ A node returns only the keys it changes, and LangGraph merges them into the stat
 has written yet is simply absent, which is why the state class is ``total=False``.
 """
 
-from typing import TypedDict
+from typing import Literal, TypedDict
 
-__all__ = ["AgentState", "SourceRef"]
+__all__ = ["AgentState", "SourceRef", "StreamEvent"]
 
 
 class SourceRef(TypedDict):
@@ -47,4 +47,18 @@ class AgentState(TypedDict, total=False):
     cited: list[int]  # the valid [n] marks left in the answer, first appearance first
     dropped_citations: list[int]  # the marks the check removed because no such source was shown
     answer_labels: list[str]  # PLAN.md §8.2: the labels of everything in the prompt, sorted
-    generation: dict[str, float]  # what the model call took; see nodes.generation_stats
+    thinking: str  # the model's reasoning, only when thinking was on and the model produced some
+    generation: dict[str, float]  # what the model call took: ``RunStats.as_dict()`` (S3.3)
+
+
+class StreamEvent(TypedDict):
+    """One piece of the answer while it is being written (S3.3), sent by ``generate``.
+
+    This is not state: nothing keeps it. ``generate`` hands it to the graph's stream writer for
+    whoever is listening (``graph.stream(..., stream_mode="custom")``); with plain ``invoke`` the
+    writer does nothing. ``text`` is a piece of the answer, ``thinking`` a piece of the reasoning.
+    Both come straight from the model, so they are untrusted: the terminal prints them as text.
+    """
+
+    event: Literal["text", "thinking"]
+    text: str
