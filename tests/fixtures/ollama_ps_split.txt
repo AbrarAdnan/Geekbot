@@ -1,2 +1,0 @@
-NAME          ID              SIZE     PROCESSOR          CONTEXT    UNTIL
-gemma4:12b    4eb23ef187e2    10 GB    48%/52% CPU/GPU    8192       Forever
