@@ -13,7 +13,22 @@ has written yet is simply absent, which is why the state class is ``total=False`
 
 from typing import Literal, TypedDict
 
-__all__ = ["AgentState", "HistoryMessage", "SourceRef", "StreamEvent"]
+__all__ = ["AgentState", "CitationScore", "HistoryMessage", "SourceRef", "StreamEvent"]
+
+
+class CitationScore(TypedDict):
+    """How well one cited source fits the sentence that cites it (S3.5 ``cite_check``).
+
+    ``score`` is the cross-encoder's number for (sentence, source text): higher is a better fit, and it
+    is only meaningful next to other scores of the same model. ``weak`` is true when it is below the
+    configured limit (``Settings.cite_weak_below``, an unmeasured starting point). A report, not a
+    verdict: nothing in the answer changes.
+    """
+
+    n: int
+    score: float
+    weak: bool
+    sentence: str
 
 
 class SourceRef(TypedDict):
@@ -80,6 +95,12 @@ class AgentState(TypedDict, total=False):
     raw_answer: str  # the model's own text, before the citation check ("" when it was not run)
     cited: list[int]  # the valid [n] marks left in the answer, first appearance first
     dropped_citations: list[int]  # the marks the check removed because no such source was shown
+    abstained: (
+        bool  # the answer is a refusal and cites nothing (S3.5, D-082): "not in the documents"
+    )
+    citation_checks: list[CitationScore]  # S3.5: how well each cited source fits its sentence
+    citation_check_error: str  # why the relevance check did not run ("" if it ran or was not asked)
+    removed_markup: list[str]  # S3.5, G3: what the output cleaning took out, "image: <address>"
     answer_labels: list[str]  # PLAN.md §8.2: the labels of everything in the prompt, sorted
     thinking: str  # the model's reasoning, "" unless thinking was on and the model produced some
     generation: dict[str, float]  # what the model call took: ``RunStats.as_dict()`` (S3.3)

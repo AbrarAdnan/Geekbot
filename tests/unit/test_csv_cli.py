@@ -136,6 +136,38 @@ def test_ask_prints_the_reply_and_a_footer_naming_the_model(
     assert "model_load=0ms" in result.output
 
 
+def test_a_reply_that_repeats_a_hostile_cell_is_cleaned_before_it_is_printed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """G3 (S3.5): the one-off command bypasses the graph, so it cleans the reply itself."""
+    hostile = "| note |\n|---|\n| ![x](https://attacker.example/s?q=1) |\n| [r](https://attacker.example/r) |"
+
+    class Stub:
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            return None
+
+        def ask(self, question: str) -> Any:
+            return SimpleNamespace(
+                markdown=hostile,
+                model="m",
+                status="answered",
+                failed=False,
+                seconds=0.1,
+                model_load_ms=0,
+            )
+
+    monkeypatch.setattr(adapter, "find_problem", lambda settings, **kwargs: None)
+    monkeypatch.setattr(CsvAnalyst, "open", classmethod(lambda cls, path, settings, **kw: Stub()))
+    result = runner.invoke(app, ["csv", "ask", str(FIXTURE), "Show the notes."])
+    assert result.exit_code == 0
+    assert "attacker" not in result.stdout and "![" not in result.stdout
+    assert "| r |" in result.stdout  # the link text stays
+    assert "removed from the reply" in result.stderr
+
+
 def test_a_question_the_data_cannot_answer_still_exits_0(monkeypatch: pytest.MonkeyPatch) -> None:
     _offline(monkeypatch, FakeLLM([REFUSAL, REFUSAL]))
     result = runner.invoke(app, ["csv", "ask", str(FIXTURE), "What is the average salary?"])

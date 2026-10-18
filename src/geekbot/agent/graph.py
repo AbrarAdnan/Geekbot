@@ -5,12 +5,13 @@
     START → begin_turn ─┬ first turn ─────────────┬─► retrieve   (a chat thread)
                         └ follow-up ─► condense ──┴─► csv_ask    (a CSV thread)
 
-    retrieve ─┬ sources found ─► generate ─► validate_citations ─┐
-              └ nothing found ─► no_context ─────────────────────┤
-    csv_ask ─────────────────────────────────────────────────────┴─► remember ─► END
+    retrieve ─┬ sources found ─► generate ─► validate_citations ─► cite_check ─► sanitize ─┐
+              └ nothing found ─► no_context ──────────────────────────────────────────────┤
+    csv_ask ─────────────────────────────────────────────────────────────► sanitize ─────┴─► remember ─► END
 
 The chat branch is ``retrieve`` and what follows it; the CSV branch is the single node ``csv_ask``.
-Both branches end in ``remember``.
+Both branches end in ``remember``, and both reply texts pass ``sanitize`` first (S3.5, G3), except the
+application's own "nothing found" sentence, which no model wrote.
 
 Every edge is written down. There is no agent loop and no model deciding what to do next: the three
 decisions (``route_after_begin``, ``route_after_condense``, ``has_sources``) are plain functions of the
@@ -27,9 +28,11 @@ no memory of its own. ``validate_citations`` (S3.2) is plain code too: it checks
 the model's answer against the sources the prompt held. It never calls the model, and an answer with
 bad or missing citations is reported, not regenerated (a retry loop would make the cost unbounded).
 
-PLAN.md §7 also draws a ``sanitize`` step at the end of both branches (the output filter, G3). It is
-S3.5's, and it will be added in front of ``remember`` on both branches there; until then the reply of
-the CSV branch reaches the terminal as the package rendered it.
+**S3.5** added the end of both branches. ``cite_check`` scores each citation against the sentence that
+makes it (a report, never a verdict) and ``sanitize`` is the output filter of PLAN.md §8.1 G3: no
+images, no links to places the sources do not name, on a chat reply and on a CSV reply alike. There
+is no step that grades the sources and abstains below a threshold (the plan had one before rev 20,
+D-082): the model's own refusal, recognised in ``validate_citations``, is the abstention.
 
 ``build_graph`` returns a compiled graph. Compiling checks the wiring (every edge points at a node that
 exists) and turns the description into something that can be run with ``invoke`` or ``astream``. Given
@@ -44,6 +47,7 @@ from langgraph.graph.state import CompiledStateGraph
 from geekbot.agent.mode import route_after_begin, route_after_condense
 from geekbot.agent.nodes import (
     begin_turn,
+    cite_check,
     condense,
     csv_ask,
     generate,
@@ -51,6 +55,7 @@ from geekbot.agent.nodes import (
     no_context,
     remember,
     retrieve,
+    sanitize,
     validate_citations,
 )
 from geekbot.agent.runtime import AgentContext
@@ -74,6 +79,8 @@ def build_graph(
     builder.add_node("retrieve", retrieve)
     builder.add_node("generate", generate)
     builder.add_node("validate_citations", validate_citations)
+    builder.add_node("cite_check", cite_check)
+    builder.add_node("sanitize", sanitize)
     builder.add_node("no_context", no_context)
     builder.add_node("csv_ask", csv_ask)
     builder.add_node("remember", remember)
@@ -90,8 +97,10 @@ def build_graph(
         "retrieve", has_sources, {"generate": "generate", "no_context": "no_context"}
     )
     builder.add_edge("generate", "validate_citations")
-    builder.add_edge("validate_citations", "remember")
+    builder.add_edge("validate_citations", "cite_check")
+    builder.add_edge("cite_check", "sanitize")
+    builder.add_edge("csv_ask", "sanitize")
+    builder.add_edge("sanitize", "remember")
     builder.add_edge("no_context", "remember")
-    builder.add_edge("csv_ask", "remember")
     builder.add_edge("remember", END)
     return builder.compile(checkpointer=checkpointer)

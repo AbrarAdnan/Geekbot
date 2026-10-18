@@ -167,7 +167,7 @@ def test_the_whole_final_state_is_plain_data_a_checkpointer_could_save() -> None
     assert json.loads(json.dumps(final)) == final
 
 
-def test_the_graph_has_its_eight_steps_and_the_two_ends() -> None:
+def test_the_graph_has_its_ten_steps_and_the_two_ends() -> None:
     nodes = set(build_graph().get_graph().nodes)
     assert nodes == {
         "__start__",
@@ -176,6 +176,8 @@ def test_the_graph_has_its_eight_steps_and_the_two_ends() -> None:
         "retrieve",
         "generate",
         "validate_citations",
+        "cite_check",
+        "sanitize",
         "no_context",
         "csv_ask",
         "remember",
@@ -224,6 +226,7 @@ def test_the_citation_node_reads_the_state_and_changes_only_its_own_keys() -> No
         "raw_answer": "A [1] B [4].",
         "cited": [1],
         "dropped_citations": [4],
+        "abstained": False,
     }
 
 

@@ -18,8 +18,20 @@ from geekbot.retrieval.hybrid import DEFAULT_CANDIDATES  # what each side contri
 if TYPE_CHECKING:
     from geekbot.config import Settings
     from geekbot.index.workspace import Workspace
+    from geekbot.retrieval.rerank import PassageScorer
 
-__all__ = ["DEFAULT_CANDIDATES", "build_retriever"]
+__all__ = ["DEFAULT_CANDIDATES", "build_retriever", "citation_scorer_of"]
+
+
+def citation_scorer_of(retriever: Retriever) -> "PassageScorer | None":
+    """The cross-encoder inside ``retriever``, if it has one (``hybrid_rerank``), else ``None``.
+
+    The answer graph's ``cite_check`` (S3.5) scores citations with the model that already reranks,
+    so no second copy is loaded; a retriever without a reranker means the check is skipped.
+    """
+    from geekbot.retrieval.rerank import Reranker
+
+    return retriever.scorer if isinstance(retriever, Reranker) else None
 
 
 def build_retriever(

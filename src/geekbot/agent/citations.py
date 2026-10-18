@@ -18,7 +18,30 @@ import re
 from dataclasses import dataclass
 from typing import Final
 
-__all__ = ["CitationCheck", "check_citations"]
+__all__ = [
+    "REFUSAL",
+    "CitationCheck",
+    "check_citations",
+    "citing_sentences",
+    "is_refusal",
+]
+
+# The one sentence the system prompt tells the model to answer with when the sources do not hold the
+# answer (D-082, option B: the model's own refusal is the abstention signal, there is no score gate).
+REFUSAL: Final = "I could not find it in the documents."
+# How a refusal begins. The prompt asks for the exact sentence above, but a small model may word it a
+# little differently, so the openings below count too; an answer that *starts* so and then cites a
+# source is a partial answer, not a refusal (see ``agent.nodes.validate_citations``).
+_REFUSAL_OPENINGS: Final = (
+    "i could not find",
+    "i couldn't find",
+    "i cannot find",
+    "i can't find",
+    "i was unable to find",
+    "i am unable to find",
+    "i did not find",
+    "i didn't find",
+)
 
 # A number as the model is told to write it: no sign, no leading zero, at most nine digits. Anything
 # else (``[01]``, ``[-1]``, ``[1-3]``, ``[a]``, ``[n]``) is ordinary text, not a citation attempt.
@@ -90,3 +113,52 @@ def check_citations(answer: str, used: int) -> CitationCheck:
         for part in match["body"].split(","):
             cited.setdefault(int(part))
     return CitationCheck(text=text, cited=tuple(cited), dropped=tuple(dropped))
+
+
+def is_refusal(text: str) -> bool:
+    """Does this reply start the way a refusal does ("I could not find it in the documents.")?
+
+    Case, spacing and a leading quote or emphasis mark do not matter. It says what the reply
+    *begins* with; whether it is an abstention also depends on its citing nothing.
+    """
+    normal = " ".join(text.split()).casefold().lstrip("\"'*_`> ")
+    return normal.startswith(_REFUSAL_OPENINGS)
+
+
+_SENTENCE_BREAK: Final = re.compile(r"(?<=[.!?])\s+|\n+")
+_LEADING_MARKS: Final = re.compile(rf"\s*(?:\[{_NUMBER}(?:[ \t]*,[ \t]*{_NUMBER})*\][ \t]*)+")
+
+
+def citing_sentences(answer: str, used: int) -> list[tuple[str, tuple[int, ...]]]:
+    """The sentences of ``answer`` that carry citations: (sentence without its marks, source numbers).
+
+    Only numbers from 1 to ``used`` count (``check_citations`` has already removed the others, this
+    is for the relevance check of S3.5). A sentence is what lies between a full stop, question mark
+    or exclamation mark and the next, or between line breaks; a citation that stands alone after
+    the full stop (``... days. [1]``) belongs to the sentence before it. A sentence with no mark is
+    left out.
+    """
+
+    def marks(text: str) -> dict[int, None]:
+        found: dict[int, None] = {}
+        for match in _MARKER.finditer(text):
+            for part in match["body"].split(","):
+                if 1 <= int(part) <= used:
+                    found.setdefault(int(part))
+        return found
+
+    parts: list[tuple[str, dict[int, None]]] = []
+    for raw in _SENTENCE_BREAK.split(answer):
+        lead = _LEADING_MARKS.match(raw)
+        if (
+            lead and parts and not parts[-1][1]
+        ):  # "days. [1] More": the mark cites the sentence before
+            parts[-1][1].update(marks(lead[0]))
+            raw = raw[lead.end() :]
+        text = " ".join(_MARKER.sub("", raw).split())
+        numbers = marks(raw)
+        if text:
+            parts.append((text, numbers))
+        elif numbers and parts:  # a mark on its own line or after a full stop
+            parts[-1][1].update(numbers)
+    return [(text, tuple(numbers)) for text, numbers in parts if numbers]

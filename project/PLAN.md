@@ -1,4 +1,4 @@
-# Geekbot v2 — implementation plan (rev 19)
+# Geekbot v2 — implementation plan (rev 20)
 
 > **The measured results are the product; the architecture exists to make them credible.**
 > (This line also opens the v2 README.)
@@ -187,6 +187,12 @@ project/
   - The order of work becomes: Phase 1 → S2.1 to S2.5 → S3.1 to S3.4 (C4 after S3.4) → S2.6 → CP2 → S3.5 → S3.6 → Phase 4 → Gate A. CP2's "review before Phase 3" becomes "review before S3.5"
   - Until S2.6, the answering graph uses the retrieval defaults that already exist (hybrid with reranking, 50 candidates a side, rerank depth 30, top-k 5). They are starting points, not measurements, and the code and notes say so
   - Cost, stated: the first four steps of Phase 3 are built on retrieval settings that the ablation has not checked yet. If S2.6 changes a default (the rerank depth, say) that is a configuration change, but prompts and packing written meanwhile may need a second look. Phase 2 is not finished until S2.6 runs. D-065 must still be revisited before S2.6 runs anything, and everything computed on golden v0 stays provisional (rev 18)
+- **rev 20** (2026-10-18, user decisions after CP2 and before the end-to-end prototype; D-082, D-083): **abstention without a score threshold, and S3.6 after the prototype** (§7, §10, §11):
+  - S2.6 and CP2 are done (D-079 to D-082). The planned abstain signal, a threshold on the reranker's best score, measured weak on golden v0 (dev F1 0.41, test F1 0.39). The user chose **option B for S3.5: the chat model's own refusal (the system prompt already tells it to say it could not find the answer) plus the post-stream citation check, no score gate**; abstention is *measured* on the 20 unanswerable golden questions, and an LLM grading step or other signals are added only if too many of them get an answer. §7's "the threshold is calibrated F1-optimally" and §11's S3.5 row are changed accordingly; the calibrated threshold stays as data in `evals/results/s26-run1/abstain.json`
+  - **S3.6 (parallel search branches, retries, step events, live SLO smoke) moves from before Phase 4 to after the end-to-end prototype**, so a chatbot the user can run in a browser comes first: the order of work becomes S3.5 → S4.1 → S4.2 → S4.3 → S4.4 → C5 → S3.6 → Gate A. Nothing in Phase 4 depends on S3.6 (it changes how the existing retrieval is scheduled, not what it returns)
+  - The reranker, the embedder, the 400 ms retrieval target and the golden set are left as they are until the whole project has been used (D-082); the user then writes evaluation questions from their own source files and the deferred decisions are gone over together
+  - **No external API feature in the prototype (user, 2026-10-18; D-084):** S4.2's OpenAI-compatible `/v1/chat/completions`, its OpenAI-SDK contract test and the client SDK snippet are left out for now; S4.2 builds only the thread routes and the streamed answer route (server-sent events) that the Streamlit UI uses, under Geekbot's own `/v1/threads` paths. S4.3 keeps the protections of the local server and its upload and drops what only outside clients need. The endpoint comes back when the user wants other programs to talk to Geekbot
+  - Cost, stated: the answering path reaches the user before its parallelism and retry behaviour exist, so the first prototype searches dense and BM25 one after the other (about 25 to 50 ms without the reranker, measured) and a failing model call is not retried; S3.6 measures and fixes that afterwards
 
 ## 5. v1 findings (verified; all fixed by v2)
 
@@ -473,7 +479,7 @@ START → mode? ─ chat ─► (the RAG graph above)
   - Sources are datamarked.
   - The model emits only `[n]`; the app validates and renders the citations.
 - **`cite_check`:** a citation *relevance* check (cross-encoder), not entailment. Groundedness is measured offline by the judge.
-- **Abstain:** the threshold is calibrated F1-optimally on the golden set.
+- **Abstain (rev 20, D-082):** the model's own refusal plus the post-stream citation check; no score threshold as a gate. Measured on the unanswerable golden questions; a grading call or another signal is added only if too many of them get an answer. (Before rev 20: a threshold calibrated F1-optimally on the golden set; it measured weak, see `evals/results/s26-run1/abstain.json`.)
 - **API semantics:** `/v1/chat/completions` is stateless; the UI uses `/v1/threads/*`.
 
 ## 8. Security model (`docs/security.md`, ADR-0004)
@@ -597,7 +603,7 @@ A simulated user denies every approval. The report gives bypasses k/N (target 0)
 - 🎮 = loads a model on the GPU (run when your Gigalogy work isn't using it)
 - **C1–C6** = the CSV track (rev 11). "C" stands for CSV, not Gate C.
 
-**Order of work (rev 19):** P0 → P1 → Phase 0 → C1–C3 → Phase 1 → S2.1–S2.5 → S3.1–S3.4 (C4 after S3.4) → S2.6 → CP2 → S3.5 → S3.6 → Phase 4 (C5 after S4.4) → Gate A → Phase 5 (C6 after S5.2) → Gate B → Phase 6 → Gate C. (Before rev 19: …Phase 2 → CP2 → Phase 3….)
+**Order of work (rev 20):** P0 → P1 → Phase 0 → C1–C3 → Phase 1 → S2.1–S2.5 → S3.1–S3.4 (C4 after S3.4) → S2.6 → CP2 → S3.5 → Phase 4 (S4.1–S4.4, C5 after S4.4) → **S3.6** → Gate A → Phase 5 (C6 after S5.2) → Gate B → Phase 6 → Gate C. (Before rev 20: …S3.5 → S3.6 → Phase 4…; before rev 19: …Phase 2 → CP2 → Phase 3….)
 
 ### Step P0 — Project notes bootstrap (this planning chat, right after approval; writes files only, runs nothing)
 - **`project/PLAN.md`:** this plan, verbatim.
@@ -680,15 +686,15 @@ A simulated user denies every approval. The report gives bypasses k/N (target 0)
 | **S3.3 Streaming + speed** 🎮 | streaming, TTFT, measuring latency properly (warm vs cold, percentiles), thinking models, warm-up, `keep_alive` | streaming, think toggle, `RunStats` (TTFT, tok/s, loads) | TTFT and tok/s measurement in `RunStats` | `geekbot ask --stream` (watch TTFT) |
 | **S3.4 Memory and follow-ups** 🎮 | conversational RAG, checkpointers, structured output | `AsyncSqliteSaver` threads, `condense` node | the `condense` output schema + prompt | multi-turn `geekbot ask --thread t1` |
 | **C4 Mode switch in the graph** 🎮 | deterministic routing vs LLM routing, per-mode state, rewriting follow-ups for a tool with no memory | thread `mode`, the mode router (§7), the CSV branch (`condense` with the CSV model → `csv_ask` in a worker thread → `sanitize`), `TOOL` labels, the swap at mode entry | the mode router (a pure function) + its tests | `pytest` · a multi-turn `geekbot csv ask --thread` demo |
-| **S3.5 Abstain, cite_check, sanitize** | abstention, relevance vs entailment, markdown-image exfiltration | grade/abstain (with the threshold calibrated in S2.6), post-stream `cite_check`, `sanitize.py` (G3, also on CSV replies) | the streaming-safe image stripper | `pytest` · unanswerable question demo |
-| **S3.6 Parallelism + resilience** 🎮 | parallel branches, `RetryPolicy`, stream events, SLO smoke testing | dense ‖ lexical branches, retries, step events, live SLO smoke; Phase 3 look-back | the `RetryPolicy` and parallel-branch wiring | `pytest -m live` |
+| **S3.5 Abstain, cite_check, sanitize** | abstention, relevance vs entailment, markdown-image exfiltration | abstention by the model's own refusal and the post-stream `cite_check`, no score gate (rev 20, D-082), measured on the 20 unanswerable golden questions; `sanitize.py` (G3, also on CSV replies) | the streaming-safe image stripper | `pytest` · unanswerable question demo |
+| **S3.6 Parallelism + resilience** 🎮 (runs after C5, rev 20) | parallel branches, `RetryPolicy`, stream events, SLO smoke testing | dense ‖ lexical branches, retries, step events, live SLO smoke; Phase 3 look-back | the `RetryPolicy` and parallel-branch wiring | `pytest -m live` |
 
 ### Phase 4 — Server and UI
 | Step | 🧠 Learn | 🛠 Build | ✍️ You write | ▶ You run |
 |---|---|---|---|---|
 | **S4.1 FastAPI core** | ASGI, lifespan, event-loop blocking, single-owner process | `server/app.py`, kb/jobs/health routes, writer lock at startup, heartbeat test | the `/healthz` route + the heartbeat test | `geekbot serve` · `pytest` |
-| **S4.2 Threads + OpenAI-compatible API** | SSE, API compatibility, stateless vs stateful | thread routes, `/v1/chat/completions`, client SDK, OpenAI-SDK contract test | the SSE event formatter | `pytest` · the OpenAI SDK snippet (given) |
-| **S4.3 Perimeter security** | threat modeling, auth, CORS, path traversal, upload hygiene | `server/security.py`, allowlist, limits | the path allowlist check (no symlink escape) | `pytest` |
+| **S4.2 Threads + streamed answers** (OpenAI-compatible API left out for now, rev 20, D-084) | SSE, stateless vs stateful | thread routes, the streamed question-and-answer route (SSE: answer pieces, sources, readings) under `/v1/threads`; **not** `/v1/chat/completions`, the client SDK or the OpenAI-SDK contract test (they come back when other programs need to talk to Geekbot) | the SSE event formatter | `pytest` |
+| **S4.3 Perimeter security** (outside-client items left out for now, rev 20, D-084) | threat modeling, auth, path traversal, upload hygiene | `server/security.py`, allowlist, limits, the UI's own API key, 127.0.0.1 only | the path allowlist check (no symlink escape) | `pytest` |
 | **S4.4 Streamlit UI** | Streamlit's rerun model (the root of v1 bug #1), API-client UIs | chat / knowledge / settings / evals pages; v1 files removed | the knowledge page | `geekbot up` → try it in the browser |
 | **C5 CSV mode in the API + UI** | stateful sessions in a single-owner server, upload hygiene, memory limits | `POST /v1/threads` with `mode`, the CSV upload route (S4.3 limits, `data/uploads/`), `csv_mode/sessions.py`, the UI mode picker + upload + evidence view (SQL + result table), import-linter rule (§6.7); heartbeat test with a CSV question running | the session registry (one per thread, LRU eviction, size cap) | `pytest` · `geekbot up` → pick CSV mode, upload, ask |
 | ⛳ **Gate A review** | — | DoD checklist below; Phase 4 look-back | — | You run the checklist and we review together |
