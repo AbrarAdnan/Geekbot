@@ -355,20 +355,35 @@ def _tuning(tuning: Mapping[str, Any]) -> list[str]:
 
 
 def _bakeoff(bakeoff: Mapping[str, Any], *, resamples: int, seed: int) -> list[str]:
-    del resamples, seed  # descriptive only; the bake-off tables carry means and latencies
-    lines = ["## Bake-offs", ""]
+    environment = bakeoff["environment"]
+    held_embedder = environment["embedder"]["label"]
+    held_reranker = environment["reranker"]["label"]
+    lines = [
+        "## Bake-offs",
+        "",
+        (
+            "Δ is the candidate minus the held choice (the embedder or reranker of the ladder), "
+            "paired by question, with its 95% bootstrap interval. Descriptive: no p-value, no verdict."
+        ),
+        "",
+    ]
     rows: list[list[str]] = []
     for key, row in bakeoff.get("embedders", {}).items():
         label, dataset = key.split("/", 1)
         for set_name, by_strategy in row["runs"].items():
             for strategy, run in by_strategy.items():
                 stage = run["stage_ms"].get("embed_query")
+                held_row = bakeoff["embedders"].get(f"{held_embedder}/{dataset}")
+                held_run = held_row["runs"].get(set_name, {}).get(strategy) if held_row else None
                 rows.append(
                     [
-                        label,
+                        label + (" (held)" if label == held_embedder else ""),
                         f"{dataset}:{set_name}",
                         strategy,
                         _num(run["metrics"].get("ndcg@10")),
+                        ""
+                        if label == held_embedder
+                        else _delta(held_run, run, "ndcg@10", resamples=resamples, seed=seed),
                         _num(run["metrics"].get("recall@5")),
                         _num(stage, 0),
                         _num(row["index"]["chunks_per_s"], 1)
@@ -384,6 +399,7 @@ def _bakeoff(bakeoff: Mapping[str, Any], *, resamples: int, seed: int) -> list[s
                 "questions",
                 "system",
                 "nDCG@10",
+                "Δ nDCG@10 vs held",
                 "Recall@5",
                 "query-embed ms",
                 "ingest chunks/s",
@@ -395,12 +411,17 @@ def _bakeoff(bakeoff: Mapping[str, Any], *, resamples: int, seed: int) -> list[s
         label, dataset = key.split("/", 1)
         for set_name, run in row["runs"].items():
             latency = run["latency_ms"]
+            held_row = bakeoff["rerankers"].get(f"{held_reranker}/{dataset}")
+            held_run = held_row["runs"].get(set_name) if held_row else None
             rows.append(
                 [
-                    label,
+                    label + (" (held)" if label == held_reranker else ""),
                     f"{dataset}:{set_name}",
                     str(row["depth"]),
                     _num(run["metrics"].get("ndcg@10")),
+                    ""
+                    if label == held_reranker
+                    else _delta(held_run, run, "ndcg@10", resamples=resamples, seed=seed),
                     _num(run["metrics"].get("recall@5")),
                     _num(run["stage_ms"].get("rerank"), 0),
                     f"{_num(latency.get('p50'), 0)} / {_num(latency.get('p95'), 0)}{_idle_mark(run)}",
@@ -414,6 +435,7 @@ def _bakeoff(bakeoff: Mapping[str, Any], *, resamples: int, seed: int) -> list[s
                 "questions",
                 "depth",
                 "nDCG@10",
+                "Δ nDCG@10 vs held",
                 "Recall@5",
                 "rerank ms (mean)",
                 "total ms p50 / p95",

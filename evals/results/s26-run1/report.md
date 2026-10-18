@@ -232,3 +232,63 @@ Retrieval latency by depth (unmemoized, CPU gate):
 | 10 | 100 | 386 | 596 | yes |
 | 20 | 100 | 757 | 1061 | yes |
 | 30 | 100 | 1154 | 1612 | yes |
+
+## Bake-offs
+
+Δ is the candidate minus the held choice (the embedder or reranker of the ladder), paired by question, with its 95% bootstrap interval. Descriptive: no p-value, no verdict.
+
+### Embedders (v2 chunks with header; each uses its own prefixes)
+
+| embedder | questions | system | nDCG@10 | Δ nDCG@10 vs held | Recall@5 | query-embed ms | ingest chunks/s |
+|---|---|---|---|---|---|---|---|
+| embeddinggemma | golden:dev | dense | 0.8601 | +0.0222 [-0.0399, +0.0879] | 0.9375 | 23 | 10.9 |
+| embeddinggemma | golden:dev | hybrid_rerank | 0.8526 | +0.0193 [-0.0010, +0.0451] | 0.9271 | n/a | 10.9 |
+| embeddinggemma | golden:test | dense | 0.8370 | +0.0470 [-0.0317, +0.1289] | 0.9271 | 23 | 10.9 |
+| embeddinggemma | golden:test | hybrid_rerank | 0.8880 | -0.0139 [-0.0316, -0.0002] | 0.9375 | n/a | 10.9 |
+| embeddinggemma | nfcorpus:test | dense | 0.3766 | +0.0382 [+0.0212, +0.0556] | 0.1491 | 19 | 4.5 |
+| embeddinggemma | nfcorpus:test | hybrid_rerank | 0.3743 | +0.0241 [+0.0128, +0.0357] | 0.1406 | n/a | 4.5 |
+| embeddinggemma | scifact:test | dense | 0.7630 | +0.0638 [+0.0311, +0.0962] | 0.8446 | 25 | 4.9 |
+| embeddinggemma | scifact:test | hybrid_rerank | 0.7212 | +0.0087 [-0.0066, +0.0236] | 0.8017 | n/a | 4.9 |
+| nomic-embed-text (held) | golden:dev | dense | 0.8379 |  | 0.9010 | 23 | 14.5 |
+| nomic-embed-text (held) | golden:dev | hybrid_rerank | 0.8332 |  | 0.9062 | n/a | 14.5 |
+| nomic-embed-text (held) | golden:test | dense | 0.7900 |  | 0.8854 | 21 | 14.5 |
+| nomic-embed-text (held) | golden:test | hybrid_rerank | 0.9019 |  | 0.9410 | n/a | 14.5 |
+| nomic-embed-text (held) | nfcorpus:test | dense | 0.3383 |  | 0.1312 | 17 | 5.3 |
+| nomic-embed-text (held) | nfcorpus:test | hybrid_rerank | 0.3502 |  | 0.1329 | n/a | 5.3 |
+| nomic-embed-text (held) | scifact:test | dense | 0.6992 |  | 0.7757 | 23 | 5.5 |
+| nomic-embed-text (held) | scifact:test | hybrid_rerank | 0.7124 |  | 0.7817 | n/a | 5.5 |
+| qwen3-embedding-0.6b | golden:dev | dense | 0.7997 | -0.0381 [-0.1059, +0.0264] | 0.9323 | 55 | 2.0 |
+| qwen3-embedding-0.6b | golden:dev | hybrid_rerank | 0.8473 | +0.0141 [-0.0038, +0.0394] | 0.8958 | n/a | 2.0 |
+| qwen3-embedding-0.6b | golden:test | dense | 0.8248 | +0.0348 [-0.0242, +0.0936] | 0.9062 | 57 | 2.0 |
+| qwen3-embedding-0.6b | golden:test | hybrid_rerank | 0.8982 | -0.0037 [-0.0135, +0.0037] | 0.9340 | n/a | 2.0 |
+| qwen3-embedding-0.6b | nfcorpus:test | dense | 0.3492 | +0.0109 [-0.0050, +0.0261] | 0.1334 | 38 | 0.9 |
+| qwen3-embedding-0.6b | nfcorpus:test | hybrid_rerank | 0.3573 | +0.0071 [-0.0012, +0.0161] | 0.1370 | n/a | 0.9 |
+| qwen3-embedding-0.6b | scifact:test | dense | 0.6985 | -0.0007 [-0.0255, +0.0247] | 0.7722 | 73 | 1.0 |
+| qwen3-embedding-0.6b | scifact:test | hybrid_rerank | 0.7101 | -0.0023 [-0.0163, +0.0103] | 0.7800 | n/a | 1.0 |
+
+### Rerankers (held embedder, hybrid candidates)
+
+| reranker | questions | depth | nDCG@10 | Δ nDCG@10 vs held | Recall@5 | rerank ms (mean) | total ms p50 / p95 |
+|---|---|---|---|---|---|---|---|
+| MiniLM-L-6 (held) | golden:dev | 10 | 0.8332 |  | 0.9062 | 266 | 325 / 370 |
+| MiniLM-L-6 (held) | golden:test | 10 | 0.9019 |  | 0.9410 | 317 | 350 / 556 |
+| MiniLM-L-6 (held) | nfcorpus:test | 10 | 0.3502 |  | 0.1329 | 325 | 345 / 530 |
+| MiniLM-L-6 (held) | scifact:test | 10 | 0.7124 |  | 0.7817 | 328 | 380 / 600 |
+| bge-reranker-base | golden:dev | 10 | 0.8109 | -0.0224 [-0.0738, +0.0292] | 0.9062 | 1351 | 1271 / 2021 |
+| bge-reranker-base | golden:test | 10 | 0.9004 | -0.0015 [-0.0472, +0.0433] | 0.9618 | 1541 | 1609 / 2467 |
+| bge-reranker-base | nfcorpus:test | 10 | 0.3458 | -0.0044 [-0.0130, +0.0048] | 0.1360 | 1774 | 1620 / 2579 |
+| bge-reranker-base | scifact:test | 10 | 0.7261 | +0.0137 [-0.0042, +0.0318] | 0.7736 | 1756 | 1667 / 2724 |
+
+## Abstain threshold (calibrated on golden dev, checked on golden test)
+
+_Claude-authored golden v0, provisional (D-067): not a headline claim_
+
+- Signal: the best chunk's cross-encoder score after R7 (hybrid + rerank) (`Xenova/ms-marco-MiniLM-L-6-v2`, depth 10). Rule: abstain when the best score is below the threshold; no score also abstains.
+- **Threshold 0.675**; 95% range of the best threshold over bootstrap resamples of the development questions: -5.507 to 3.170.
+
+| split | questions | unanswerable | tp / fp / fn / tn | precision | recall | F1 |
+|---|---|---|---|---|---|---|
+| dev | 40 | 8 | 7 / 19 / 1 / 13 | 0.269 | 0.875 | 0.412 |
+| test | 60 | 12 | 6 / 13 / 6 / 35 | 0.316 | 0.500 | 0.387 |
+
+Positive = should abstain (unanswerable). fp = an answerable question wrongly withheld; fn = an unanswerable question that would be answered from unrelated text.
