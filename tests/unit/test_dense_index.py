@@ -204,6 +204,41 @@ def test_the_spec_is_exposed(index: DenseIndex) -> None:
     assert index.spec is SPEC
 
 
+# --- the L2 space (the ablation's rung R0, step S2.6) -----------------------------------------
+
+
+def test_an_l2_index_ranks_by_distance_and_scores_higher_for_closer(tmp_path: Path) -> None:
+    with DenseIndex(tmp_path, SPEC, space="l2") as opened:
+        opened.upsert([A, B, C])
+        hits = opened.query([1.0, 0.0, 0.0], 3)
+    assert [hit.chunk_id for hit in hits] == ["a", "c", "b"]
+    assert hits[0].score == pytest.approx(0.0)  # identical: distance 0, score -0
+    assert hits[0].score > hits[1].score > hits[2].score
+    assert all(hit.score <= 0.0 for hit in hits)
+
+
+def test_l2_separates_what_cosine_cannot_when_the_length_differs(tmp_path: Path) -> None:
+    long_a = DenseEntry("long", "d", [5.0, 0.0, 0.0])
+    near_b = DenseEntry("near", "d", [0.9, 0.1, 0.0])
+    with DenseIndex(tmp_path / "cos", SPEC) as cosine:
+        cosine.upsert([long_a, near_b])
+        assert cosine.query([1.0, 0.0, 0.0], 1)[0].chunk_id == "long"  # same direction wins
+    with DenseIndex(tmp_path / "l2", SPEC, space="l2") as l2:
+        l2.upsert([long_a, near_b])
+        assert l2.query([1.0, 0.0, 0.0], 1)[0].chunk_id == "near"  # the closer point wins
+
+
+def test_a_folder_remembers_its_space(tmp_path: Path) -> None:
+    DenseIndex(tmp_path, SPEC, space="l2").close()
+    with pytest.raises(DenseIndexError, match="l2 space"):
+        DenseIndex(tmp_path, SPEC)  # asking for cosine on an L2 folder
+    with DenseIndex(tmp_path, SPEC, space="l2") as again:
+        assert again.count() == 0
+    with DenseIndex(tmp_path, SPEC, space="cosine", reset=True) as rebuilt:  # reset may change it
+        rebuilt.upsert([A])
+        assert rebuilt.query([1.0, 0.0, 0.0], 1)[0].score == pytest.approx(1.0)
+
+
 # --- a property ------------------------------------------------------------------------------
 
 _VECTORS = st.lists(

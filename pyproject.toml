@@ -46,6 +46,10 @@ dependencies = [
     # Conversation memory (S3.4): the SQLite checkpointer. Its async saver (aiosqlite underneath) is
     # the one PLAN.md section 6.3 names for the server; the command line uses it too.
     "langgraph-checkpoint-sqlite>=3.0",
+    # The ablation's rung R0 (S2.6) rebuilds v1's chunking with the same splitter class v1 used.
+    # v1 pinned 0.3.11, which needs langchain-core 0.3; the 1.x package is the same algorithm and
+    # CP2's v1 reference run checks that the two cut the golden corpus identically.
+    "langchain-text-splitters>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -108,6 +112,9 @@ ignore_errors = true
 [tool.pytest.ini_options]
 minversion = "9.0"
 testpaths = ["tests"]
+# tests/unit/evalkit.py holds the fakes several evaluation tests share (S2.6). With importlib mode
+# a sibling file is not importable by itself, so the folder is put on the path.
+pythonpath = ["tests/unit"]
 addopts = [
     "-ra",
     "--strict-markers",
