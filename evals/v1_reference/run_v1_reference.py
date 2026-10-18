@@ -23,9 +23,15 @@ Rules of the run, so the comparison is fair and v1's files stay untouched:
   absent from v1's index, and every question whose answer lives there is a miss for v1.
 - Indexing and querying are v1's own functions (``storage_utils.split_documents`` and
   ``add_to_chroma``; ``rag_pipeline.query_rag``). The index goes in a scratch folder.
-- The time of the model call is measured by wrapping v1's ``Ollama`` class at run time; everything
-  else in a question's time is retrieval and prompt building. v1 does not stream, so there is no
-  time-to-first-token for v1: the speed number is the whole question.
+- Two passes. Every question first gets a retrieval-only pass (v1's own ``query_rag`` with the model
+  call replaced by an empty reply, so what is measured is its retrieval and which files it offered
+  the model). Then every Nth question (``--full-every``, default 5) is asked in full with the real
+  model, and the time of the model call is measured by wrapping v1's ``Ollama`` class at run time.
+  v1 does not stream, so there is no time-to-first-token for v1: the speed number is the whole
+  question. Asking all hundred in full would take hours (see the result), hence the sample.
+- v1's ``requirements.txt`` does not list ``unstructured``, which its Word, PowerPoint, Excel,
+  Markdown and HTML loaders need; the README says only ``pip install -r requirements.txt``. So in
+  the environment v1 documents, those files cannot be loaded and are recorded as such.
 
 Run from the root of the v1 worktree, in the ``geekbot-v1`` environment:
 
@@ -128,6 +134,13 @@ def main() -> int:
     )
     parser.add_argument("--model", default="gemma4:12b")
     parser.add_argument("--limit", type=int, default=0, help="only the first N questions (a trial)")
+    parser.add_argument(
+        "--full-every",
+        type=int,
+        default=5,
+        help="the full question (with the model's answer) is asked for every Nth question; "
+        "0 for none, 1 for all. Every question gets the retrieval-only pass.",
+    )
     args = parser.parse_args()
 
     sys.path.insert(0, str(Path.cwd()))  # the v1 worktree: rag_pipeline, storage_utils, ...
@@ -161,12 +174,18 @@ def main() -> int:
     added = add_to_chroma(chunks, chroma)
     index_seconds = time.perf_counter() - started
 
+    # Pass 1, retrieval only, every question: the model call is replaced by an empty reply, so what
+    # is measured is v1's retrieval (five query embeddings, the searches, one embedding per
+    # surviving chunk) and what it offered the model. Pass 2, the whole question with the real
+    # model, on every Nth question: with gemma4:12b and no thinking control v1 takes minutes per
+    # question (see the result), so asking all hundred would take hours for one number.
     rows: list[dict[str, Any]] = []
+    real_invoke = rag_pipeline.Ollama.invoke
+    rag_pipeline.Ollama.invoke = lambda self, *a, **k: ""
     for item in items:
-        llm_seconds.clear()
         started = time.perf_counter()
-        answer, info = rag_pipeline.query_rag(item["question"], str(chroma), use_web=False)
-        total = time.perf_counter() - started
+        _, info = rag_pipeline.query_rag(item["question"], str(chroma), use_web=False)
+        retrieval_seconds = time.perf_counter() - started
         offered = [source["file"] for source in info["local_sources"]]
         relevant = {Path(s["path"]).name for s in item.get("sources", [])}
         rows.append(
@@ -174,20 +193,32 @@ def main() -> int:
                 "id": item["id"],
                 "type": item["type"],
                 "question": item["question"],
-                "seconds": total,
-                "model_seconds": sum(llm_seconds),
+                "retrieval_seconds": retrieval_seconds,
                 "offered": offered,
                 "recall_at_5": recall_at_5(offered, relevant)
                 if item["type"] in RETRIEVAL_TYPES
                 else None,
-                "answer_chars": len(answer),
             }
         )
-        print(
-            f"{item['id']}: {total:.1f} s (model {sum(llm_seconds):.1f} s), offered {len(set(offered))} files"
-        )
+    print(f"retrieval pass done: {len(rows)} questions")
+
+    rag_pipeline.Ollama.invoke = real_invoke
+    sample = [row for n, row in enumerate(rows) if args.full_every and n % args.full_every == 0]
+    for row in sample:
+        llm_seconds.clear()
+        started = time.perf_counter()
+        answer, _ = rag_pipeline.query_rag(row["question"], str(chroma), use_web=False)
+        total = time.perf_counter() - started
+        row["full"] = {
+            "seconds": total,
+            "model_seconds": sum(llm_seconds),
+            "answer_chars": len(answer),
+        }
+        print(f"{row['id']}: {total:.1f} s (model {sum(llm_seconds):.1f} s)", flush=True)
 
     scored = [r["recall_at_5"] for r in rows if r["recall_at_5"] is not None]
+    full_seconds = sorted(r["full"]["seconds"] for r in sample)
+    retrieval_seconds_all = sorted(r["retrieval_seconds"] for r in rows)
     result = {
         "what": "v1 (git tag v1.0) run once on the golden corpus; see run_v1_reference.py",
         "model": args.model,
@@ -201,6 +232,18 @@ def main() -> int:
         "questions": rows,
         "recall_at_5_mean": sum(scored) / len(scored) if scored else None,
         "recall_at_5_questions": len(scored),
+        "retrieval_seconds": {
+            "questions": len(retrieval_seconds_all),
+            "median": retrieval_seconds_all[len(retrieval_seconds_all) // 2],
+            "max": retrieval_seconds_all[-1],
+        },
+        "full_question_seconds": {
+            "questions": len(full_seconds),
+            "min": full_seconds[0] if full_seconds else None,
+            "median": full_seconds[len(full_seconds) // 2] if full_seconds else None,
+            "max": full_seconds[-1] if full_seconds else None,
+            "note": "the first of them includes loading the model",
+        },
         "note": "multi-turn questions are asked as the follow-up alone: v1 has no rewrite step",
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)
