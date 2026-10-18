@@ -1,0 +1,74 @@
+# The retrieval evaluation of step S2.6 (PLAN.md section 9): the ablation ladder R0 to R7, the
+# leave-one-out variants, the rerank-depth and fusion sweeps, the embedder and reranker bake-offs and
+# the abstain-threshold calibration.
+#
+#   geekbot eval retrieval --config evals/configs/ablation.toml          # everything (CPU-heavy, long)
+#   geekbot eval retrieval --phase ablation --dataset golden             # one piece
+#   geekbot eval report --config evals/configs/ablation.toml             # the Markdown report
+#
+# Results land in evals/results/<name>/, indexes in scratch/ablation/ (git-ignored). The knowledge
+# base in data/ is never opened. Every reported number comes from the models named here.
+
+name = "s26-run1"
+scratch_dir = "scratch/ablation"
+results_dir = "evals/results"
+top_k = 10               # chunks every system returns; documents are ranked at their best chunk
+seed = 0                 # question sampling and the bootstrap/permutation tests
+resamples = 10000        # PLAN section 9
+idle_load_percent = 15   # the CPU gate: a timed section starts only below this load (D-078)
+warmup_queries = 3       # searched once, untimed, before each timed loop
+# The model that rewrites the golden follow-up questions (D-076). The target chat model: a score
+# on those items is partly a score of its rewriting, so the report names it.
+rewrite_model = "gemma4:12b"
+
+# The embedder held constant through the ladder (rungs R0 to R2 use none of the prefixes).
+[embedder]
+label = "nomic-embed-text"
+model = "nomic-embed-text"
+document_prefix = "search_document: "
+query_prefix = "search_query: "
+
+# The reranker and how many fused candidates it re-scores (D-077: 10 meets the 400 ms budget).
+[reranker]
+label = "MiniLM-L-6"
+model = "Xenova/ms-marco-MiniLM-L-6-v2"
+depth = 10
+
+[fusion]
+candidates = 50          # chunks each side (dense, BM25) hands to the RRF fusion
+
+[beir]
+folder = "data/beir"
+datasets = ["scifact", "nfcorpus"]
+
+[golden]
+enabled = true
+jsonl = "evals/datasets/golden.jsonl"
+corpus = "evals/corpus"
+
+# Sweeps use the tuning splits only (D-065): SciFact train, NFCorpus dev, golden dev.
+[tuning]
+max_queries = 300
+depths = [10, 20, 30]
+candidates = [20, 50, 100]
+latency_queries = 100
+
+# Bake-off candidates besides the held ones above. Prefixes follow each model's published
+# convention for retrieval; they are part of the embedder's fingerprint and of the report.
+[[bakeoff.embedders]]
+label = "qwen3-embedding-0.6b"
+model = "qwen3-embedding:0.6b"
+document_prefix = ""
+query_prefix = "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:"
+
+[[bakeoff.embedders]]
+label = "embeddinggemma"
+model = "embeddinggemma"
+document_prefix = "title: none | text: "
+query_prefix = "task: search result | query: "
+
+[[bakeoff.rerankers]]
+label = "bge-reranker-base"
+model = "BAAI/bge-reranker-base"
+depth = 10
+cache_dir = "scratch/models"   # its weights are downloaded here, not into data/models

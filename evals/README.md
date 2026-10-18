@@ -66,3 +66,23 @@ geekbot eval import --source evals/datasets/golden-questions-user.md --out evals
 ```
 
 Add your own documents under `corpus/` if you want (re-ingest afterwards). Scoring `golden-user.jsonl` separately from v0 is the ablation harness's job (S2.6); nothing else needs building for it.
+
+## Running the retrieval evaluation (S2.6)
+`configs/ablation.toml` configures one run; its results go to `results/<name>/`. The code is in `src/geekbot/evals/` (D-079 explains every choice).
+
+| Path | What it is | Made by |
+|---|---|---|
+| `configs/ablation.toml` | the run: embedder, reranker, fusion, datasets, sweep grid, bake-off candidates | by hand |
+| `results/<name>/rewrites.json` | the cached standalone rewrites of the golden follow-up questions, with the model that made them | `--phase rewrite` |
+| `results/<name>/ablation.json` | the ladder R0 to R7 and the leave-one-out variants: means, per-question scores, latency, CPU-gate readings | `--phase ablation` |
+| `results/<name>/tuning.json` | the rerank-depth and fusion-candidates sweep on the tuning questions | `--phase tuning` |
+| `results/<name>/bakeoff.json` | the embedder and reranker bake-offs | `--phase bakeoff` |
+| `results/<name>/abstain.json` | the calibrated abstain threshold, its range, and a check on golden test | `--phase abstain` |
+| `results/<name>/report.md` | all of the above as tables, with Δ and its interval; **generated, never edited** | `geekbot eval report` |
+
+```
+geekbot eval retrieval --config evals/configs/ablation.toml                 # every phase (CPU-heavy, long; resumes)
+geekbot eval retrieval --phase ablation --dataset golden --rung R7          # one piece
+geekbot eval report --config evals/configs/ablation.toml                    # the Markdown report
+```
+Indexes are built in `scratch/ablation/` (git-ignored); the knowledge base in `data/` is never opened. Only the `rewrite` phase uses the GPU (it loads the chat model); everything else runs on the CPU. For a latency number to mean anything the PC must be idle: the run reads the CPU load before and after each timed loop and the report marks a row "(CPU not idle)" when the load never fell to 15%.

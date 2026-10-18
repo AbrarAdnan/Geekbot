@@ -10,6 +10,8 @@ and download a default model behind our back.
 ``1 - distance``, a similarity where higher is better and 1.0 is identical. Chroma's default is L2.
 For unit-length vectors the two rank the same (v1 bug #14), but nothing guarantees an Ollama
 embedder returns unit length, and the live test in ``tests/live`` checks it (the R1 expectation).
+The one reason to ask for ``space="l2"`` is the ablation's rung R0 (S2.6), which replays v1's
+default; the score is then minus the (squared) distance, so higher is still better.
 
 **The fingerprint guard (PLAN.md §6.4).** The collection's metadata records the embedder
 fingerprint. Opening an index with a different fingerprint raises ``FingerprintMismatchError``
@@ -25,7 +27,7 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
-from typing import Final, Self
+from typing import Final, Literal, Self
 
 import chromadb
 import numpy as np
@@ -43,12 +45,17 @@ __all__ = [
     "DenseIndex",
     "DenseIndexError",
     "FingerprintMismatchError",
+    "Space",
 ]
 
 CHROMA_DIR_NAME: Final = "chroma"
 COLLECTION_NAME: Final = "chunks"
 _FINGERPRINT_KEY: Final = "embedder_fingerprint"
 _SPEC_KEY: Final = "embedder_spec"
+_SPACE_KEY: Final = "space"
+
+# The geometry Chroma's HNSW graph measures distance in. Cosine is the product; L2 exists for R0.
+Space = Literal["cosine", "l2"]
 # Chroma's own limit on one call is larger (get_max_batch_size, 5,461 here); a smaller batch keeps
 # the memory of one call small and is plenty fast.
 _BATCH: Final = 1000
@@ -103,8 +110,11 @@ def _batches[T](items: Sequence[T], size: int = _BATCH) -> Iterator[Sequence[T]]
 class DenseIndex:
     """Chroma's persistent client with one cosine collection of chunk vectors."""
 
-    def __init__(self, data_dir: Path, spec: EmbedderSpec, *, reset: bool = False) -> None:
+    def __init__(
+        self, data_dir: Path, spec: EmbedderSpec, *, reset: bool = False, space: Space = "cosine"
+    ) -> None:
         self._spec = spec
+        self._space: Space = space
         self._fingerprint = spec.fingerprint()
         path = data_dir / CHROMA_DIR_NAME
         path.mkdir(parents=True, exist_ok=True)
@@ -129,10 +139,21 @@ class DenseIndex:
             return self._client.create_collection(
                 COLLECTION_NAME,
                 embedding_function=None,
-                configuration={"hnsw": {"space": "cosine"}},
-                metadata={_FINGERPRINT_KEY: self._fingerprint, _SPEC_KEY: self._spec.describe()},
+                configuration={"hnsw": {"space": self._space}},
+                metadata={
+                    _FINGERPRINT_KEY: self._fingerprint,
+                    _SPEC_KEY: self._spec.describe(),
+                    _SPACE_KEY: self._space,
+                },
             )
         stored = collection.metadata or {}
+        # A collection made before the space was recorded is cosine, the only one there was.
+        stored_space = str(stored.get(_SPACE_KEY, "cosine"))
+        if stored_space != self._space:
+            raise DenseIndexError(
+                f"the dense index uses the {stored_space} space but this run asked for "
+                f"{self._space}; open it with reset=True to rebuild it"
+            )
         stored_fingerprint = str(stored.get(_FINGERPRINT_KEY, ""))
         if stored_fingerprint != self._fingerprint:
             raise FingerprintMismatchError(
@@ -219,8 +240,11 @@ class DenseIndex:
             raise DenseIndexError(f"Chroma query failed: {error}") from error
         ids = result["ids"][0]
         distances = (result["distances"] or [[]])[0]
+        # Cosine distance is 1 - similarity. An L2 distance has no such upper bound, so its score
+        # is just the negated distance: still "higher is closer", only not on a 0-1 scale.
+        base = 0.0 if self._space == "l2" else 1.0
         return [
-            DenseHit(chunk_id=chunk_id, score=1.0 - float(distance))
+            DenseHit(chunk_id=chunk_id, score=base - float(distance))
             for chunk_id, distance in zip(ids, distances, strict=True)
         ]
 

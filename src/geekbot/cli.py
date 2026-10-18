@@ -658,6 +658,98 @@ def eval_fetch(
         _fail(str(error))
 
 
+DEFAULT_ABLATION_CONFIG = Path("evals/configs/ablation.toml")
+
+
+@eval_app.command("retrieval")
+def eval_retrieval(
+    config: Annotated[
+        Path, typer.Option("--config", help="The run's TOML file (PLAN.md §9).")
+    ] = DEFAULT_ABLATION_CONFIG,
+    phase: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--phase",
+            help="rewrite, ablation, tuning, bakeoff, abstain or all (repeatable). Default: all. "
+            "`rewrite` loads the chat model on the GPU; check the GPU is free first.",
+        ),
+    ] = None,
+    rung: Annotated[
+        list[str] | None,
+        typer.Option("--rung", help="Only these rungs (R0..R7, 'R7 - BM25', ...)."),
+    ] = None,
+    dataset: Annotated[
+        list[str] | None,
+        typer.Option("--dataset", help="Only these datasets (scifact, nfcorpus, golden)."),
+    ] = None,
+    fresh: Annotated[
+        bool, typer.Option("--fresh", help="Ignore earlier results and measure everything again.")
+    ] = False,
+) -> None:
+    """Run the retrieval evaluation: the ablation, sweeps, bake-offs and the abstain threshold.
+
+    CPU-heavy and long. Results go to `<results_dir>/<name>/*.json` and are rewritten after each
+    finished piece, so an interrupted run resumes where it stopped. Indexes are built in the scratch
+    folder of the configuration; the knowledge base in the data folder is never opened.
+    """
+    from geekbot.evals.ablation import load_config
+    from geekbot.evals.orchestrate import Phase, run_phases
+    from geekbot.evals.phases import default_backends
+
+    settings = Settings()
+    setup_logging(settings.log_level)
+    try:
+        loaded = load_config(config)
+        names = phase or ["all"]
+        every = [p.value for p in Phase]
+        unknown = [name for name in names if name != "all" and name not in every]
+        if unknown:
+            _fail(f"unknown phase(s) {', '.join(unknown)}; choose from {', '.join(every)}, all")
+        chosen = list(Phase) if "all" in names else [Phase(name) for name in names]
+        written = run_phases(
+            loaded,
+            settings,
+            default_backends(settings),
+            chosen,
+            rungs=rung,
+            datasets=dataset,
+            resume=not fresh,
+            log=typer.echo,
+        )
+    except (ValueError, OllamaError) as error:
+        _fail(str(error))
+    for path in written:
+        typer.echo(f"wrote {path}")
+
+
+@eval_app.command("report")
+def eval_report(
+    config: Annotated[
+        Path, typer.Option("--config", help="The run's TOML file (it names the results folder).")
+    ] = DEFAULT_ABLATION_CONFIG,
+    out: Annotated[
+        Path | None,
+        typer.Option("--out", help="Where to write. Default: <results folder>/report.md"),
+    ] = None,
+) -> None:
+    """Write the Markdown report from the result files of `geekbot eval retrieval`. No model."""
+    from geekbot.evals.ablation import load_config
+    from geekbot.evals.report import load_results, render_report
+
+    try:
+        loaded = load_config(config)
+        results = load_results(loaded.results_path)
+        text = render_report(
+            results, name=loaded.name, resamples=loaded.resamples, seed=loaded.seed
+        )
+    except ValueError as error:
+        _fail(str(error))
+    target = out or loaded.results_path / "report.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text, encoding="utf-8", newline="\n")
+    typer.echo(f"wrote {target}")
+
+
 @app.command()
 def ask(
     question: Annotated[str, typer.Argument(help="Your question, in your own words.")],
