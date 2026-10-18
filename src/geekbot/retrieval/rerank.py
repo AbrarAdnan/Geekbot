@@ -36,7 +36,12 @@ __all__ = [
 ]
 
 DEFAULT_RERANK_MODEL: Final = "Xenova/ms-marco-MiniLM-L-6-v2"
-DEFAULT_RERANK_DEPTH: Final = 30
+# 10, not the 30 it started at (D-062). The plan gives retrieval plus reranking 400 ms at p95 (PLAN.md
+# §6.5). Timed through the whole pipeline on an idle PC (D-077; STATUS.md, "Reranker timings"), 10
+# candidates take about 330 ms at p50 and 380 ms at p95, 30 candidates about 1,065 ms at p50. That leaves
+# little room at 10 and none at 30. What the smaller depth costs in recall is *not* measured: S2.6
+# sweeps the depth on the development items and may change this again.
+DEFAULT_RERANK_DEPTH: Final = 10
 
 
 class RerankError(RuntimeError):

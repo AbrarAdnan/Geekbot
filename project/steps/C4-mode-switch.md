@@ -3,7 +3,7 @@
 - **Phase / Gate:** Track C (CSV analyst), Gate A. It follows S3.4 and, in the order of PLAN rev 19 (D-068), comes before S2.6 and CP2.
 - **Chat date(s):** 2026-10-18 (autopilot run 2, D-071 / D-072: the third and last step of the run)
 - **Status:** built and verified by Claude under D-071; **awaiting the user's review** (the green light is still the user's)
-- **Commit:** see STATUS.md and the [autopilot report](../overnight/2026-10-18-autopilot-report.md) (branch `step/C4-mode-switch`, squash commit of its pull request into `v2`)
+- **Commit:** `ed0a28c` (squash commit of PR #28 into `v2`; 3 CI checks passed; branch tip `82bed4b`, identical tree; the branch was deleted afterwards, D-056). Merged by Claude under D-071.
 - **Lesson note:** deferred (prototyping mode, D-047)
 
 ## Goal
