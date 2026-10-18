@@ -1,9 +1,0 @@
-incident_id,date,severity,reported_by,summary,status,resolved_date,hours_to_resolve
-INC-001,2025-04-09,S3,Leo Park,Answers slow after the nightly backup overran,closed,2025-04-10,20.5
-INC-002,2025-04-15,S3,Samir Haddad,Sign-in failed after a password change,closed,2025-04-15,1.5
-INC-003,2025-04-23,S2,Hannah Frost,Client draft pasted into the wrong project workspace,closed,2025-04-24,26.0
-INC-004,2025-04-29,S3,Priya Nair,Disk 85 percent full from uploaded files,closed,2025-04-30,19.0
-INC-005,2025-05-20,S3,Daniel Reyes,Retention job did not run because the cron entry was lost in an update,closed,2025-05-21,15.0
-INC-006,2025-06-03,S2,Tomasz Lewandowski,Staff member used an outside cloud AI tool for Amber data,closed,2025-06-05,40.0
-INC-007,2025-06-17,S3,Leo Park,Answer style changed after a model update,closed,2025-06-18,22.0
-INC-008,2025-07-01,S3,Priya Nair,Power cut of 40 minutes; UPS held and the workstation shut down cleanly,closed,2025-07-01,2.0
