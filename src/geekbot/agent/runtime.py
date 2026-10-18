@@ -16,6 +16,7 @@ from langchain_core.messages import BaseMessage
 
 from geekbot.llm.chat import ChatModel, StructuredChat
 from geekbot.retrieval import RetrievalResult, Retriever
+from geekbot.retrieval.rerank import PassageScorer
 
 __all__ = [
     "AgentContext",
@@ -92,6 +93,10 @@ class AgentContext:
 
     ``csv`` (C4) is the loaded CSV of a CSV conversation; ``None`` in chat mode. A run is one mode or
     the other: a CSV run passes ``UnavailableRetriever`` and ``UnavailableChat``, a chat run no CSV.
+
+    ``citation_scorer`` (S3.5) is the cross-encoder that ``cite_check`` uses to score each cited
+    source against the sentence that cites it; ``None`` (no reranker in the retriever, or a test)
+    skips the check. ``citation_weak_below`` is the score under which a citation is called weak.
     """
 
     retriever: Retriever
@@ -103,3 +108,5 @@ class AgentContext:
     history_budget_tokens: int = 1000
     history_keep_messages: int = 40
     csv: CsvTool | None = None
+    citation_scorer: PassageScorer | None = None
+    citation_weak_below: float = -3.0

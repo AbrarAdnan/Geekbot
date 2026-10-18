@@ -117,6 +117,7 @@ def format_answer(
     if dropped:
         marks = ", ".join(f"[{n}]" for n in dropped)
         lines.append(f"removed from the answer (no such source in the prompt): {marks}")
+    lines.extend(_check_lines(final))
     names = list(final.get("answer_labels", []))
     if names:
         verdict = "tainted" if is_tainted(Label(name) for name in names) else "not tainted"
@@ -131,6 +132,28 @@ def format_answer(
     if thread is not None:
         lines.append(_thread_line(thread, final))
     return "\n".join(lines).strip()
+
+
+def _check_lines(final: Mapping[str, Any]) -> list[str]:
+    """What the checks after the answer found (S3.5): a refusal, weak citations, cleaned-out markup."""
+    lines: list[str] = []
+    if final.get("abstained"):
+        lines.append("declined: the reply says it could not find this in the documents")
+    for check in final.get("citation_checks", []):
+        if check["weak"]:
+            lines.append(
+                f"weak citation [{check['n']}] (fit {check['score']:.1f}) for: {check['sentence']}"
+            )
+    error = str(final.get("citation_check_error", ""))
+    if error:
+        lines.append(f"citation relevance check did not run: {error}")
+    removed = [str(item) for item in final.get("removed_markup", [])]
+    if removed:
+        lines.append(
+            f"removed from the reply (images and links to places the sources do not name): "
+            f"{'; '.join(removed)}"
+        )
+    return lines
 
 
 def _rewrite_lines(final: Mapping[str, Any]) -> list[str]:
@@ -273,7 +296,9 @@ def format_after_stream(streamed: StreamedAnswer, *, model: str, thread: str | N
         return format_answer(final, model=model, thread=thread)
     lines: list[str] = []
     answer = str(final["answer"])
-    if answer != str(final.get("raw_answer") or answer):
+    # What was shown live is already cleaned of images and outside links (``agent.sanitize``); the
+    # answer can still differ from it where the citation check removed a mark that names no source.
+    if answer.strip() != streamed.streamed.strip():
         lines.extend(
             [
                 "corrected answer (the citation check removed a mark that names no source):",

@@ -12,7 +12,7 @@ import time
 from collections.abc import Sequence
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, NoReturn
+from typing import Annotated, Any, NoReturn
 
 import typer
 
@@ -603,6 +603,116 @@ def eval_generate(
     typer.echo(f"wrote {len(drafts)} drafts to {out} ({failed} replies were unusable)")
 
 
+@eval_app.command("abstention")
+def eval_abstention(
+    golden: Annotated[
+        Path, typer.Option("--golden", help="The golden questions (JSON Lines).")
+    ] = DEFAULT_GOLDEN_JSONL,
+    out: Annotated[
+        Path | None,
+        typer.Option("--out", help="Where to write the result. Default: evals/results/s35-*.json"),
+    ] = None,
+    limit: Annotated[
+        int, typer.Option("--limit", min=0, help="Only the first N questions (a trial); 0 = all.")
+    ] = 0,
+) -> None:
+    """Measure abstention (S3.5, D-082): do the unanswerable golden questions get refused?
+
+    Puts every single-hop, multi-hop and unanswerable question to the real answer graph, one run
+    each, and counts correct refusals, wrong answers and wrong refusals. **Needs the golden corpus
+    ingested in the data folder** (use a scratch one: `GEEKBOT_DATA_DIR=scratch/abstain-data geekbot
+    ingest evals/corpus`) and loads the chat model on the GPU (proto profile unless told otherwise;
+    the result names the model).
+    """
+    import time
+
+    from geekbot.agent.graph import build_graph
+    from geekbot.agent.runtime import AgentContext
+    from geekbot.evals.abstention import run_abstention, summarize
+    from geekbot.evals.datasets import GoldenFormatError, assign_splits, load_golden
+    from geekbot.index.lock import StorageLockedError
+    from geekbot.index.sqlite import DB_FILE_NAME
+    from geekbot.index.workspace import Workspace
+    from geekbot.llm.chat import ChatError, make_chat_model
+    from geekbot.llm.models import swap_to_mode
+    from geekbot.retrieval.factory import build_retriever, citation_scorer_of
+    from geekbot.retrieval.rerank import RerankError
+
+    settings = Settings()
+    setup_logging(settings.log_level)
+    if not golden.is_file():
+        _fail(f"{golden} does not exist; run `geekbot eval import` first")
+    if not (settings.data_dir / DB_FILE_NAME).is_file():
+        _fail(
+            f"nothing is indexed in {settings.data_dir}; ingest the golden corpus into a scratch "
+            "folder first (GEEKBOT_DATA_DIR=scratch/abstain-data geekbot ingest evals/corpus)"
+        )
+    try:
+        items = load_golden(golden)
+    except GoldenFormatError as error:
+        _fail(f"{golden}: {error}")
+    splits = assign_splits(items)
+    chosen = [item for item in items if item.type != "multi_turn"]
+    if limit:
+        chosen = chosen[:limit]
+    model = settings.resolved_chat_model
+    try:
+        with Workspace.open(settings) as workspace:
+            retriever = build_retriever(SearchMode.HYBRID_RERANK, workspace, settings)
+            with OllamaClient(settings.ollama_host) as client:
+                swap = swap_to_mode(client, settings, "chat")
+            typer.echo(f"{model} ready ({swap.warm_up_s:.1f} s to load)", err=True)
+            context = AgentContext(
+                retriever=retriever,
+                llm=make_chat_model(settings),
+                model=model,
+                top_k=5,
+                context_budget_tokens=settings.context_budget_tokens,
+                citation_scorer=citation_scorer_of(retriever),
+                citation_weak_below=settings.cite_weak_below,
+            )
+            graph = build_graph()
+
+            def ask(question: str) -> dict[str, Any]:
+                result: dict[str, Any] = graph.invoke({"question": question}, context=context)
+                return result
+
+            rows = run_abstention(
+                chosen,
+                splits,
+                ask,
+                clock=time.perf_counter,
+                on_row=lambda r: typer.echo(
+                    f"{r.id:>6} {'refused ' if r.abstained else 'answered'} "
+                    f"{'ok ' if r.correct else 'WRONG'} {r.answer[:70]}"
+                ),
+            )
+    except StorageLockedError as error:
+        _fail(str(error))
+    except (OllamaError, RerankError, ChatError) as error:
+        _fail(str(error))
+    summary = summarize(rows)
+    result = {
+        "what": "abstention of the answer graph on golden v0 (S3.5, D-082 option B: no score gate)",
+        "model": model,
+        "profile": settings.profile,
+        "questions": len(rows),
+        "multi_turn_left_out": sum(1 for item in items if item.type == "multi_turn"),
+        "summary": summary,
+        "rows": [r.__dict__ for r in rows],
+    }
+    target = out or Path("evals/results") / f"s35-abstention-{model.replace(':', '-')}.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(result, indent=1, ensure_ascii=False), encoding="utf-8")
+    everything = summary["all"]
+    typer.echo(
+        f"{model}: of {everything['unanswerable']} unanswerable, "
+        f"{everything['refused_correctly']} refused and {everything['answered_wrongly']} answered; "
+        f"of {everything['answerable']} answerable, {everything['refused_wrongly']} refused wrongly"
+    )
+    typer.echo(f"wrote {target}")
+
+
 @eval_app.command("fetch")
 def eval_fetch(
     datasets: Annotated[
@@ -845,7 +955,7 @@ def ask(
     from geekbot.index.workspace import Workspace
     from geekbot.llm.chat import ChatError, make_chat_model, make_structured_model
     from geekbot.llm.models import swap_to_mode
-    from geekbot.retrieval.factory import build_retriever
+    from geekbot.retrieval.factory import build_retriever, citation_scorer_of
     from geekbot.retrieval.rerank import RerankError
 
     try:
@@ -894,6 +1004,8 @@ def ask(
                 else None,
                 history_budget_tokens=settings.history_budget_tokens,
                 history_keep_messages=settings.history_keep_messages,
+                citation_scorer=citation_scorer_of(retriever),
+                citation_weak_below=settings.cite_weak_below,
             )
             typer.echo(f"asking {model}{' with thinking on' if think else ''}...", err=True)
             collector = (
@@ -1201,6 +1313,7 @@ def csv_ask(
     runs through the answer graph in CSV mode (the CSV model is loaded explicitly first, the chat
     model is unloaded) and the conversation is saved like a chat thread (`geekbot thread show`).
     """
+    from geekbot.agent.sanitize import sanitize_text
     from geekbot.csv_mode.adapter import CsvAnalyst, CsvLoadError, find_problem
 
     settings = Settings()
@@ -1216,7 +1329,16 @@ def csv_ask(
             answer = analyst.ask(question)
     except CsvLoadError as error:
         _fail(str(error))
-    typer.echo(answer.markdown)
+    # A one-off question does not go through the graph, so the output cleaning (G3, S3.5) is applied
+    # here: a cell of the file can hold an image or a link, and the package repeats cells.
+    cleaned = sanitize_text(answer.markdown)
+    typer.echo(cleaned.text)
+    if cleaned.removed:
+        typer.echo(
+            "removed from the reply (images and links to places the file does not name): "
+            + "; ".join(f"{item.kind}: {item.target}" for item in cleaned.removed),
+            err=True,
+        )
     typer.echo(
         f"[csv] model={answer.model} profile={settings.profile} status={answer.status} "
         f"time={answer.seconds:.1f}s model_load={answer.model_load_ms}ms",

@@ -120,6 +120,11 @@ class Settings(BaseSettings):
     # tokens a thinking model really spends, and only a model with a thinking mode can be tried.
     chat_think_num_predict: int = Field(default=2048, gt=0)
     chat_temperature: float = Field(default=0.2, ge=0.0, le=2.0)
+    # The citation relevance check (S3.5): a citation whose cross-encoder score against the sentence
+    # that cites it is below this is shown as weak. -3.0 is a guess from the scale seen in S2.6 (the
+    # best chunk of an answerable question scored a median of about 1 to 4, unrelated passages below
+    # -4), not a measurement; the check only reports, it never changes an answer.
+    cite_weak_below: float = -3.0
     context_budget_tokens: int = Field(default=3000, gt=0)
     # Conversation memory (step S3.4). The share of the prompt the earlier turns may take (whole
     # turns, newest first), how many messages a thread keeps, and the cap on the one model call that

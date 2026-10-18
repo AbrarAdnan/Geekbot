@@ -140,6 +140,11 @@ class Reranker:
         self._depth = depth
         self._clock = clock
 
+    @property
+    def scorer(self) -> PassageScorer:
+        """The cross-encoder this reranker uses (the answer graph's citation check shares it, S3.5)."""
+        return self._scorer
+
     def search(self, query: str, k: int = 10) -> RetrievalResult:
         """The ``k`` best of the base retriever's top ``max(k, depth)`` chunks, by cross-encoder score.
 

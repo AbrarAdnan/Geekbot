@@ -1,0 +1,891 @@
+{
+ "what": "abstention of the answer graph on golden v0 (S3.5, D-082 option B: no score gate)",
+ "model": "gemma3:4b",
+ "profile": "proto",
+ "questions": 85,
+ "multi_turn_left_out": 15,
+ "summary": {
+  "all": {
+   "unanswerable": 20,
+   "refused_correctly": 8,
+   "answered_wrongly": 12,
+   "answerable": 65,
+   "answered": 64,
+   "refused_wrongly": 1,
+   "wrong_answers_with_a_weak_citation": 3,
+   "good_answers_with_a_weak_citation": 15
+  },
+  "dev": {
+   "unanswerable": 8,
+   "refused_correctly": 3,
+   "answered_wrongly": 5,
+   "answerable": 26,
+   "answered": 26,
+   "refused_wrongly": 0,
+   "wrong_answers_with_a_weak_citation": 2,
+   "good_answers_with_a_weak_citation": 6
+  },
+  "test": {
+   "unanswerable": 12,
+   "refused_correctly": 5,
+   "answered_wrongly": 7,
+   "answerable": 39,
+   "answered": 38,
+   "refused_wrongly": 1,
+   "wrong_answers_with_a_weak_citation": 1,
+   "good_answers_with_a_weak_citation": 9
+  }
+ },
+ "rows": [
+  {
+   "id": "S-001",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "The graphics card has 12 GB of video memory [1].",
+   "seconds": 1.491313700000319,
+   "weak": 0
+  },
+  {
+   "id": "S-002",
+   "type": "single_hop",
+   "split": "dev",
+   "abstained": false,
+   "cited": 1,
+   "answer": "The assistant produces text at 38 tokens per second [1].",
+   "seconds": 0.6638981000000967,
+   "weak": 0
+  },
+  {
+   "id": "S-003",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "The 95th percentile was 3.4 seconds [1].",
+   "seconds": 0.7043417999998383,
+   "weak": 0
+  },
+  {
+   "id": "S-004",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 2,
+   "answer": "Priya shortened the context length to 4,096 tokens [1][5].",
+   "seconds": 0.7254959000001691,
+   "weak": 1
+  },
+  {
+   "id": "S-005",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "The UPS is rated to keep the workstation running for about 20 minutes at normal load [1].",
+   "seconds": 0.7759347000001071,
+   "weak": 0
+  },
+  {
+   "id": "S-006",
+   "type": "single_hop",
+   "split": "dev",
+   "abstained": false,
+   "cited": 1,
+   "answer": "An S1 incident must be acknowledged within 15 minutes [1].",
+   "seconds": 0.7352816000002349,
+   "weak": 0
+  },
+  {
+   "id": "S-007",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "According to [2], if Amber data was exposed, or a wrong output reached a client, the incident must be reported within 72 hours, if their data was involved. [2]",
+   "seconds": 0.6737665000000561,
+   "weak": 0
+  },
+  {
+   "id": "S-008",
+   "type": "single_hop",
+   "split": "dev",
+   "abstained": false,
+   "cited": 2,
+   "answer": "Maya Okafor speaks to the client about serious incidents [1][4].",
+   "seconds": 0.5599849000000177,
+   "weak": 1
+  },
+  {
+   "id": "S-009",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 2,
+   "answer": "S1 and S2 incidents get a review meeting within 24 hours [1], and S3 incidents are discussed at the weekly project meeting [3].",
+   "seconds": 0.8536936999998943,
+   "weak": 1
+  },
+  {
+   "id": "S-010",
+   "type": "single_hop",
+   "split": "dev",
+   "abstained": false,
+   "cited": 1,
+   "answer": "An S3 incident is discussed at the weekly project meeting [1].",
+   "seconds": 0.6335254000000532,
+   "weak": 0
+  },
+  {
+   "id": "S-011",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "[3], A full restore of 310 GB took 47 minutes. The retention job deletes chat logs older than 90 days and audit logs older than 365 days.",
+   "seconds": 1.0641022999998313,
+   "weak": 0
+  },
+  {
+   "id": "S-012",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "The workstation ran for 21 minutes on battery before the test was stopped [2].",
+   "seconds": 0.7931582999999591,
+   "weak": 0
+  },
+  {
+   "id": "S-013",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 2,
+   "answer": "12 of 12 staff attended a training session, on 5 and 6 May [5]. [1]",
+   "seconds": 5.048160699999698,
+   "weak": 1
+  },
+  {
+   "id": "S-014",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "Daniel Reyes will attend the first review meeting because Tomasz keeps the incident log and runbook [1].",
+   "seconds": 0.761886400000094,
+   "weak": 0
+  },
+  {
+   "id": "S-015",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "The nightly deletion program writes its messages to /var/log/lantern/cleanup.log [1].",
+   "seconds": 0.8848494000003484,
+   "weak": 0
+  },
+  {
+   "id": "S-016",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "No, the sources state that the job deletes only what is older than the limit [3].",
+   "seconds": 0.8306742999998278,
+   "weak": 1
+  },
+  {
+   "id": "S-017",
+   "type": "single_hop",
+   "split": "dev",
+   "abstained": false,
+   "cited": 1,
+   "answer": "The fields recorded for every incident in the incident table are incident_id, date, severity, reported_by, summary, status, resolved_date, and hours_to_resolve ",
+   "seconds": 0.9711685000002035,
+   "weak": 0
+  },
+  {
+   "id": "S-018",
+   "type": "single_hop",
+   "split": "dev",
+   "abstained": false,
+   "cited": 1,
+   "answer": "The time-to-fix column in the incident table is a decimal [1].",
+   "seconds": 0.6226857999999993,
+   "weak": 0
+  },
+  {
+   "id": "S-019",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "The workbook about tools and costs has two sheets: tools-and-costs.xlsx and tools-and-costs.xlsx. [2]",
+   "seconds": 0.6847940000002382,
+   "weak": 0
+  },
+  {
+   "id": "S-020",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "The column “owner” shows who looks after each tool [1].",
+   "seconds": 0.624691299999995,
+   "weak": 1
+  },
+  {
+   "id": "S-021",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "Daniel Reyes is the owner of the AI use policy [1]. Maya Okafor, the managing director, approved it on 21 March 2025 [1].",
+   "seconds": 0.7693811000003734,
+   "weak": 0
+  },
+  {
+   "id": "S-022",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "This policy applies to all 12 members of staff and to contractors [1].",
+   "seconds": 0.5876294999998208,
+   "weak": 0
+  },
+  {
+   "id": "S-023",
+   "type": "single_hop",
+   "split": "dev",
+   "abstained": false,
+   "cited": 1,
+   "answer": "The AI use policy is reviewed every six months, with the first review due on 21 September 2025 [4].",
+   "seconds": 0.7675958999998329,
+   "weak": 0
+  },
+  {
+   "id": "S-024",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "You reach Lantern from the office network at lantern.office.lan; it does not work from home [1].",
+   "seconds": 0.6734587999999349,
+   "weak": 0
+  },
+  {
+   "id": "S-025",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": true,
+   "cited": 0,
+   "answer": "I could not find it in the documents.",
+   "seconds": 0.8103227000001425,
+   "weak": 0
+  },
+  {
+   "id": "S-026",
+   "type": "single_hop",
+   "split": "dev",
+   "abstained": false,
+   "cited": 1,
+   "answer": "The welcome letter suggests trying it on a summary of last week’s meeting notes [1].",
+   "seconds": 0.7134820999999647,
+   "weak": 0
+  },
+  {
+   "id": "S-027",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "- /srv/lantern/uploads - /srv/lantern/chat_logs - /srv/lantern/audit [1]",
+   "seconds": 0.870920599999863,
+   "weak": 0
+  },
+  {
+   "id": "S-028",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "Lantern does not have a recycle bin. [1]",
+   "seconds": 0.9505865000000995,
+   "weak": 0
+  },
+  {
+   "id": "S-029",
+   "type": "single_hop",
+   "split": "dev",
+   "abstained": false,
+   "cited": 1,
+   "answer": "Uploaded documents are not removed by the job. The operations lead, Daniel Reyes, removes them by hand when a project has been closed for 12 months, and records",
+   "seconds": 0.9951672000001963,
+   "weak": 0
+  },
+  {
+   "id": "S-030",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "The key stays in the office safe [5].",
+   "seconds": 0.77593700000034,
+   "weak": 1
+  },
+  {
+   "id": "S-031",
+   "type": "single_hop",
+   "split": "dev",
+   "abstained": false,
+   "cited": 2,
+   "answer": "A chat log can exist for up to 120 days [1][4]. This is because chat logs are deleted after 90 days, and backups are kept for 30 days.",
+   "seconds": 0.9533236000002034,
+   "weak": 1
+  },
+  {
+   "id": "S-032",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "Daniel Reyes gave the presentation at the project kickoff [1].",
+   "seconds": 0.7144585999999435,
+   "weak": 0
+  },
+  {
+   "id": "S-033",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "The pilot group tested Lantern from 7 April to 2 May 2025 [3].",
+   "seconds": 0.817605800000365,
+   "weak": 0
+  },
+  {
+   "id": "S-034",
+   "type": "single_hop",
+   "split": "dev",
+   "abstained": false,
+   "cited": 2,
+   "answer": "No, it does not. [4] states: “Nobody else contacts a client about an incident.” [5] states “Daniel Reyes owns the project. Maya Okafor is the sponsor.” I could ",
+   "seconds": 1.0106641000002128,
+   "weak": 1
+  },
+  {
+   "id": "S-035",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "Hannah Frost said designers go back to a client thread up to three months later, for example when a client returns after a pause, and a 30 day limit would lose ",
+   "seconds": 1.0024069000000964,
+   "weak": 1
+  },
+  {
+   "id": "S-036",
+   "type": "single_hop",
+   "split": "dev",
+   "abstained": false,
+   "cited": 2,
+   "answer": "The team decided to show the workspace name as a banner at the top of every chat [5]. Priya Nair made the change on 24 April [1].",
+   "seconds": 0.9321517000003041,
+   "weak": 0
+  },
+  {
+   "id": "S-037",
+   "type": "single_hop",
+   "split": "dev",
+   "abstained": false,
+   "cited": 1,
+   "answer": "The nightly retention job skips a night in May because the file /srv/lantern/LEGAL_HOLD exists [3].",
+   "seconds": 0.9226945000000342,
+   "weak": 0
+  },
+  {
+   "id": "S-038",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "Tomasz Lewandowski found no client data left the studio in a form that could be read by others, but the rule had still been broken [3].",
+   "seconds": 0.7467419000004156,
+   "weak": 0
+  },
+  {
+   "id": "S-039",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "The refresher session was planned to be 20 minutes long [1].",
+   "seconds": 0.7142429000000448,
+   "weak": 0
+  },
+  {
+   "id": "S-040",
+   "type": "single_hop",
+   "split": "dev",
+   "abstained": false,
+   "cited": 1,
+   "answer": "Corvid Foods would have to agree to a change in its NDA [2].",
+   "seconds": 0.679242400000021,
+   "weak": 0
+  },
+  {
+   "id": "S-041",
+   "type": "single_hop",
+   "split": "dev",
+   "abstained": false,
+   "cited": 1,
+   "answer": "The local option would have cost £14,090 more than the cloud subscription in the first year [2].",
+   "seconds": 0.8920519999996941,
+   "weak": 0
+  },
+  {
+   "id": "S-042",
+   "type": "single_hop",
+   "split": "dev",
+   "abstained": false,
+   "cited": 1,
+   "answer": "The second year would cost £14,928 [4].",
+   "seconds": 0.7511162999999215,
+   "weak": 1
+  },
+  {
+   "id": "S-043",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "PDF, Word, Markdown and plain text files, up to 50 MB each [1].",
+   "seconds": 0.883020100000067,
+   "weak": 0
+  },
+  {
+   "id": "S-044",
+   "type": "single_hop",
+   "split": "dev",
+   "abstained": false,
+   "cited": 1,
+   "answer": "Lantern is not read spreadsheets or pictures [1].",
+   "seconds": 0.6122487999996338,
+   "weak": 0
+  },
+  {
+   "id": "S-045",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "About four characters make up one token in English [1].",
+   "seconds": 0.5896809000000758,
+   "weak": 0
+  },
+  {
+   "id": "S-046",
+   "type": "single_hop",
+   "split": "dev",
+   "abstained": false,
+   "cited": 1,
+   "answer": "Lantern was busiest on Tuesdays from 10:00 to 11:00 [1].",
+   "seconds": 0.5778213999997206,
+   "weak": 0
+  },
+  {
+   "id": "S-047",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "27 percent of the pilot prompts were for drafting client emails [1].",
+   "seconds": 0.7623951999999008,
+   "weak": 0
+  },
+  {
+   "id": "S-048",
+   "type": "single_hop",
+   "split": "dev",
+   "abstained": false,
+   "cited": 1,
+   "answer": "The pilot users were heavy computer users, and Hannah Frost chose them [1]. Therefore, the usage figures might be higher than the studio average [1].",
+   "seconds": 0.855242100000396,
+   "weak": 0
+  },
+  {
+   "id": "S-049",
+   "type": "single_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "The Lantern computer has 64 GB of RAM and 2 TB of NVMe SSD storage [1].",
+   "seconds": 0.8238561000002846,
+   "weak": 0
+  },
+  {
+   "id": "S-050",
+   "type": "single_hop",
+   "split": "dev",
+   "abstained": false,
+   "cited": 1,
+   "answer": "The latest version of the data handling standard is Version 1.1, issued on 14 April 2025 [1].",
+   "seconds": 0.8361730999999963,
+   "weak": 0
+  },
+  {
+   "id": "M-001",
+   "type": "multi_hop",
+   "split": "dev",
+   "abstained": false,
+   "cited": 1,
+   "answer": "You would use phone number 07700 900103 to reach Maya Okafor [3].",
+   "seconds": 0.7824361000002682,
+   "weak": 0
+  },
+  {
+   "id": "M-002",
+   "type": "multi_hop",
+   "split": "dev",
+   "abstained": false,
+   "cited": 2,
+   "answer": "The UPS held for 22 minutes during the 40-minute power cut on 1 July 2025, while the pre-launch test showed it lasted for 21 minutes [1][5].",
+   "seconds": 0.8288456999998743,
+   "weak": 1
+  },
+  {
+   "id": "M-003",
+   "type": "multi_hop",
+   "split": "dev",
+   "abstained": false,
+   "cited": 2,
+   "answer": "The Lantern computer was ordered 6 days before the AI use policy was approved [1][5].",
+   "seconds": 0.79348519999985,
+   "weak": 0
+  },
+  {
+   "id": "M-004",
+   "type": "multi_hop",
+   "split": "dev",
+   "abstained": false,
+   "cited": 1,
+   "answer": "Up to 3 people can chat at the same time without a noticeable slowdown [3]. A fourth request waits in a queue until one of the others finishes. [3]",
+   "seconds": 0.8796598000003542,
+   "weak": 0
+  },
+  {
+   "id": "M-005",
+   "type": "multi_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "The incident where a client draft was pasted into the wrong workspace was level S2, and should have been acknowledged within 4 hours [2].",
+   "seconds": 0.8459071000002041,
+   "weak": 0
+  },
+  {
+   "id": "M-006",
+   "type": "multi_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "Within 72 hours [3].",
+   "seconds": 0.7538972000002104,
+   "weak": 0
+  },
+  {
+   "id": "M-007",
+   "type": "multi_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 3,
+   "answer": "Chat logs are deleted automatically at night [1], [4], [5].",
+   "seconds": 0.9366972000002534,
+   "weak": 0
+  },
+  {
+   "id": "M-008",
+   "type": "multi_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "A full restore of 310 GB took 47 minutes [2].",
+   "seconds": 0.9145813999998609,
+   "weak": 0
+  },
+  {
+   "id": "M-009",
+   "type": "multi_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "Every Sunday at 03:00 an encrypted copy goes to cloud storage in an EU region [5].",
+   "seconds": 0.8714135000000169,
+   "weak": 1
+  },
+  {
+   "id": "M-010",
+   "type": "multi_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "4,096 [1]",
+   "seconds": 0.7780305999999655,
+   "weak": 0
+  },
+  {
+   "id": "M-011",
+   "type": "multi_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 2,
+   "answer": "Priya Nair shortened the context length to 4,096 tokens and measured again on 14 April [1][5].",
+   "seconds": 0.6799197999998796,
+   "weak": 1
+  },
+  {
+   "id": "M-012",
+   "type": "multi_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 2,
+   "answer": "The original training session was 45 minutes long, and the refresher was 20 minutes long [1][3].",
+   "seconds": 0.8991006999999627,
+   "weak": 0
+  },
+  {
+   "id": "M-013",
+   "type": "multi_hop",
+   "split": "dev",
+   "abstained": false,
+   "cited": 2,
+   "answer": "Priya Nair and Tomasz Lewandowski hold administrator rights [2]. The first thing one of them does when an incident starts is to disable the affected account in ",
+   "seconds": 0.9144109999997454,
+   "weak": 0
+  },
+  {
+   "id": "M-014",
+   "type": "multi_hop",
+   "split": "dev",
+   "abstained": false,
+   "cited": 2,
+   "answer": "Daniel Reyes presented at the kickoff [1]. Leo Park was in the meeting [2].",
+   "seconds": 0.7617167999997037,
+   "weak": 1
+  },
+  {
+   "id": "M-015",
+   "type": "multi_hop",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "Yes, full-disk encryption was enabled on lantern-01 [3].",
+   "seconds": 0.7862061000000722,
+   "weak": 0
+  },
+  {
+   "id": "U-001",
+   "type": "unanswerable",
+   "split": "dev",
+   "abstained": true,
+   "cited": 0,
+   "answer": "I could not find it in the documents.",
+   "seconds": 0.5928247000001647,
+   "weak": 0
+  },
+  {
+   "id": "U-002",
+   "type": "unanswerable",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "The graphics card has 12 GB of video memory [1].",
+   "seconds": 0.6738945000001877,
+   "weak": 0
+  },
+  {
+   "id": "U-003",
+   "type": "unanswerable",
+   "split": "dev",
+   "abstained": false,
+   "cited": 1,
+   "answer": "The assistant is an open-weight language model with 8 billion parameters [4].",
+   "seconds": 0.7714366000000155,
+   "weak": 0
+  },
+  {
+   "id": "U-004",
+   "type": "unanswerable",
+   "split": "test",
+   "abstained": false,
+   "cited": 2,
+   "answer": "The 45 minute training session covers how to get an account and how to use the Lantern AI assistant [1][4].",
+   "seconds": 0.6217022999999244,
+   "weak": 0
+  },
+  {
+   "id": "U-005",
+   "type": "unanswerable",
+   "split": "dev",
+   "abstained": true,
+   "cited": 0,
+   "answer": "I could not find it in the documents.",
+   "seconds": 0.7391693999998097,
+   "weak": 0
+  },
+  {
+   "id": "U-006",
+   "type": "unanswerable",
+   "split": "dev",
+   "abstained": false,
+   "cited": 1,
+   "answer": "The satisfaction survey gave 4.3 out of 5 [5].",
+   "seconds": 0.6307180999997399,
+   "weak": 0
+  },
+  {
+   "id": "U-007",
+   "type": "unanswerable",
+   "split": "test",
+   "abstained": true,
+   "cited": 0,
+   "answer": "I could not find it in the documents.",
+   "seconds": 0.689976999999999,
+   "weak": 0
+  },
+  {
+   "id": "U-008",
+   "type": "unanswerable",
+   "split": "dev",
+   "abstained": true,
+   "cited": 0,
+   "answer": "I could not find it in the documents.",
+   "seconds": 0.66048069999988,
+   "weak": 0
+  },
+  {
+   "id": "U-009",
+   "type": "unanswerable",
+   "split": "test",
+   "abstained": true,
+   "cited": 0,
+   "answer": "I could not find it in the documents.",
+   "seconds": 0.6259015999999065,
+   "weak": 0
+  },
+  {
+   "id": "U-010",
+   "type": "unanswerable",
+   "split": "dev",
+   "abstained": false,
+   "cited": 1,
+   "answer": "Option A would break both Harbour and Pine NDAs, and Option B would break the Corvid Foods NDA unless it were changed [1].",
+   "seconds": 0.7016640000001644,
+   "weak": 0
+  },
+  {
+   "id": "U-011",
+   "type": "unanswerable",
+   "split": "test",
+   "abstained": true,
+   "cited": 0,
+   "answer": "I could not find it in the documents.",
+   "seconds": 0.5542937000000165,
+   "weak": 0
+  },
+  {
+   "id": "U-012",
+   "type": "unanswerable",
+   "split": "test",
+   "abstained": true,
+   "cited": 0,
+   "answer": "I could not find it in the documents.",
+   "seconds": 0.49867070000027525,
+   "weak": 0
+  },
+  {
+   "id": "U-013",
+   "type": "unanswerable",
+   "split": "dev",
+   "abstained": false,
+   "cited": 2,
+   "answer": "Hannah Frost asked pilot users to fill in a short survey in the last week [2]. The satisfaction score from the survey was 4.3 out of 5 [5].",
+   "seconds": 0.8658215000000382,
+   "weak": 1
+  },
+  {
+   "id": "U-014",
+   "type": "unanswerable",
+   "split": "dev",
+   "abstained": false,
+   "cited": 2,
+   "answer": "Both administrators, Priya Nair and Tomasz Lewandowski, use multi-factor sign-in [2]. [3]",
+   "seconds": 0.9105649999996785,
+   "weak": 1
+  },
+  {
+   "id": "U-015",
+   "type": "unanswerable",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "Text came out at 38 tokens per second [4].",
+   "seconds": 0.7986750999998549,
+   "weak": 0
+  },
+  {
+   "id": "U-016",
+   "type": "unanswerable",
+   "split": "test",
+   "abstained": false,
+   "cited": 2,
+   "answer": "Tomasz Lewandowski is the security and privacy officer [2][4].",
+   "seconds": 0.7531856000000516,
+   "weak": 0
+  },
+  {
+   "id": "U-017",
+   "type": "unanswerable",
+   "split": "test",
+   "abstained": false,
+   "cited": 3,
+   "answer": "The operating system installed on lantern-01 is not specified in the documents. [1][3][5]",
+   "seconds": 0.9019162999998116,
+   "weak": 1
+  },
+  {
+   "id": "U-018",
+   "type": "unanswerable",
+   "split": "test",
+   "abstained": true,
+   "cited": 0,
+   "answer": "I could not find it in the documents.",
+   "seconds": 0.7268326000003071,
+   "weak": 0
+  },
+  {
+   "id": "U-019",
+   "type": "unanswerable",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "The studio’s revenue for the first year was £17,258 [4].",
+   "seconds": 0.7218785000000025,
+   "weak": 0
+  },
+  {
+   "id": "U-020",
+   "type": "unanswerable",
+   "split": "test",
+   "abstained": false,
+   "cited": 1,
+   "answer": "Tomasz will run a 20 minute refresher for all staff in June. [3] I could not find it in the documents.",
+   "seconds": 0.7084524000001693,
+   "weak": 0
+  }
+ ]
+}

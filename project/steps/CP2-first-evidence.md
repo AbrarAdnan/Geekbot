@@ -2,8 +2,8 @@
 
 - **Phase / Gate:** Phase 2 close, Gate A. In the order of PLAN rev 19 the checkpoint comes after S2.6 and before S3.5: **the user reviews this before S3.5 starts.**
 - **Chat date(s):** 2026-10-18 (autopilot run 3, D-078)
-- **Status:** prepared and verified by Claude under D-078; **awaiting the user's review** (the review is the checkpoint)
-- **Commit:** filled in after the merge (see STATUS.md)
+- **Status:** prepared and verified by Claude under D-078; **reviewed by the user on 2026-10-18; closed by D-082** (their answers to the six decisions below are in D-082: 1 to 3 wait until the project has been used, 4 is option B, 5 keep golden v0 for now, 6 delegated to Claude, who green-lit S3.3, S3.4 and C4)
+- **Commit:** `8be0862` (squash commit of PR #36 into `v2`, 3 CI checks passed; branch tip `23e1808`, identical tree; the branch was deleted afterwards, D-056). Merged by Claude under D-078, awaiting the user's review.
 - **Lesson note:** deferred (prototyping mode, D-047)
 
 ## Goal
