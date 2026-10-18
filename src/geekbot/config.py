@@ -102,9 +102,12 @@ class Settings(BaseSettings):
     # The reranker (step S2.3): a small cross-encoder on the CPU (PLAN §6.5, §9). The default is
     # the 80 MB MiniLM model (Apache-2.0), one of the two the S2.6 bake-off compares. Its weights
     # are downloaded on first use into <data_dir>/models. The depth is how many fused candidates it
-    # re-scores: a starting point, not a measurement (``geekbot rerank-timing`` measures it).
+    # re-scores. 10 is the depth that (just) fits the 400 ms budget (D-077: retrieval about 330 ms at
+    # p50 and 380 ms at p95 on an idle PC; 30 took about 1.07 s); its effect on recall is not measured
+    # yet, S2.6 sweeps it. ``geekbot ask-timing`` times it on real candidates.
+    # Keep it equal to ``retrieval.rerank.DEFAULT_RERANK_DEPTH`` (a test checks).
     rerank_model: str = "Xenova/ms-marco-MiniLM-L-6-v2"
-    rerank_depth: int = Field(default=30, gt=0)
+    rerank_depth: int = Field(default=10, gt=0)
     rerank_threads: int | None = Field(default=None, gt=0)
     # The answer graph (step S3.1, PLAN §6.5, §7). The cap on the reply, the sampling temperature
     # and the room for sources in the prompt are starting points, not measurements: S3.3 measures

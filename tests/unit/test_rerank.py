@@ -173,9 +173,9 @@ def test_reranker_arguments_are_checked() -> None:
         Reranker(Base(()), Fixed([])).search("q", 0)
 
 
-def test_the_defaults_are_the_plans() -> None:
+def test_the_defaults_are_the_current_decisions() -> None:
     assert DEFAULT_RERANK_MODEL == "Xenova/ms-marco-MiniLM-L-6-v2"
-    assert DEFAULT_RERANK_DEPTH == 30
+    assert DEFAULT_RERANK_DEPTH == 10  # D-077: the depth that fits the 400 ms budget
     settings = Settings(_env_file=None)
     assert settings.rerank_model == DEFAULT_RERANK_MODEL
     assert settings.rerank_depth == DEFAULT_RERANK_DEPTH
