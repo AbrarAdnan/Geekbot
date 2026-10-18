@@ -406,6 +406,18 @@ def test_ladder_rows_show_delta_with_interval_but_no_p_value(world: World) -> No
     assert "without BM25" in leave and "without rerank" in leave and "without header" in leave
 
 
+def test_bake_off_rows_show_delta_against_the_held_choice_with_an_interval(world: World) -> None:
+    text = render_report(load_results(world.config.results_path), name="t", resamples=200)
+    bakeoff = text.split("## Bake-offs")[1].split("## Abstain")[0]
+    rows = [line for line in bakeoff.splitlines() if line.startswith("| ") and "|---" not in line]
+    held = [row for row in rows if "(held)" in row]
+    others = [row for row in rows if "other-" in row]
+    assert held and others
+    assert all("+" not in row.split("|")[5] for row in held)  # the held row has no delta to itself
+    assert all("[" in row.split("|")[5] for row in others if "scifact" in row)  # an interval
+    assert "no p-value, no verdict" in bakeoff
+
+
 def test_the_report_is_computed_from_the_files_so_it_is_repeatable(world: World) -> None:
     results = load_results(world.config.results_path)
     assert render_report(results, name="t", resamples=200) == render_report(
