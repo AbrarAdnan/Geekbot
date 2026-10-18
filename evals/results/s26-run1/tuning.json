@@ -1,0 +1,1144 @@
+{
+ "datasets": {
+  "golden": {
+   "complete": true,
+   "grid": [
+    {
+     "candidates": 20,
+     "depth": 10,
+     "docs_per_query": 6.25,
+     "metrics": {
+      "mrr@10": 0.8447916666666667,
+      "ndcg@10": 0.8332440448470115,
+      "recall@10": 0.90625,
+      "recall@5": 0.90625
+     },
+     "questions": 32
+    },
+    {
+     "candidates": 20,
+     "depth": 20,
+     "docs_per_query": 6.5,
+     "metrics": {
+      "mrr@10": 0.84375,
+      "ndcg@10": 0.8473245845637829,
+      "recall@10": 0.9375,
+      "recall@5": 0.8958333333333334
+     },
+     "questions": 32
+    },
+    {
+     "candidates": 20,
+     "depth": 30,
+     "docs_per_query": 6.5625,
+     "metrics": {
+      "mrr@10": 0.8541666666666666,
+      "ndcg@10": 0.8629495845637829,
+      "recall@10": 0.96875,
+      "recall@5": 0.9270833333333334
+     },
+     "questions": 32
+    },
+    {
+     "candidates": 50,
+     "depth": 10,
+     "docs_per_query": 5.8125,
+     "metrics": {
+      "mrr@10": 0.8447916666666667,
+      "ndcg@10": 0.8332440448470115,
+      "recall@10": 0.90625,
+      "recall@5": 0.90625
+     },
+     "questions": 32
+    },
+    {
+     "candidates": 50,
+     "depth": 20,
+     "docs_per_query": 6.3125,
+     "metrics": {
+      "mrr@10": 0.84375,
+      "ndcg@10": 0.8390724557333894,
+      "recall@10": 0.921875,
+      "recall@5": 0.8802083333333334
+     },
+     "questions": 32
+    },
+    {
+     "candidates": 50,
+     "depth": 30,
+     "docs_per_query": 6.5,
+     "metrics": {
+      "mrr@10": 0.8541666666666666,
+      "ndcg@10": 0.8613872622661451,
+      "recall@10": 0.9635416666666666,
+      "recall@5": 0.921875
+     },
+     "questions": 32
+    },
+    {
+     "candidates": 100,
+     "depth": 10,
+     "docs_per_query": 5.8125,
+     "metrics": {
+      "mrr@10": 0.8447916666666667,
+      "ndcg@10": 0.8332440448470115,
+      "recall@10": 0.90625,
+      "recall@5": 0.90625
+     },
+     "questions": 32
+    },
+    {
+     "candidates": 100,
+     "depth": 20,
+     "docs_per_query": 6.3125,
+     "metrics": {
+      "mrr@10": 0.84375,
+      "ndcg@10": 0.8390724557333894,
+      "recall@10": 0.921875,
+      "recall@5": 0.8802083333333334
+     },
+     "questions": 32
+    },
+    {
+     "candidates": 100,
+     "depth": 30,
+     "docs_per_query": 6.53125,
+     "metrics": {
+      "mrr@10": 0.8541666666666666,
+      "ndcg@10": 0.8696393910965386,
+      "recall@10": 0.9791666666666666,
+      "recall@5": 0.9375
+     },
+     "questions": 32
+    }
+   ],
+   "hybrid": [
+    {
+     "candidates": 20,
+     "docs_per_query": 6.25,
+     "metrics": {
+      "mrr@10": 0.859375,
+      "ndcg@10": 0.8386715424192664,
+      "recall@10": 0.90625,
+      "recall@5": 0.890625
+     },
+     "questions": 32
+    },
+    {
+     "candidates": 50,
+     "docs_per_query": 5.8125,
+     "metrics": {
+      "mrr@10": 0.859375,
+      "ndcg@10": 0.8396970210186667,
+      "recall@10": 0.90625,
+      "recall@5": 0.90625
+     },
+     "questions": 32
+    },
+    {
+     "candidates": 100,
+     "docs_per_query": 5.8125,
+     "metrics": {
+      "mrr@10": 0.859375,
+      "ndcg@10": 0.8396970210186667,
+      "recall@10": 0.90625,
+      "recall@5": 0.90625
+     },
+     "questions": 32
+    }
+   ],
+   "index": {
+    "cache_hits": 0,
+    "chunks": 65,
+    "chunks_per_s": 14.451912550533901,
+    "documents": 15,
+    "embed_seconds": 4.5,
+    "embedded": 65,
+    "embedder": {
+     "digest": "0a109f422b47e3a30ba2b10eca18548e944e8a23073ee3f3e947efcf3c45e59f",
+     "dimension": 768,
+     "document_prefix": "search_document: ",
+     "model": "nomic-embed-text",
+     "query_prefix": "search_query: ",
+     "with_header": true
+    },
+    "fingerprint": "817b57e6715f28d4",
+    "reused": true,
+    "total_seconds": 4.57
+   },
+   "latency": [
+    {
+     "candidates": 50,
+     "depth": 10,
+     "gate": {
+      "after": {
+       "load_percent": 0.0,
+       "top": [
+        [
+         "firefox",
+         46.2
+        ],
+        [
+         "wmiprvse",
+         15.4
+        ],
+        [
+         "svchost",
+         7.7
+        ],
+        [
+         "svchost",
+         4.6
+        ],
+        [
+         "system",
+         3.1
+        ]
+       ]
+      },
+      "before": {
+       "load_percent": 4.0,
+       "top": [
+        [
+         "system",
+         6.2
+        ],
+        [
+         "bingwallpaper",
+         4.7
+        ],
+        [
+         "firefox",
+         4.7
+        ],
+        [
+         "discord",
+         3.1
+        ],
+        [
+         "powershell",
+         1.6
+        ]
+       ]
+      },
+      "idle": true,
+      "waited_s": 0.0
+     },
+     "p50": 332.5710999997682,
+     "p95": 374.97196499898564,
+     "questions": 32,
+     "stage_ms": {
+      "dense": 34.91556874996604,
+      "fusion": 0.16082812476270192,
+      "lexical": 1.2252812505266775,
+      "rerank": 270.50491562476964
+     }
+    },
+    {
+     "candidates": 50,
+     "depth": 20,
+     "gate": {
+      "after": {
+       "load_percent": 2.0,
+       "top": [
+        [
+         "claude",
+         4.6
+        ],
+        [
+         "nvidia overlay",
+         4.6
+        ],
+        [
+         "csrss",
+         3.1
+        ],
+        [
+         "svchost",
+         3.1
+        ],
+        [
+         "claude",
+         3.1
+        ]
+       ]
+      },
+      "before": {
+       "load_percent": 0.0,
+       "top": [
+        [
+         "firefox",
+         10.9
+        ],
+        [
+         "firefox",
+         3.1
+        ],
+        [
+         "svchost",
+         3.1
+        ],
+        [
+         "upc",
+         3.1
+        ],
+        [
+         "claude",
+         3.1
+        ]
+       ]
+      },
+      "idle": true,
+      "waited_s": 0.0
+     },
+     "p50": 672.9524500005937,
+     "p95": 726.2069449981936,
+     "questions": 32,
+     "stage_ms": {
+      "dense": 36.22150000092006,
+      "fusion": 0.1649156249641237,
+      "lexical": 1.2324281249220803,
+      "rerank": 631.435293749746
+     }
+    },
+    {
+     "candidates": 50,
+     "depth": 30,
+     "gate": {
+      "after": {
+       "load_percent": 8.0,
+       "top": [
+        [
+         "powershell",
+         3.1
+        ],
+        [
+         "steamwebhelper",
+         3.1
+        ],
+        [
+         "dwm",
+         3.1
+        ],
+        [
+         "system",
+         3.1
+        ],
+        [
+         "firefox",
+         1.6
+        ]
+       ]
+      },
+      "before": {
+       "load_percent": 0.0,
+       "top": [
+        [
+         "discord",
+         4.7
+        ],
+        [
+         "system",
+         4.7
+        ],
+        [
+         "discord",
+         3.1
+        ],
+        [
+         "svchost",
+         1.6
+        ],
+        [
+         "firefox",
+         1.6
+        ]
+       ]
+      },
+      "idle": true,
+      "waited_s": 0.0
+     },
+     "p50": 1062.9361499995866,
+     "p95": 1493.0648049976298,
+     "questions": 32,
+     "stage_ms": {
+      "dense": 41.11075312516732,
+      "fusion": 0.18231250010103395,
+      "lexical": 1.3874093763206474,
+      "rerank": 1067.9672499995831
+     }
+    }
+   ],
+   "questions": 32,
+   "set": "golden:dev"
+  },
+  "nfcorpus": {
+   "complete": true,
+   "grid": [
+    {
+     "candidates": 20,
+     "depth": 10,
+     "docs_per_query": 9.49,
+     "metrics": {
+      "mrr@10": 0.541728835978836,
+      "ndcg@10": 0.3303013317198793,
+      "recall@10": 0.15305410495615696,
+      "recall@5": 0.11948292462246703
+     },
+     "questions": 300
+    },
+    {
+     "candidates": 20,
+     "depth": 20,
+     "docs_per_query": 9.606666666666667,
+     "metrics": {
+      "mrr@10": 0.5336812169312168,
+      "ndcg@10": 0.326994978135416,
+      "recall@10": 0.15367082015786915,
+      "recall@5": 0.11325404523626206
+     },
+     "questions": 300
+    },
+    {
+     "candidates": 20,
+     "depth": 30,
+     "docs_per_query": 9.606666666666667,
+     "metrics": {
+      "mrr@10": 0.5352698412698412,
+      "ndcg@10": 0.3276912169237288,
+      "recall@10": 0.15518407528918957,
+      "recall@5": 0.11440972948618966
+     },
+     "questions": 300
+    },
+    {
+     "candidates": 50,
+     "depth": 10,
+     "docs_per_query": 9.496666666666666,
+     "metrics": {
+      "mrr@10": 0.5319272486772487,
+      "ndcg@10": 0.32894095266098566,
+      "recall@10": 0.15464139027989296,
+      "recall@5": 0.11726227400124029
+     },
+     "questions": 300
+    },
+    {
+     "candidates": 50,
+     "depth": 20,
+     "docs_per_query": 9.606666666666667,
+     "metrics": {
+      "mrr@10": 0.5358373015873016,
+      "ndcg@10": 0.3291270438422645,
+      "recall@10": 0.15459967274010197,
+      "recall@5": 0.11627966773106668
+     },
+     "questions": 300
+    },
+    {
+     "candidates": 50,
+     "depth": 30,
+     "docs_per_query": 9.616666666666667,
+     "metrics": {
+      "mrr@10": 0.5351587301587302,
+      "ndcg@10": 0.32765296970842994,
+      "recall@10": 0.15516694160682223,
+      "recall@5": 0.1148658616894483
+     },
+     "questions": 300
+    },
+    {
+     "candidates": 100,
+     "depth": 10,
+     "docs_per_query": 9.503333333333334,
+     "metrics": {
+      "mrr@10": 0.5333584656084657,
+      "ndcg@10": 0.3285329332985322,
+      "recall@10": 0.1524661294869482,
+      "recall@5": 0.11558863802821953
+     },
+     "questions": 300
+    },
+    {
+     "candidates": 100,
+     "depth": 20,
+     "docs_per_query": 9.603333333333333,
+     "metrics": {
+      "mrr@10": 0.5280846560846562,
+      "ndcg@10": 0.32472907206491375,
+      "recall@10": 0.15110574667404175,
+      "recall@5": 0.11425270622629226
+     },
+     "questions": 300
+    },
+    {
+     "candidates": 100,
+     "depth": 30,
+     "docs_per_query": 9.633333333333333,
+     "metrics": {
+      "mrr@10": 0.53680291005291,
+      "ndcg@10": 0.3250183893499436,
+      "recall@10": 0.15248462002448576,
+      "recall@5": 0.11741009974721883
+     },
+     "questions": 300
+    }
+   ],
+   "hybrid": [
+    {
+     "candidates": 20,
+     "docs_per_query": 9.49,
+     "metrics": {
+      "mrr@10": 0.538181216931217,
+      "ndcg@10": 0.32917073506800626,
+      "recall@10": 0.15305410495615696,
+      "recall@5": 0.11757933854252689
+     },
+     "questions": 300
+    },
+    {
+     "candidates": 50,
+     "docs_per_query": 9.496666666666666,
+     "metrics": {
+      "mrr@10": 0.5346732804232804,
+      "ndcg@10": 0.3309703517986708,
+      "recall@10": 0.15464139027989296,
+      "recall@5": 0.11860756415714607
+     },
+     "questions": 300
+    },
+    {
+     "candidates": 100,
+     "docs_per_query": 9.503333333333334,
+     "metrics": {
+      "mrr@10": 0.534978835978836,
+      "ndcg@10": 0.3305076189666627,
+      "recall@10": 0.1524661294869482,
+      "recall@5": 0.1189175431896581
+     },
+     "questions": 300
+    }
+   ],
+   "index": {
+    "cache_hits": 45,
+    "chunks": 4244,
+    "chunks_per_s": 5.326617793912672,
+    "documents": 3633,
+    "embed_seconds": 786.8,
+    "embedded": 4191,
+    "embedder": {
+     "digest": "0a109f422b47e3a30ba2b10eca18548e944e8a23073ee3f3e947efcf3c45e59f",
+     "dimension": 768,
+     "document_prefix": "search_document: ",
+     "model": "nomic-embed-text",
+     "query_prefix": "search_query: ",
+     "with_header": true
+    },
+    "fingerprint": "817b57e6715f28d4",
+    "reused": true,
+    "total_seconds": 794.63
+   },
+   "latency": [
+    {
+     "candidates": 50,
+     "depth": 10,
+     "gate": {
+      "after": {
+       "load_percent": 2.0,
+       "top": [
+        [
+         "system",
+         9.3
+        ],
+        [
+         "claude",
+         6.2
+        ],
+        [
+         "discord",
+         6.2
+        ],
+        [
+         "svchost",
+         4.6
+        ],
+        [
+         "claude",
+         4.6
+        ]
+       ]
+      },
+      "before": {
+       "load_percent": 0.0,
+       "top": [
+        [
+         "svchost",
+         6.2
+        ],
+        [
+         "nvdisplay.container",
+         3.1
+        ],
+        [
+         "discord",
+         3.1
+        ],
+        [
+         "bingwallpaper",
+         3.1
+        ],
+        [
+         "grep",
+         1.5
+        ]
+       ]
+      },
+      "idle": true,
+      "waited_s": 0.0
+     },
+     "p50": 352.14510000150767,
+     "p95": 540.6167050001386,
+     "questions": 100,
+     "stage_ms": {
+      "dense": 37.29784700029995,
+      "fusion": 0.21384900035627652,
+      "lexical": 3.918437000393169,
+      "rerank": 337.7143870000873
+     }
+    },
+    {
+     "candidates": 50,
+     "depth": 20,
+     "gate": {
+      "after": {
+       "load_percent": 0.0,
+       "top": [
+        [
+         "claude",
+         7.7
+        ],
+        [
+         "firefox",
+         7.7
+        ],
+        [
+         "firefox",
+         4.6
+        ],
+        [
+         "claude",
+         3.1
+        ],
+        [
+         "claude",
+         3.1
+        ]
+       ]
+      },
+      "before": {
+       "load_percent": 6.0,
+       "top": [
+        [
+         "firefox",
+         23.1
+        ],
+        [
+         "firefox",
+         6.2
+        ],
+        [
+         "nvdisplay.container",
+         3.1
+        ],
+        [
+         "powershell",
+         1.5
+        ],
+        [
+         "msmpeng",
+         1.5
+        ]
+       ]
+      },
+      "idle": true,
+      "waited_s": 0.0
+     },
+     "p50": 705.4766500004916,
+     "p95": 1009.1669600027672,
+     "questions": 100,
+     "stage_ms": {
+      "dense": 34.67383300034271,
+      "fusion": 0.20546799947624095,
+      "lexical": 3.3935069997096434,
+      "rerank": 696.5334119994077
+     }
+    },
+    {
+     "candidates": 50,
+     "depth": 30,
+     "gate": {
+      "after": {
+       "load_percent": 1.0,
+       "top": [
+        [
+         "msmpeng",
+         4.6
+        ],
+        [
+         "claude",
+         3.1
+        ],
+        [
+         "system",
+         3.1
+        ],
+        [
+         "powershell",
+         3.1
+        ],
+        [
+         "llama-server",
+         1.5
+        ]
+       ]
+      },
+      "before": {
+       "load_percent": 1.0,
+       "top": [
+        [
+         "system",
+         6.2
+        ],
+        [
+         "steamwebhelper",
+         3.1
+        ],
+        [
+         "discord",
+         3.1
+        ],
+        [
+         "apcent",
+         3.1
+        ],
+        [
+         "bingwallpaper",
+         3.1
+        ]
+       ]
+      },
+      "idle": true,
+      "waited_s": 0.0
+     },
+     "p50": 1090.3828499976953,
+     "p95": 1478.7798299988935,
+     "questions": 100,
+     "stage_ms": {
+      "dense": 35.53669899942179,
+      "fusion": 0.20610399958968628,
+      "lexical": 3.9809280003100866,
+      "rerank": 1096.0643460002757
+     }
+    }
+   ],
+   "questions": 300,
+   "set": "nfcorpus:dev"
+  },
+  "scifact": {
+   "complete": true,
+   "grid": [
+    {
+     "candidates": 20,
+     "depth": 10,
+     "docs_per_query": 9.336666666666666,
+     "metrics": {
+      "mrr@10": 0.7081732804232804,
+      "ndcg@10": 0.7408671671907358,
+      "recall@10": 0.8680555555555556,
+      "recall@5": 0.8069444444444445
+     },
+     "questions": 300
+    },
+    {
+     "candidates": 20,
+     "depth": 20,
+     "docs_per_query": 9.41,
+     "metrics": {
+      "mrr@10": 0.7107989417989419,
+      "ndcg@10": 0.745030359475842,
+      "recall@10": 0.881388888888889,
+      "recall@5": 0.8075
+     },
+     "questions": 300
+    },
+    {
+     "candidates": 20,
+     "depth": 30,
+     "docs_per_query": 9.46,
+     "metrics": {
+      "mrr@10": 0.7081838624338624,
+      "ndcg@10": 0.7395756920418736,
+      "recall@10": 0.8680555555555556,
+      "recall@5": 0.8041666666666667
+     },
+     "questions": 300
+    },
+    {
+     "candidates": 50,
+     "depth": 10,
+     "docs_per_query": 9.41,
+     "metrics": {
+      "mrr@10": 0.7014007936507937,
+      "ndcg@10": 0.7321020908958363,
+      "recall@10": 0.8530555555555556,
+      "recall@5": 0.7952777777777779
+     },
+     "questions": 300
+    },
+    {
+     "candidates": 50,
+     "depth": 20,
+     "docs_per_query": 9.42,
+     "metrics": {
+      "mrr@10": 0.7053822751322751,
+      "ndcg@10": 0.7403353628978365,
+      "recall@10": 0.8772222222222222,
+      "recall@5": 0.8111111111111111
+     },
+     "questions": 300
+    },
+    {
+     "candidates": 50,
+     "depth": 30,
+     "docs_per_query": 9.443333333333333,
+     "metrics": {
+      "mrr@10": 0.7060357142857143,
+      "ndcg@10": 0.7379504850756994,
+      "recall@10": 0.866388888888889,
+      "recall@5": 0.8041666666666667
+     },
+     "questions": 300
+    },
+    {
+     "candidates": 100,
+     "depth": 10,
+     "docs_per_query": 9.406666666666666,
+     "metrics": {
+      "mrr@10": 0.7049748677248677,
+      "ndcg@10": 0.737956452078672,
+      "recall@10": 0.866388888888889,
+      "recall@5": 0.8019444444444445
+     },
+     "questions": 300
+    },
+    {
+     "candidates": 100,
+     "depth": 20,
+     "docs_per_query": 9.426666666666666,
+     "metrics": {
+      "mrr@10": 0.7062473544973545,
+      "ndcg@10": 0.7406341455844966,
+      "recall@10": 0.8730555555555556,
+      "recall@5": 0.8108333333333333
+     },
+     "questions": 300
+    },
+    {
+     "candidates": 100,
+     "depth": 30,
+     "docs_per_query": 9.453333333333333,
+     "metrics": {
+      "mrr@10": 0.704515873015873,
+      "ndcg@10": 0.7383836075046473,
+      "recall@10": 0.871388888888889,
+      "recall@5": 0.7941666666666667
+     },
+     "questions": 300
+    }
+   ],
+   "hybrid": [
+    {
+     "candidates": 20,
+     "docs_per_query": 9.336666666666666,
+     "metrics": {
+      "mrr@10": 0.7223637566137566,
+      "ndcg@10": 0.7512155704810081,
+      "recall@10": 0.8680555555555556,
+      "recall@5": 0.8172222222222222
+     },
+     "questions": 300
+    },
+    {
+     "candidates": 50,
+     "docs_per_query": 9.41,
+     "metrics": {
+      "mrr@10": 0.719308201058201,
+      "ndcg@10": 0.7455792622833886,
+      "recall@10": 0.8530555555555556,
+      "recall@5": 0.8122222222222222
+     },
+     "questions": 300
+    },
+    {
+     "candidates": 100,
+     "docs_per_query": 9.406666666666666,
+     "metrics": {
+      "mrr@10": 0.7298359788359788,
+      "ndcg@10": 0.7564974915432451,
+      "recall@10": 0.866388888888889,
+      "recall@5": 0.8238888888888889
+     },
+     "questions": 300
+    }
+   ],
+   "index": {
+    "cache_hits": 0,
+    "chunks": 5883,
+    "chunks_per_s": 5.516907604184897,
+    "documents": 5183,
+    "embed_seconds": 1066.36,
+    "embedded": 5883,
+    "embedder": {
+     "digest": "0a109f422b47e3a30ba2b10eca18548e944e8a23073ee3f3e947efcf3c45e59f",
+     "dimension": 768,
+     "document_prefix": "search_document: ",
+     "model": "nomic-embed-text",
+     "query_prefix": "search_query: ",
+     "with_header": true
+    },
+    "fingerprint": "817b57e6715f28d4",
+    "reused": true,
+    "total_seconds": 1077.65
+   },
+   "latency": [
+    {
+     "candidates": 50,
+     "depth": 10,
+     "gate": {
+      "after": {
+       "load_percent": 7.0,
+       "top": [
+        [
+         "claude",
+         6.2
+        ],
+        [
+         "firefox",
+         4.6
+        ],
+        [
+         "discord",
+         3.1
+        ],
+        [
+         "svchost",
+         3.1
+        ],
+        [
+         "discord",
+         3.1
+        ]
+       ]
+      },
+      "before": {
+       "load_percent": 1.0,
+       "top": [
+        [
+         "system",
+         4.6
+        ],
+        [
+         "claude",
+         3.1
+        ],
+        [
+         "lghub_system_tray",
+         3.1
+        ],
+        [
+         "grep",
+         3.1
+        ],
+        [
+         "discord",
+         1.5
+        ]
+       ]
+      },
+      "idle": true,
+      "waited_s": 0.0
+     },
+     "p50": 386.14699999743607,
+     "p95": 595.8776500046952,
+     "questions": 100,
+     "stage_ms": {
+      "dense": 50.89467199977662,
+      "fusion": 0.22878699994180351,
+      "lexical": 27.243177999480395,
+      "rerank": 332.7030110000487
+     }
+    },
+    {
+     "candidates": 50,
+     "depth": 20,
+     "gate": {
+      "after": {
+       "load_percent": 0.0,
+       "top": [
+        [
+         "firefox",
+         3.1
+        ],
+        [
+         "powershell",
+         3.1
+        ],
+        [
+         "system",
+         3.1
+        ],
+        [
+         "nvdisplay.container",
+         1.6
+        ],
+        [
+         "easytuneengineservice",
+         1.6
+        ]
+       ]
+      },
+      "before": {
+       "load_percent": 0.0,
+       "top": [
+        [
+         "firefox",
+         4.7
+        ],
+        [
+         "system",
+         4.7
+        ],
+        [
+         "nvsphelper64",
+         3.1
+        ],
+        [
+         "steamwebhelper",
+         3.1
+        ],
+        [
+         "claude",
+         1.6
+        ]
+       ]
+      },
+      "idle": true,
+      "waited_s": 0.0
+     },
+     "p50": 756.8365999941307,
+     "p95": 1061.2788449980144,
+     "questions": 100,
+     "stage_ms": {
+      "dense": 49.69363300027908,
+      "fusion": 0.22395700005290564,
+      "lexical": 26.88777699993807,
+      "rerank": 712.8023479996045
+     }
+    },
+    {
+     "candidates": 50,
+     "depth": 30,
+     "gate": {
+      "after": {
+       "load_percent": 4.0,
+       "top": [
+        [
+         "firefox",
+         43.5
+        ],
+        [
+         "svchost",
+         6.2
+        ],
+        [
+         "bingwallpaper",
+         3.1
+        ],
+        [
+         "system",
+         3.1
+        ],
+        [
+         "discord",
+         1.6
+        ]
+       ]
+      },
+      "before": {
+       "load_percent": 7.0,
+       "top": [
+        [
+         "system",
+         3.1
+        ],
+        [
+         "grep",
+         1.6
+        ],
+        [
+         "grep",
+         1.6
+        ],
+        [
+         "powershell",
+         1.6
+        ],
+        [
+         "grep",
+         1.6
+        ]
+       ]
+      },
+      "idle": true,
+      "waited_s": 0.0
+     },
+     "p50": 1154.4101499966928,
+     "p95": 1612.4376899984782,
+     "questions": 100,
+     "stage_ms": {
+      "dense": 53.21436900027038,
+      "fusion": 0.22104600015154574,
+      "lexical": 27.033792000074754,
+      "rerank": 1129.9593790001381
+     }
+    }
+   ],
+   "questions": 300,
+   "set": "scifact:train"
+  }
+ },
+ "environment": {
+  "cpu_count": 20,
+  "date": "2026-10-18T06:26:38+00:00",
+  "embedder": {
+   "document_prefix": "search_document: ",
+   "label": "nomic-embed-text",
+   "model": "nomic-embed-text",
+   "query_prefix": "search_query: "
+  },
+  "fusion_candidates": 50,
+  "platform": "Windows-11-10.0.26300-SP0",
+  "profile": "proto",
+  "python": "3.12.15",
+  "reranker": {
+   "cache_dir": null,
+   "depth": 10,
+   "label": "MiniLM-L-6",
+   "model": "Xenova/ms-marco-MiniLM-L-6-v2"
+  },
+  "seed": 0,
+  "top_k": 10
+ },
+ "kind": "tuning",
+ "schema": 1
+}

@@ -1,0 +1,110 @@
+{
+  "entries": {
+    "050022b9d01811924b478e3cb00113ffb50da8c16eac929fd497e6da0e153428": {
+      "digest": "4eb23ef187e2c5462566d6a1d3bbbc2f1346d0b4327cbb66d58fffbcc9b2b05c",
+      "item": "T-010",
+      "model": "gemma4:12b",
+      "question": "And after the fix?",
+      "rewrite": "What was the 95th percentile wait for the first word after the fix?"
+    },
+    "111d323ff91d15591544e8ffdb816ff21bf3058c7488130f061f0b04e3c06664": {
+      "digest": "4eb23ef187e2c5462566d6a1d3bbbc2f1346d0b4327cbb66d58fffbcc9b2b05c",
+      "item": "T-002",
+      "model": "gemma4:12b",
+      "question": "For that one, how fast must the client be told?",
+      "rewrite": "For each incident level, how fast must the client be told?"
+    },
+    "1de5d4ae623c1f1be13571b234802bea96ba2ffe67c42bc70160ad1362c01733": {
+      "digest": "4eb23ef187e2c5462566d6a1d3bbbc2f1346d0b4327cbb66d58fffbcc9b2b05c",
+      "item": "T-007",
+      "model": "gemma4:12b",
+      "question": "How big can they be?",
+      "rewrite": "How big can the files that can be uploaded to Lantern be?"
+    },
+    "30afbe127dd03e1b4e46f3323e16d44d28f5c30470d2d2b8b2391b92b116d28d": {
+      "digest": "4eb23ef187e2c5462566d6a1d3bbbc2f1346d0b4327cbb66d58fffbcc9b2b05c",
+      "item": "T-001",
+      "model": "gemma4:12b",
+      "question": "And the logs that only record who used it?",
+      "rewrite": "How long does Lantern keep the logs that only record who used it?"
+    },
+    "37abcf99a00f3ff9d18b7a36aff47aea631c6d8064d81a9793fcaec29f13ad65": {
+      "digest": "4eb23ef187e2c5462566d6a1d3bbbc2f1346d0b4327cbb66d58fffbcc9b2b05c",
+      "item": "T-003",
+      "model": "gemma4:12b",
+      "question": "Which days are they on call?",
+      "rewrite": "Which days are they on call when Lantern is broken?"
+    },
+    "6800c3c7c2d094276f17f9c49f23ba87a743bce921be95efc5caa3363dd1536e": {
+      "digest": "4eb23ef187e2c5462566d6a1d3bbbc2f1346d0b4327cbb66d58fffbcc9b2b05c",
+      "item": "T-006",
+      "model": "gemma4:12b",
+      "question": "How many people took part?",
+      "rewrite": "How many people took part in the pilot?"
+    },
+    "6d09bd6fae4981ca5a37de15a6e509a41fff2f95e86238335072d4079133f2f8": {
+      "digest": "4eb23ef187e2c5462566d6a1d3bbbc2f1346d0b4327cbb66d58fffbcc9b2b05c",
+      "item": "T-008",
+      "model": "gemma4:12b",
+      "question": "And what does it do while a legal hold is in place?",
+      "rewrite": "What does the nightly cleanup job do while a legal hold is in place?"
+    },
+    "90657b8acbaaba57434a9ff55dde01d8a1a626bf7be0a2d9137d3cb721c5c221": {
+      "digest": "4eb23ef187e2c5462566d6a1d3bbbc2f1346d0b4327cbb66d58fffbcc9b2b05c",
+      "item": "T-013",
+      "model": "gemma4:12b",
+      "question": "And when does it come up for review?",
+      "rewrite": "When does the AI use policy come up for review?"
+    },
+    "995edee9058cb3fb1ca1665a07e397ff47dd36cf091801bfdc072e900038a359": {
+      "digest": "4eb23ef187e2c5462566d6a1d3bbbc2f1346d0b4327cbb66d58fffbcc9b2b05c",
+      "item": "T-012",
+      "model": "gemma4:12b",
+      "question": "Which of them was serious?",
+      "rewrite": "Which of the incidents during the pilot were serious?"
+    },
+    "a6b6ff3946d380431dbf7e3d100166b0761f3a30daf0600d44274cc4b6c5b99b": {
+      "digest": "4eb23ef187e2c5462566d6a1d3bbbc2f1346d0b4327cbb66d58fffbcc9b2b05c",
+      "item": "T-009",
+      "model": "gemma4:12b",
+      "question": "What number do I phone him on?",
+      "rewrite": "What number do I phone the person in charge when an incident happens?"
+    },
+    "bceaa03bfc4545ea92ba9eae4496878610e6c815dbb4e7b61ca7ed0b51e988b4": {
+      "digest": "4eb23ef187e2c5462566d6a1d3bbbc2f1346d0b4327cbb66d58fffbcc9b2b05c",
+      "item": "T-011",
+      "model": "gemma4:12b",
+      "question": "What if the text is already public?",
+      "rewrite": "Can I use an outside AI website for client work if the text is already public?"
+    },
+    "d6da18bd10929bf042229749dfa76888270a8157b84a3aa3bade3fe10f7b5451": {
+      "digest": "4eb23ef187e2c5462566d6a1d3bbbc2f1346d0b4327cbb66d58fffbcc9b2b05c",
+      "item": "T-005",
+      "model": "gemma4:12b",
+      "question": "And the battery unit that goes with it?",
+      "rewrite": "How much did the battery unit that goes with the Lantern computer cost?"
+    },
+    "ddbaa6d931d6081b1ce133898c9106e51ab13568d8c4022ff884fea463eb5935": {
+      "digest": "4eb23ef187e2c5462566d6a1d3bbbc2f1346d0b4327cbb66d58fffbcc9b2b05c",
+      "item": "T-014",
+      "model": "gemma4:12b",
+      "question": "How much of that is the support retainer?",
+      "rewrite": "How much of the monthly cost to keep Lantern running is the support retainer?"
+    },
+    "ed487d6cf283fd588c7fb04b42765951b43ff4a1834ced5b92569ed59a7f0eff": {
+      "digest": "4eb23ef187e2c5462566d6a1d3bbbc2f1346d0b4327cbb66d58fffbcc9b2b05c",
+      "item": "T-004",
+      "model": "gemma4:12b",
+      "question": "Which clients does that concern?",
+      "rewrite": "Which clients does the choice of a local computer over a cloud subscription concern?"
+    },
+    "f28ee0b869b18b4e08bb165bc876c4f38c52f2c2384fc9f660c770ba2777beff": {
+      "digest": "4eb23ef187e2c5462566d6a1d3bbbc2f1346d0b4327cbb66d58fffbcc9b2b05c",
+      "item": "T-015",
+      "model": "gemma4:12b",
+      "question": "And the weekly one?",
+      "rewrite": "Where does the weekly backup go?"
+    }
+  },
+  "version": 1
+}
