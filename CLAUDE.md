@@ -86,4 +86,5 @@ These rules change only when the user says so. Any change is recorded in `projec
 - `project/reviews/`: external reviews + resolutions
 - `project/sources/`: outside documents the plan builds on (the `csv_analyst` INTEGRATION.md)
 - `src/csv_analyst/` (from step C1): the copied Gigalogy package; `VENDORED.md` = source commit, cuts, local edits. Gigalogy (`C:\Work\Gigalogy`) keeps the CSV benchmark and experiments.
-- v1 code (`app.py`, `rag_pipeline.py`, `storage_utils.py`, `get_embedding_function.py`, `requirements.txt`) stays untouched until step S4.4 removes it. The git tag `v1.0` preserves it.
+- v1 code (`app.py`, `rag_pipeline.py`, `storage_utils.py`, `get_embedding_function.py`, v1's `requirements.txt`) was removed in step S4.4 (D-091). The git tag `v1.0` preserves it.
+- `src/geekbot/ui/` (from S4.4): the Streamlit UI, an API client that never imports the storage (import-linter contract in CI, PLAN.md §6.2); started with `geekbot up`.

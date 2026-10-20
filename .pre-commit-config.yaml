@@ -1,18 +1,12 @@
 # Checks that run on the staged files at every `git commit` (lesson: project/learn/01-packaging.md §7).
 # mypy and pytest are deliberately not hooks: they run manually and in CI.
 
-# The v1 files and v1's README stay byte-for-byte untouched until step S4.4 removes them
-# (D-029); the golden-corpus documents are test data (D-032); the copied csv_analyst package and
-# its tests stay as Gigalogy wrote them so a re-sync is a plain copy (C1).
+# The golden-corpus documents are test data (D-032); the copied csv_analyst package and its tests
+# stay as Gigalogy wrote them so a re-sync is a plain copy (C1). (The v1 files were removed in S4.4;
+# the git tag v1.0 keeps them.)
 exclude: |
   (?x)^(
-      app\.py
-    | rag_pipeline\.py
-    | storage_utils\.py
-    | get_embedding_function\.py
-    | requirements\.txt
-    | README\.md
-    | evals/corpus/.*
+      evals/corpus/.*
     | src/csv_analyst/.*
     | tests/csv_analyst/vendored/.*
   )$

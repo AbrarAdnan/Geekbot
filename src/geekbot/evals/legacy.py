@@ -2,7 +2,8 @@
 
 The ablation (PLAN.md §9) starts from "legacy v1 replica" and changes one thing per rung, so the
 starting point has to be v1 as it really behaved, not v1 as it was meant to behave. What v1 did
-(``rag_pipeline.py``, ``storage_utils.py``; those files stay untouched until S4.4):
+(``rag_pipeline.py``, ``storage_utils.py``; removed from the working tree in S4.4, kept by the
+git tag ``v1.0``):
 
 - **Chunks.** LangChain's ``RecursiveCharacterTextSplitter``, 800 characters with an overlap of 80,
   separators ``\\n\\n``, ``\\n``, space, nothing, applied to each loaded page on its own. No token

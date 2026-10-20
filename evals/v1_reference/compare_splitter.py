@@ -16,7 +16,6 @@ from pathlib import Path
 def main(path: Path) -> int:
     sys.path.insert(0, str(Path.cwd()))  # the v1 worktree
     from langchain.schema import Document
-
     from storage_utils import TEXT_SPLITTER
 
     cases = json.loads(path.read_text(encoding="utf-8"))

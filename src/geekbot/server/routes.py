@@ -1,4 +1,4 @@
-"""The HTTP routes of steps S4.1 and S4.3: health, the knowledge base, and jobs.
+"""The HTTP routes of steps S4.1, S4.3 and S4.4: health, the knowledge base, and jobs.
 
 Every route that touches SQLite, Chroma or the file system hands the blocking call to a worker
 thread (``anyio.to_thread.run_sync``); the handlers themselves only await and build responses
@@ -151,6 +151,16 @@ async def list_documents(
     """Every stored document (optionally only those in one outbox ``state``)."""
     documents = await anyio.to_thread.run_sync(workspace.store.list_documents, state)
     return [DocumentOut.of(document) for document in documents]
+
+
+@router.get("/v1/kb/formats")
+async def formats() -> list[str]:
+    """The file extensions the loaders read, with the dot, sorted: what ``/v1/kb/upload`` accepts.
+
+    The UI (S4.4) asks instead of keeping a list of its own, so a loader added later shows up in its
+    file chooser without a change there.
+    """
+    return sorted(SUPPORTED_EXTENSIONS)
 
 
 @router.post("/v1/kb/ingest", status_code=202)
