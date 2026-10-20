@@ -18,7 +18,16 @@ worker thread: loading a model takes seconds. ``open_answering`` is replaceable 
 the lock is never left behind by a server that did not come up.
 
 ``HOST`` is a constant on purpose: the server listens on the loopback address only, and no setting
-or option changes that until S4.3 designs what making it reachable would need (an API key, limits).
+or option changes that. Making it reachable from another machine would need a design of its own
+(TLS, rate limits); D-084 left that out of the prototype.
+
+**S4.3 puts the perimeter in front of everything** (``security.py``): ``create_app`` takes a
+``Perimeter`` (the API key, the allowed Host names, the path policy, the size caps) and installs
+``PerimeterMiddleware``, which answers a request that fails the Host check, lacks the key or is too
+large before FastAPI sees it. Without a ``perimeter`` argument ``create_app`` builds the one
+``geekbot serve`` uses from the settings, key included, so forgetting to pass one gives the safe
+configuration, not an open server. While a key is required the ``/docs``, ``/redoc`` and
+``/openapi.json`` pages are not served: a browser cannot send the key to open them.
 """
 
 import logging
@@ -36,6 +45,7 @@ from geekbot.index.workspace import Workspace
 from geekbot.server.answering import Answering, TurnGate, open_chat_answering
 from geekbot.server.jobs import JobQueue
 from geekbot.server.routes import router
+from geekbot.server.security import Perimeter, PerimeterMiddleware
 from geekbot.server.threads import router as threads_router
 
 __all__ = ["HOST", "create_app"]
@@ -54,13 +64,18 @@ def create_app(
     open_workspace: WorkspaceOpener | None = None,
     open_answering: AnsweringOpener | None = None,
     warm_up: bool = True,
+    perimeter: Perimeter | None = None,
 ) -> FastAPI:
     """Build the application. Nothing is opened until the lifespan starts (server start-up).
 
     ``warm_up`` is passed to the real answering tools (``geekbot serve --no-warmup`` turns it off); an
     ``open_answering`` function replaces them altogether (tests pass one with fake models).
+    ``perimeter`` is what the middleware enforces; left out, it is built from the settings with an
+    API key (created and saved on first use), which can raise ``ApiKeyError`` or ``PolicyError``.
     """
     settings = settings or Settings()
+    if perimeter is None:
+        perimeter = Perimeter.from_settings(settings)
     opener: WorkspaceOpener = open_workspace or Workspace.open
 
     def real_answering(settings: Settings, workspace: Workspace) -> Answering:
@@ -91,7 +106,24 @@ def create_app(
         finally:
             await anyio.to_thread.run_sync(workspace.close)
 
-    app = FastAPI(title="Geekbot", version=__version__, lifespan=lifespan)
+    # With a key required the pages would only ever answer 401: a browser cannot send the key.
+    show_docs = perimeter.api_key is None
+    app = FastAPI(
+        title="Geekbot",
+        version=__version__,
+        lifespan=lifespan,
+        docs_url="/docs" if show_docs else None,
+        redoc_url="/redoc" if show_docs else None,
+        openapi_url="/openapi.json" if show_docs else None,
+    )
+    app.state.perimeter = perimeter
+    app.add_middleware(
+        PerimeterMiddleware,
+        api_key=perimeter.api_key,
+        hosts=perimeter.hosts,
+        max_body_bytes=perimeter.max_body_bytes,
+        max_upload_bytes=perimeter.max_upload_bytes,
+    )
     app.include_router(router)
     app.include_router(threads_router)
     return app

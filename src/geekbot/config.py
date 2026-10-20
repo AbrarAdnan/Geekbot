@@ -11,6 +11,7 @@ setting ``GEEKBOT_PROFILE=target`` comes from the small models. Every report the
 the resolved model names, which ``geekbot config show`` prints.
 """
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Literal
@@ -141,8 +142,22 @@ class Settings(BaseSettings):
     data_dir: Path = Path("data")
     log_level: LogLevel = "INFO"
     server_port: int = Field(default=8000, ge=1, le=65535)  # `geekbot serve` (S4.1)
-    # Unused until the server's auth (S4.3). It exists now so secret masking has a real secret.
+    # The perimeter (step S4.3, PLAN §8.1). The server asks every request (but /healthz) for this key.
+    # It is a local password between the server and the UI, not a cloud service's key.
+    # Unset, `geekbot serve` makes one and keeps it in <data_dir>/api-key (geekbot.apikey), so the
+    # setting is only for a key you want to choose; at least 24 characters.
     api_key: SecretStr | None = None
+    # Folders the server may ingest from, besides its own uploads folder (<data_dir>/uploads), as
+    # full paths separated by ";" on Windows and ":" elsewhere (os.pathsep). Empty by default: the
+    # server then reads nothing but what was uploaded to it. Write it in `.env` WITHOUT quotes: a
+    # double-quoted value has its backslash sequences interpreted (C:\notes holds a line break).
+    allowed_roots: str = ""
+
+    @property
+    def allowed_root_paths(self) -> tuple[Path, ...]:
+        """``allowed_roots`` as paths, in order; blank entries (a trailing ";") are dropped."""
+        parts = (part.strip() for part in self.allowed_roots.split(os.pathsep))
+        return tuple(Path(part) for part in parts if part)
 
     @property
     def resolved_chat_model(self) -> str:

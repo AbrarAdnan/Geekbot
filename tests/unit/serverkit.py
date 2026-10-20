@@ -24,9 +24,18 @@ from geekbot.retrieval import Retriever, SearchMode
 from geekbot.retrieval.factory import build_retriever
 from geekbot.server import create_app
 from geekbot.server.answering import Answering
+from geekbot.server.security import (
+    LOOPBACK_HOSTS,
+    MAX_BODY_BYTES,
+    MAX_UPLOAD_BYTES,
+    PathPolicy,
+    Perimeter,
+)
 from geekbot.sse import SseEvent, parse_text
 
 MODEL = "fake-model:1b"
+# The test client sends "Host: testserver" and the async one in the heartbeat tests "Host: test".
+TEST_HOSTS = (*LOOPBACK_HOSTS, "testserver", "test")
 DIM = 4
 SPEC = EmbedderSpec(
     model="fake",
@@ -55,7 +64,9 @@ def open_fake_workspace(settings: Settings) -> Workspace:
 
 
 def settings_for(root: Path) -> Settings:
-    return Settings(_env_file=None, data_dir=root / "data")
+    """Settings with the data folder under ``root`` and ``root`` itself an allowed folder, so the
+    notes the tests write there can be ingested by path (the data folder inside stays forbidden)."""
+    return Settings(_env_file=None, data_dir=root / "data", allowed_roots=str(root))
 
 
 @dataclass
@@ -80,12 +91,18 @@ def make_app(
     condenser: ScriptedCondenser | None = None,
     retriever: Retriever | None = None,
     warm: bool = True,
+    api_key: str | None = None,
+    hosts: tuple[str, ...] = TEST_HOSTS,
+    max_body_bytes: int = MAX_BODY_BYTES,
+    max_upload_bytes: int = MAX_UPLOAD_BYTES,
 ) -> FastAPI:
     """An app over a fake-embedder workspace with scripted models.
 
     ``retriever`` replaces the real hybrid retriever (which searches whatever was ingested through
     the API). ``warm=False`` starts the answering tools as ``--no-warmup`` would: not ready, until the
-    first question runs the (fake, instant) load.
+    first question runs the (fake, instant) load. The perimeter (S4.3) is the real middleware with no
+    API key unless ``api_key`` is given, the test host names allowed unless ``hosts`` says otherwise,
+    and ``root`` as the one allowed folder (``settings_for``).
     """
     fakes = Fakes(
         chat=chat or ScriptedChat(),
@@ -115,8 +132,19 @@ def make_app(
         answering.ready = warm
         return answering
 
+    settings = settings_for(root)
+    perimeter = Perimeter(
+        paths=PathPolicy.from_settings(settings),
+        api_key=api_key,
+        hosts=hosts,
+        max_body_bytes=max_body_bytes,
+        max_upload_bytes=max_upload_bytes,
+    )
     app = create_app(
-        settings_for(root), open_workspace=open_fake_workspace, open_answering=open_answering
+        settings,
+        open_workspace=open_fake_workspace,
+        open_answering=open_answering,
+        perimeter=perimeter,
     )
     app.state.fakes = fakes
     return app

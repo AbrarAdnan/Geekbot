@@ -35,6 +35,7 @@ __all__ = [
     "ThreadOut",
     "ThreadSummary",
     "TurnOut",
+    "UploadOut",
 ]
 
 MAX_INGEST_PATHS = 200  # one request; a bigger library is several requests (or a folder path)
@@ -128,6 +129,21 @@ class JobOut(BaseModel):
             result=job.result,
             error=job.error,
         )
+
+
+class UploadOut(BaseModel):
+    """``POST /v1/kb/upload``: the file was saved and its ingest is queued as ``job``.
+
+    ``stored_as`` is the file's name in the server's uploads folder (``<sha16>-<safe name>``, never a
+    path), ``sha256`` and ``size_bytes`` describe what arrived, and ``existed`` says the same bytes
+    had already been uploaded under that name (the job then finds the document unchanged).
+    """
+
+    job: JobOut
+    stored_as: str
+    sha256: str
+    size_bytes: int
+    existed: bool
 
 
 # --- threads and answers (step S4.2) ----------------------------------------------------------
