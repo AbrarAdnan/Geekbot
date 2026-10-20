@@ -1,29 +1,39 @@
-"""Helpers shared by the server tests (steps S4.1 and S4.2).
+"""Helpers shared by the server tests (steps S4.1, S4.2 and C5).
 
 A fake embedder with a fixed dimension, so an ingest runs the real pipeline (loaders, chunker, SQLite,
 Chroma) without Ollama; fake answering tools (a scripted chat model, rewrite call and, unless a test
-passes its own, the real hybrid retriever over that store); an app built from them; and a few helpers
-for the HTTP side (wait for a job, ask a question and read the stream).
+passes its own, the real hybrid retriever over that store); since C5 a fake CSV side as well (the real
+registry of sessions over ``csvkit.FakeCsv`` tables, a scripted rewrite call for the CSV model, a fake
+swap to the CSV model); an app built from them; and a few helpers for the HTTP side (wait for a job,
+ask a question and read the stream, upload a CSV, time the heartbeat).
 """
 
+import asyncio
+import gc
+import logging
 import time
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import httpx
+import pytest
 from chatkit import ScriptedChat, ScriptedCondenser
+from csvkit import CSV_MODEL, SALES, CsvFakes
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from geekbot.agent.runtime import AgentContext
 from geekbot.config import Settings
+from geekbot.csv_mode.sessions import CsvSessions
 from geekbot.index.embedder import EmbedderSpec, PrefixedEmbeddings
 from geekbot.index.workspace import Workspace
 from geekbot.llm.chat import ChatModel
 from geekbot.retrieval import Retriever, SearchMode
 from geekbot.retrieval.factory import build_retriever
 from geekbot.server import create_app
-from geekbot.server.answering import Answering
+from geekbot.server.answering import Answering, CsvSetup
 from geekbot.server.security import (
     LOOPBACK_HOSTS,
     MAX_BODY_BYTES,
@@ -74,14 +84,19 @@ class Fakes:
     """What the app was given instead of Ollama, kept on ``app.state.fakes`` for the assertions.
 
     ``thinks`` is the ``think`` flag of every chat model the route asked for besides the shared one;
-    ``loads`` has one entry per warm-up that ran.
+    ``loads`` has one entry per warm-up that ran. C5: ``csv`` is the fake CSV side (every table that
+    was opened, how it answers), ``csv_condenser`` the rewrite call of the CSV model and ``csv_loads``
+    one entry per swap to the CSV model.
     """
 
     chat: ScriptedChat
     condenser: ScriptedCondenser
     retriever: Retriever | None
+    csv: CsvFakes
+    csv_condenser: ScriptedCondenser
     thinks: list[bool] = field(default_factory=list)
     loads: list[str] = field(default_factory=list)
+    csv_loads: list[str] = field(default_factory=list)
 
 
 def make_app(
@@ -90,6 +105,10 @@ def make_app(
     chat: ScriptedChat | None = None,
     condenser: ScriptedCondenser | None = None,
     retriever: Retriever | None = None,
+    csv: CsvFakes | None = None,
+    csv_condenser: ScriptedCondenser | None = None,
+    max_csv_sessions: int = 4,
+    max_csv_bytes: int = 500_000_000,
     warm: bool = True,
     api_key: str | None = None,
     hosts: tuple[str, ...] = TEST_HOSTS,
@@ -102,12 +121,15 @@ def make_app(
     the API). ``warm=False`` starts the answering tools as ``--no-warmup`` would: not ready, until the
     first question runs the (fake, instant) load. The perimeter (S4.3) is the real middleware with no
     API key unless ``api_key`` is given, the test host names allowed unless ``hosts`` says otherwise,
-    and ``root`` as the one allowed folder (``settings_for``).
+    and ``root`` as the one allowed folder (``settings_for``). The CSV side (C5) uses the real
+    registry of sessions with the given bounds, over the fake tables of ``csv``.
     """
     fakes = Fakes(
         chat=chat or ScriptedChat(),
         condenser=condenser or ScriptedCondenser(),
         retriever=retriever,
+        csv=csv or CsvFakes(),
+        csv_condenser=csv_condenser or ScriptedCondenser(),
     )
 
     def open_answering(settings: Settings, workspace: Workspace) -> Answering:
@@ -128,9 +150,22 @@ def make_app(
             fakes.loads.append("load")
             return 0.0
 
-        answering = Answering(context, make_llm=make_llm, load=load)
+        def load_csv() -> float:
+            fakes.csv_loads.append("load")
+            return 0.0
+
+        answering = Answering(
+            context,
+            make_llm=make_llm,
+            load=load,
+            csv=CsvSetup(model=CSV_MODEL, condenser=fakes.csv_condenser, load=load_csv),
+        )
         answering.ready = warm
         return answering
+
+    def open_csv_sessions(settings: Settings) -> CsvSessions[Any]:
+        del settings
+        return CsvSessions(fakes.csv.open, max_sessions=max_csv_sessions, max_bytes=max_csv_bytes)
 
     settings = settings_for(root)
     perimeter = Perimeter(
@@ -144,6 +179,7 @@ def make_app(
         settings,
         open_workspace=open_fake_workspace,
         open_answering=open_answering,
+        open_csv_sessions=open_csv_sessions,
         perimeter=perimeter,
     )
     app.state.fakes = fakes
@@ -204,3 +240,115 @@ def ask(client: TestClient, thread_id: str, question: str, **body: Any) -> Asked
     if response.headers.get("content-type", "").startswith("text/event-stream"):
         return Asked(response.status_code, parse_text(response.text), None)
     return Asked(response.status_code, [], response.json())
+
+
+def upload_csv(
+    client: TestClient, thread_id: str, name: str = "sales.csv", data: bytes = SALES
+) -> httpx.Response:
+    """POST a CSV to a thread as the raw body, the way the UI's client does."""
+    return client.post(
+        "/v1/csv/upload",
+        params={"thread": thread_id, "filename": name},
+        content=data,
+        headers={"content-type": "application/octet-stream"},
+    )
+
+
+# --- the heartbeat (PLAN.md section 6.3), shared by the tests that measure it ------------------
+#
+# The check is two signals, and they catch different things:
+#
+# 1. **asyncio's debug mode** with ``slow_callback_duration = SLOW_CALLBACK_S`` logs "Executing ...
+#    took N seconds" for any callback that held the event loop for that long. That is the detector
+#    for the thing the test is about (blocking work on the loop), and ``assert_heartbeat`` fails on
+#    it. It is **not** independent of the machine: it also fires for anything that stops the whole
+#    process for a moment. Seen in C5's full run: a step of 0.125 s with 3,000 pings of garbage
+#    behind it and a heap grown by 2,500 tests, which is the garbage collector (so ``run_timed``
+#    keeps it off while it measures). The threshold is 0.15 s: above the stalls a loaded machine
+#    shows, and below the shortest block the tests put in the way of the loop (0.2 s), so a call
+#    that blocks the loop in any of the three tests is still caught.
+# 2. **``/healthz`` latency**: the p99 of many pings must stay under 200 ms (PLAN.md section 6.3).
+#    The first version asked about 60 times, where the "p99" is simply the slowest ping, so one
+#    stall of a shared CI runner failed the test (seen on ``ubuntu / fresh install (3.12)``, S4.4,
+#    and once on the Windows job of ``0cb4172``). Now the window is about two seconds of back-to-back
+#    pings (``ping_until_done``), at least ``MIN_PINGS`` of them: the p99 is then rank 297 of 300 or
+#    higher, so up to two stray slow pings are let through and a *sustained* slowdown still fails.
+#    One loop block of 0.4 s delays only one ping, so it is signal 1 that catches it, not this one.
+#    The limit stays 200 ms.
+
+HEARTBEAT_P99_S = 0.2
+SLOW_CALLBACK_S = 0.15
+MIN_PINGS = 300
+
+
+def run_timed[T](main: Callable[[], Coroutine[Any, Any, T]], caplog: pytest.LogCaptureFixture) -> T:
+    """Run ``main`` on a fresh event loop in asyncio's debug mode, ready for ``assert_heartbeat``.
+
+    The loop reports any callback slower than ``SLOW_CALLBACK_S`` to the ``asyncio`` logger, which
+    ``caplog`` collects. The garbage collector is run once and then switched off for the length of
+    the run, and switched on again afterwards: a collection of a big heap takes longer than the
+    detector's threshold (seen: 0.125 s in a full run, never when the test ran alone) and says
+    nothing about the server. A run lasts a few seconds, so what it allocates meanwhile does not
+    matter.
+    """
+
+    async def detect() -> T:
+        asyncio.get_running_loop().slow_callback_duration = SLOW_CALLBACK_S
+        return await main()
+
+    gc.collect()
+    gc.disable()
+    try:
+        with caplog.at_level(logging.WARNING, logger="asyncio"):
+            return asyncio.run(detect(), debug=True)
+    finally:
+        gc.enable()
+
+
+def p99(values: list[float]) -> float:
+    """The 99th percentile by rank. With fewer than 100 samples it is the slowest one."""
+    ordered = sorted(values)
+    return ordered[min(len(ordered) - 1, int(len(ordered) * 0.99))]
+
+
+async def ping(http: httpx.AsyncClient) -> float:
+    """How long ``/healthz`` took to answer, in seconds."""
+    started = time.perf_counter()
+    response = await http.get("/healthz")
+    assert response.status_code == 200
+    return time.perf_counter() - started
+
+
+async def ping_until_done(
+    http: httpx.AsyncClient, work: asyncio.Task[Any], *, deadline_s: float = 60.0
+) -> list[float]:
+    """Ask ``/healthz`` again and again until ``work`` has finished; every answer time in seconds.
+
+    The pause between two pings is ``sleep(0)``, a yield and not a timer: on Windows a timer is
+    rounded up to about 15 ms, which would cut the number of pings by a factor of ten. The deadline
+    makes a hang fail the test and not stop the suite.
+    """
+    latencies: list[float] = []
+    deadline = time.monotonic() + deadline_s
+    while not work.done():
+        assert time.monotonic() < deadline, "the work being timed did not finish"
+        latencies.append(await ping(http))
+        await asyncio.sleep(0)
+    return latencies
+
+
+def assert_heartbeat(latencies: list[float], caplog: pytest.LogCaptureFixture) -> None:
+    """The two signals of the heartbeat check (see the comment above), with the numbers in the message.
+
+    ``latencies`` are what ``ping_until_done`` measured and ``caplog`` is what ``run_timed`` was
+    given: the run must have been made with ``run_timed``, or the second signal sees nothing.
+    """
+    assert len(latencies) >= MIN_PINGS, (
+        f"only {len(latencies)} pings: the window was too short to say anything about a p99"
+    )
+    slowest = ", ".join(f"{value * 1000:.0f} ms" for value in sorted(latencies)[-3:])
+    assert p99(latencies) < HEARTBEAT_P99_S, (
+        f"p99 {p99(latencies) * 1000:.0f} ms over {len(latencies)} pings (slowest three: {slowest})"
+    )
+    blocked = [r.getMessage() for r in caplog.records if "took" in r.getMessage()]
+    assert not blocked, f"something held the event loop: {blocked[:3]}"

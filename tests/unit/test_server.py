@@ -153,6 +153,9 @@ def test_readiness_on_an_empty_store(client: TestClient) -> None:
         "chat_model": "fake-model:1b",  # S4.2: the answering tools are part of readiness
         "chat_ready": True,
         "answering": False,
+        "csv_model": "fake-csv:1b",  # C5: so is the CSV side
+        "csv_ready": False,
+        "csv_sessions": 0,
     }
 
 

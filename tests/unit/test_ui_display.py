@@ -15,6 +15,7 @@ from geekbot.sse import SseEvent
 from geekbot.ui.display import (
     TurnView,
     assistant_message_id,
+    csv_upload_lines,
     document_rows,
     health_rows,
     human_bytes,
@@ -232,6 +233,115 @@ def test_turn_details_lists_what_was_changed_or_doubtful() -> None:
 
 def test_turn_details_of_a_bare_turn_is_just_the_model() -> None:
     assert turn_details({"model": "m"}) == ["model: m"]
+
+
+# --- CSV conversations (step C5) -------------------------------------------------------------
+
+
+def test_a_csv_turn_shows_the_file_the_verdict_and_the_time_of_the_whole_question() -> None:
+    lines = turn_details(
+        {
+            "mode": "csv",
+            "model": "qwen2.5-coder:3b",
+            "csv_file": "sales.csv",
+            "csv_status": "abstained",
+            "generation": {"seconds": 12.3, "load_seconds": 2.7},
+            "searched_as": "What is the total revenue of the region that sells the most?",
+            "labels": ["TOOL", "USER"],
+            "tainted": True,
+        }
+    )
+    assert lines == [
+        "model: qwen2.5-coder:3b",
+        "file: sales.csv",
+        "verdict: abstained",
+        "time: 12.30 s, model load 2.70 s",
+        "asked as: What is the total revenue of the region that sells the most?",
+        "built from: TOOL + USER (includes text from outside the chat)",
+    ]
+
+
+def test_a_csv_turn_without_a_model_load_does_not_mention_one() -> None:
+    lines = turn_details({"mode": "csv", "model": "m", "generation": {"seconds": 1.0}})
+    assert lines == ["model: m", "time: 1.00 s"]
+
+
+def test_a_chat_turn_is_still_described_as_before_even_with_csv_fields_absent() -> None:
+    lines = turn_details({"mode": "chat", "model": "m", "generation": {"seconds": 1.0}})
+    assert lines == ["model: m", "time: 1.00 s in the model"]
+
+
+def test_the_upload_summary_says_rows_columns_and_notes_in_plain_lines() -> None:
+    info = {
+        "file": "sales.csv",
+        "rows": 12345,
+        "column_count": 3,
+        "columns": ["region", "revenue", "month"],
+        "notes": ["2 malformed row(s) were skipped during parsing"],
+        "existed": True,
+        "memory_bytes": 3 * 1024 * 1024,
+    }
+    assert csv_upload_lines(info) == [
+        "sales.csv: 12,345 rows, 3 columns",
+        "columns: region, revenue, month",
+        "2 malformed row(s) were skipped during parsing",
+        "the server already had this exact file",
+        "held in memory: 3.0 MB",
+    ]
+
+
+def test_the_upload_summary_cuts_long_names_and_counts_the_columns_it_does_not_list() -> None:
+    info = {
+        "file": "wide.csv",
+        "rows": 1,
+        "column_count": 60,
+        "columns": ["c" * 100, "second"],
+        "notes": ["n" * 500],
+        "memory_bytes": 10,
+    }
+    lines = csv_upload_lines(info)
+    assert lines[1] == "columns: " + "c" * 37 + "..., second and 58 more"
+    assert len(lines[2]) == 120 and lines[2].endswith("...")
+    assert lines[-1] == "held in memory: 10 B"
+
+
+def test_the_upload_summary_survives_a_sparse_answer() -> None:
+    assert csv_upload_lines({}) == ["?: 0 rows, 0 columns"]
+
+
+def test_the_waits_of_a_csv_turn_have_their_own_status_lines() -> None:
+    model = feed(TurnView(), ("status", {"stage": "loading_model", "model": "qwen2.5-coder:3b"}))
+    assert "qwen2.5-coder:3b" in model.status
+    file = feed(TurnView(), ("status", {"stage": "loading_file", "file": "sales.csv"}))
+    assert "sales.csv" in file.status and "again" in file.status
+    asking = feed(TurnView(), ("status", {"stage": "asking", "file": "sales.csv"}))
+    assert asking.status.startswith("Asking sales.csv")
+
+
+def test_the_asking_line_replaces_the_swap_line_and_goes_when_the_answer_is_there() -> None:
+    view = feed(
+        TurnView(),
+        ("status", {"stage": "loading_model", "model": "qwen2.5-coder:3b"}),
+        ("status", {"stage": "asking", "file": "sales.csv"}),
+    )
+    assert view.status.startswith("Asking")  # the swap is over: its line must not stay
+    view = feed(view, ("done", {"answer": "North leads."}))
+    assert (view.status, view.answer) == ("", "North leads.")
+
+
+def test_a_file_name_in_a_status_line_is_cut_to_one_short_line() -> None:
+    view = feed(TurnView(), ("status", {"stage": "asking", "file": "x" * 200 + "\n.csv"}))
+    assert "\n" not in view.status and len(view.status) < 120
+
+
+def test_the_health_table_names_the_csv_model_when_the_server_has_one() -> None:
+    health = {"csv_model": "qwen2.5-coder:3b", "csv_ready": False, "csv_sessions": 2}
+    table = {row["Setting"]: row["Value"] for row in health_rows(health)}
+    assert table["CSV model"].startswith("qwen2.5-coder:3b: not loaded")
+    assert table["CSV tables in memory"] == "2"
+    loaded = {row["Setting"]: row["Value"] for row in health_rows({**health, "csv_ready": True})}
+    assert loaded["CSV model"] == "qwen2.5-coder:3b: loaded"
+    assert "CSV model" not in {row["Setting"] for row in health_rows({})}
 
 
 # --- the stream ------------------------------------------------------------------------------

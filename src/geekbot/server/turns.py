@@ -16,6 +16,8 @@ from collections.abc import Mapping
 from typing import Any, Final
 
 from geekbot.agent.mode import ModeError
+from geekbot.csv_mode.errors import CsvLoadError
+from geekbot.csv_mode.sessions import SessionTooLargeError
 from geekbot.index.dense import DenseIndexError
 from geekbot.index.embedder import EmbeddingError
 from geekbot.llm.chat import ChatError
@@ -29,11 +31,13 @@ __all__ = ["TurnTranslator", "describe_error"]
 # a bug, and its text (a library's, a path, a stack) stays in the server log.
 EXPECTED_ERRORS: Final = (
     ChatError,
+    CsvLoadError,
     DenseIndexError,
     EmbeddingError,
     ModeError,
     OllamaError,
     RerankError,
+    SessionTooLargeError,
 )
 
 

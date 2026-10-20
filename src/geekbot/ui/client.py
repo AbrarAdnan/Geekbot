@@ -235,10 +235,36 @@ class GeekbotClient:
 
     # --- threads ---------------------------------------------------------------------------
 
-    def new_thread(self) -> str:
-        """A fresh thread id. The server stores nothing until the first question is answered."""
-        created: dict[str, Any] = self._request("POST", "/v1/threads").json()
+    def new_thread(self, mode: str = "chat") -> str:
+        """A fresh thread id. The server stores nothing until the first question is answered.
+
+        ``mode`` is what the conversation is meant to be about (``chat`` or ``csv``); the server
+        refuses any other name. It is only a statement: a CSV file uploaded to the thread is what
+        makes it a CSV conversation (``upload_csv``).
+        """
+        created: dict[str, Any] = self._request("POST", "/v1/threads", json={"mode": mode}).json()
         return str(created["thread_id"])
+
+    def upload_csv(self, thread_id: str, filename: str, data: bytes) -> dict[str, Any]:
+        """Give a CSV conversation its file (step C5): the raw bytes as the body, the thread and the
+        file name in the address. The server saves it, loads the table and answers with the rows,
+        the columns and what the loader changed (``CsvUploadOut``); those come from the file and are
+        untrusted text. Loading a big table takes a while, so the wait is as long as an upload's.
+
+        ``ApiError``: 409 (the thread is a chat conversation, or another question is running),
+        413 (too big for the file cap or the memory bound), 415 (not ``.csv`` / ``.tsv``),
+        422 (not a usable CSV).
+        """
+        response = self._request(
+            "POST",
+            "/v1/csv/upload",
+            params={"thread": thread_id, "filename": filename},
+            content=data,
+            headers={"Content-Type": "application/octet-stream"},
+            timeout=UPLOAD_TIMEOUT_S,
+        )
+        result: dict[str, Any] = response.json()
+        return result
 
     def threads(self, limit: int = 50) -> list[dict[str, Any]]:
         response = self._request("GET", "/v1/threads", params={"limit": limit})
@@ -265,20 +291,27 @@ class GeekbotClient:
             raise
         return True
 
-    def ask(self, thread_id: str, question: str, *, think: bool = False) -> Iterator[SseEvent]:
+    def ask(
+        self, thread_id: str, question: str, *, think: bool = False, mode: str | None = None
+    ) -> Iterator[SseEvent]:
         """Ask a question and yield the answer's events as they arrive.
 
         Ends after a ``done`` or an ``error`` event (the server's own ending). Raises ``ApiError``
-        before the first event for a refusal (422 bad question, 409 another question running), and
-        ``ServerUnavailableError`` if the connection fails or closes before a final event. Closing
-        the generator early closes the connection, which the server takes as "the client went away".
+        before the first event for a refusal (422 bad question, 409 another question running or the
+        thread is the other kind of conversation), and ``ServerUnavailableError`` if the connection
+        fails or closes before a final event. Closing the generator early closes the connection,
+        which the server takes as "the client went away". ``mode`` (``"csv"``) says what the page
+        believes the conversation is; left out, the server decides from the thread.
         """
         finished = False
+        body: dict[str, Any] = {"question": question, "think": think}
+        if mode is not None:
+            body["mode"] = mode
         try:
             with self._http.stream(
                 "POST",
                 f"/v1/threads/{thread_id}/messages",
-                json={"question": question, "think": think},
+                json=body,
                 headers=self._auth,
                 timeout=httpx.Timeout(
                     REQUEST_TIMEOUT_S, connect=CONNECT_TIMEOUT_S, read=STREAM_READ_TIMEOUT_S

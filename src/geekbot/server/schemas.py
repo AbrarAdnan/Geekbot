@@ -19,10 +19,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from geekbot.agent.runner import ThreadInfo
 from geekbot.domain import Document, Label, is_tainted
 from geekbot.server.jobs import Job, JobState
+from geekbot.server.uploads import display_name
 
 __all__ = [
     "AskRequest",
     "CheckOut",
+    "CsvUploadOut",
     "DocumentOut",
     "HealthOut",
     "IngestRequest",
@@ -33,6 +35,7 @@ __all__ = [
     "SourceRefOut",
     "ThreadCreated",
     "ThreadOut",
+    "ThreadRequest",
     "ThreadSummary",
     "TurnOut",
     "UploadOut",
@@ -46,6 +49,14 @@ MAX_QUESTION_CHARS = 20_000
 PREVIEW_CHARS = 80  # how much of a thread's first question the thread list shows
 
 
+def _shown_csv_file(stored: object) -> str | None:
+    """The name of a conversation's CSV file as the user knows it (the stored name without its
+    ``<sha16>-`` prefix), or ``None`` if the thread has none. The thread keeps the stored name so
+    that the server can open the same file again (``csvmode.stored_file``)."""
+    name = str(stored or "")
+    return display_name(name) if name else None
+
+
 class HealthOut(BaseModel):
     """``/healthz``: the process is up and its event loop answers. Touches no storage."""
 
@@ -56,7 +67,9 @@ class ReadyOut(BaseModel):
     """``/v1/health``: what the storage holds, and what the server is busy with.
 
     ``chat_ready`` is false until the chat model is loaded (``geekbot serve --no-warmup`` leaves that to
-    the first question); ``answering`` is true while a question is being answered.
+    the first question); ``answering`` is true while a question is being answered. Since C5 the CSV
+    model is reported too (``csv_model`` is empty when none is set up; ``csv_ready`` is true while it,
+    and not the chat model, is the one on the GPU) and so is the number of loaded CSV sessions.
     """
 
     status: str
@@ -68,6 +81,9 @@ class ReadyOut(BaseModel):
     chat_model: str
     chat_ready: bool
     answering: bool
+    csv_model: str = ""
+    csv_ready: bool = False
+    csv_sessions: int = 0
 
 
 class DocumentOut(BaseModel):
@@ -146,14 +162,54 @@ class UploadOut(BaseModel):
     existed: bool
 
 
+class CsvUploadOut(BaseModel):
+    """``POST /v1/csv/upload``: the CSV was saved and loaded as the thread's session.
+
+    Unlike a document upload there is no job: loading and profiling the table is done when the
+    answer arrives. ``file`` is the name the user gave it, ``stored_as`` its name in the uploads
+    folder, ``existed`` that the same bytes had been uploaded before. ``columns`` are the first
+    ``csvmode.MAX_COLUMNS_LISTED`` names (``column_count`` is how many there are) and ``notes`` what
+    the loader changed or skipped. **Column names and notes come from the file: untrusted text**, to
+    be shown as plain text and never as Markdown. ``memory_bytes`` is what the table occupies in
+    memory, which is what the server's bound on CSV sessions counts.
+    """
+
+    thread_id: str
+    mode: Literal["csv"] = "csv"
+    file: str
+    stored_as: str
+    sha256: str
+    size_bytes: int
+    existed: bool
+    rows: int
+    column_count: int
+    columns: list[str]
+    notes: list[str]
+    memory_bytes: int
+
+
 # --- threads and answers (step S4.2) ----------------------------------------------------------
 
 
+class ThreadRequest(BaseModel):
+    """The optional body of ``POST /v1/threads``: the mode the conversation is meant to have.
+
+    ``extra=forbid`` and a closed set of names: a misspelt mode is a 422, not a chat conversation.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["chat", "csv"] = "chat"
+
+
 class ThreadCreated(BaseModel):
-    """``POST /v1/threads``: a fresh thread id.
+    """``POST /v1/threads``: a fresh thread id, and the mode it was asked for.
 
     Nothing is stored until the thread's first question has been answered: a thread is what the
-    checkpointer saved after a turn, so an id that was never used is not listed and is a 404.
+    checkpointer saved after a turn, so an id that was never used is not listed and is a 404. The
+    mode is therefore a statement of intent, not a record: what makes a thread a CSV conversation
+    is the CSV file uploaded to it (``POST /v1/csv/upload``), and the first answered turn fixes the
+    mode for good.
     """
 
     thread_id: str
@@ -162,12 +218,21 @@ class ThreadCreated(BaseModel):
 
 class AskRequest(BaseModel):
     """A question for a thread. ``think`` asks the model to reason first (slower; only for a model
-    with a thinking mode). ``extra=forbid``: a misspelt option is an error, not ignored."""
+    with a thinking mode; a CSV conversation ignores it). ``extra=forbid``: a misspelt option is an
+    error, not ignored.
+
+    ``mode`` is what the client believes the conversation is (C5). Left out, the thread decides:
+    a saved thread keeps its mode, and an unsaved one with a CSV file uploaded to it is a CSV
+    conversation. Given, it must agree with the thread (409 otherwise), and ``"csv"`` on a thread
+    the server has no file for is a 409 that says to upload it again, instead of a question quietly
+    answered from the documents. The UI sends it for every CSV conversation.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     question: str = Field(min_length=1, max_length=MAX_QUESTION_CHARS)
     think: bool = False
+    mode: Literal["chat", "csv"] | None = None
 
 
 class SourceRefOut(BaseModel):
@@ -209,6 +274,12 @@ class TurnOut(BaseModel):
     section 8.2. ``searched_as`` is what retrieval looked for when it was not the user's own words (a
     rewritten follow-up). ``generation`` holds the readings of the model call (seconds, time to the
     first token, model load, tokens); a reading the model did not give is absent.
+
+    In a CSV conversation (C5) ``mode`` is ``csv``, there are no sources, ``csv_file`` is the name of
+    the file asked about and ``csv_status`` is the package's verdict (``answered``, ``abstained``,
+    ``needs_clarification`` or ``failed``); ``answer`` is the package's reply, which carries the SQL
+    that was run and a preview of its result. ``generation`` then has ``seconds`` (the whole
+    question) and ``load_seconds``. Both CSV fields are ``None`` in chat mode.
     """
 
     thread_id: str
@@ -231,6 +302,8 @@ class TurnOut(BaseModel):
     removed_markup: list[str]
     retrieval_ms: dict[str, float]
     generation: dict[str, float]
+    csv_file: str | None = None
+    csv_status: str | None = None
 
     @classmethod
     def of(cls, final: Mapping[str, Any], *, thread_id: str, model: str) -> Self:
@@ -281,6 +354,8 @@ class TurnOut(BaseModel):
             removed_markup=[str(item) for item in final.get("removed_markup", [])],
             retrieval_ms={name: float(ms) for name, ms in final.get("retrieval_ms", {}).items()},
             generation={name: float(v) for name, v in final.get("generation", {}).items()},
+            csv_file=_shown_csv_file(final.get("csv_file")),
+            csv_status=str(final.get("csv_status") or "") or None,
         )
 
 
@@ -341,7 +416,7 @@ class ThreadSummary(BaseModel):
         return cls(
             thread_id=info.thread_id,
             mode=str(values.get("mode") or "chat"),
-            csv_file=str(values.get("csv_file") or "") or None,
+            csv_file=_shown_csv_file(values.get("csv_file")),
             turns=int(values.get("turn", 0)),
             message_count=len(history),
             preview=preview,

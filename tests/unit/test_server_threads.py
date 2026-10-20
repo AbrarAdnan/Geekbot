@@ -11,9 +11,7 @@ an answer streams, with a blocking search and a blocking model stream running in
 """
 
 import asyncio
-import logging
 import re
-import time
 from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,7 +21,15 @@ import httpx
 import pytest
 from chatkit import REWRITE, ScriptedChat, ScriptedCondenser, ScriptedRetriever
 from fastapi.testclient import TestClient
-from serverkit import ask, ingest_note, make_app, settings_for
+from serverkit import (
+    ask,
+    assert_heartbeat,
+    ingest_note,
+    make_app,
+    ping_until_done,
+    run_timed,
+    settings_for,
+)
 
 from geekbot.agent.runner import THREADS_DB, ThreadInfo, check_thread_name, run_turn
 from geekbot.agent.runtime import AgentContext, UnavailableChat, UnavailableRetriever
@@ -396,16 +402,24 @@ def make_csv_thread(root: Path, name: str) -> None:
     )
 
 
-def test_a_csv_thread_is_listed_as_one_and_cannot_be_asked_in_chat_mode(tmp_path: Path) -> None:
+def test_a_csv_thread_is_listed_as_one_and_is_never_answered_from_the_documents(
+    tmp_path: Path,
+) -> None:
+    """A conversation started with ``geekbot csv ask`` holds the plain name of a file the server never
+    stored (C5 keeps the stored upload's name), so the server cannot open it again: it says so, and
+    a chat question for it is refused as well. Neither is answered from the documents."""
     with TestClient(make_app(tmp_path)) as client:
         ingest_note(client, tmp_path)
         make_csv_thread(tmp_path, "t-csv")
         (summary,) = client.get("/v1/threads").json()
         assert (summary["mode"], summary["csv_file"]) == ("csv", "sales.csv")
         assert summary["taint"] == ["TOOL", "USER"]
-        refused = ask(client, "t-csv", Q)
-        assert refused.status == 409
-        assert "csv" in refused.body["detail"]
+        no_file = ask(client, "t-csv", Q)  # the thread is a csv one, so the route takes its branch
+        assert no_file.status == 409
+        assert "upload the file again" in no_file.body["detail"]
+        chat_asked = ask(client, "t-csv", Q, mode="chat")
+        assert chat_asked.status == 409
+        assert "csv conversation" in chat_asked.body["detail"]
         assert client.app.state.gate.busy is False  # type: ignore[attr-defined]
         shown = client.get("/v1/threads/t-csv").json()
         assert shown["messages"][1]["content"] == "North leads."
@@ -536,34 +550,21 @@ def test_closing_the_stream_early_gives_the_slot_back(tmp_path: Path) -> None:
 
 # --- the heartbeat (PLAN.md section 6.3) -----------------------------------------------------------
 
-HEARTBEAT_P99_S = 0.2
-
-
-def p99(values: list[float]) -> float:
-    ordered = sorted(values)
-    return ordered[min(len(ordered) - 1, int(len(ordered) * 0.99))]
-
-
-async def ping(http: httpx.AsyncClient) -> float:
-    started = time.perf_counter()
-    response = await http.get("/healthz")
-    assert response.status_code == 200
-    return time.perf_counter() - started
-
 
 def test_healthz_stays_fast_while_an_answer_streams(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """The search blocks a worker thread for 0.4 s and the model stream sleeps between its pieces.
+    """The search blocks a worker thread for 1 s and the model stream sleeps 0.2 s between its pieces.
 
     If either ran on the event loop, ``/healthz`` would wait for it. The first question is only a
-    warm-up (first-use costs are not what is measured), with the delays switched off.
+    warm-up (first-use costs are not what is measured), with the delays switched off. The answer
+    takes about two seconds, in which ``/healthz`` is asked back to back, 300 times or more; how the
+    two signals work, and why the window is that long, is in ``serverkit`` (``assert_heartbeat``).
     """
     chat = ScriptedChat(["Ninety", " days", " ", "[1]", "."])
     retriever = ScriptedRetriever()
 
     async def main() -> tuple[list[float], httpx.Response]:
-        asyncio.get_running_loop().slow_callback_duration = 0.1
         app = make_app(tmp_path, chat=chat, retriever=retriever)
         async with app.router.lifespan_context(app):
             transport = httpx.ASGITransport(app=app)
@@ -571,22 +572,14 @@ def test_healthz_stays_fast_while_an_answer_streams(
                 warm = await http.post("/v1/threads/t-warm/messages", json={"question": Q})
                 assert warm.status_code == 200
                 assert parse_text(warm.text)[-1].event == "done"  # not an error event
-                chat.delay_s, retriever.delay_s = 0.1, 0.4
+                chat.delay_s, retriever.delay_s = 0.2, 1.0
                 answering = asyncio.create_task(
                     http.post(f"/v1/threads/{THREAD}/messages", json={"question": Q})
                 )
-                latencies: list[float] = []
-                deadline = time.monotonic() + 30  # a hang must fail the test, not stop the suite
-                while not answering.done():
-                    assert time.monotonic() < deadline, "the streamed answer did not finish"
-                    latencies.append(await ping(http))
-                    await asyncio.sleep(0.01)
+                latencies = await ping_until_done(http, answering)
                 return latencies, answering.result()
 
-    with caplog.at_level(logging.WARNING, logger="asyncio"):
-        latencies, response = asyncio.run(main(), debug=True)
+    latencies, response = run_timed(main, caplog)
     assert response.status_code == 200
     assert parse_text(response.text)[-1].event == "done"
-    assert len(latencies) >= 20  # it really was measured while the answer was being produced
-    assert p99(latencies) < HEARTBEAT_P99_S
-    assert not [r for r in caplog.records if "took" in r.getMessage()]
+    assert_heartbeat(latencies, caplog)

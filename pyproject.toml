@@ -162,3 +162,34 @@ forbidden_modules = [
     "fastapi",
     "uvicorn",
 ]
+
+# PLAN.md section 6.7 (C5): the vendored csv_analyst package is reached only through
+# geekbot.csv_mode, so its pandas types, its settings and its quirks stay behind one door. Only direct
+# imports count here (allow_indirect_imports): geekbot.csv_mode itself imports the package, so every
+# module that imports csv_mode would otherwise "import it indirectly". Every package of geekbot other
+# than csv_mode is listed; tests/unit/test_csv_import_boundary.py reads the imports of all files, so
+# a package added later and forgotten in this list is still caught there.
+[[tool.importlinter.contracts]]
+name = "Only geekbot.csv_mode imports the csv_analyst package"
+type = "forbidden"
+source_modules = [
+    "geekbot.agent",
+    "geekbot.apikey",
+    "geekbot.cli",
+    "geekbot.config",
+    "geekbot.doctor",
+    "geekbot.domain",
+    "geekbot.evals",
+    "geekbot.fsutil",
+    "geekbot.index",
+    "geekbot.ingest",
+    "geekbot.llm",
+    "geekbot.log",
+    "geekbot.retrieval",
+    "geekbot.server",
+    "geekbot.sse",
+    "geekbot.swapcheck",
+    "geekbot.ui",
+]
+forbidden_modules = ["csv_analyst"]
+allow_indirect_imports = true

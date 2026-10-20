@@ -18,6 +18,7 @@ from typing import Any
 import httpx
 import pytest
 from chatkit import ScriptedChat
+from csvkit import SALES
 from fastapi.testclient import TestClient
 from serverkit import make_app, write_note
 
@@ -211,6 +212,63 @@ def test_a_failed_turn_ends_in_an_error_event_not_in_an_exception(tmp_path: Path
     assert [e.event for e in events] == ["meta", "error"]
     assert view.error is not None and "down" in view.error
     assert view.answer == ""
+
+
+def test_a_csv_file_is_uploaded_to_a_thread_and_then_asked_about(client: GeekbotClient) -> None:
+    """Step C5 as the UI uses it: reserve a CSV thread, send the file, ask in the thread."""
+    thread_id = client.new_thread("csv")
+    info = client.upload_csv(thread_id, "sales.csv", SALES)
+    assert (info["file"], info["rows"], info["columns"]) == ("sales.csv", 2, ["region", "revenue"])
+    assert info["existed"] is False and info["stored_as"].endswith("-sales.csv")
+    view = TurnView()
+    names = []
+    for event in client.ask(thread_id, "Which region sells the most?", mode="csv"):
+        names.append(event.event)
+        view.feed(event)
+    # the swap and the question are announced (two status events), the answer is whole
+    assert names == ["meta", "status", "status", "done"]
+    assert view.answer.startswith("North leads with 520.")
+    assert view.done is not None and view.done["csv_status"] == "answered"
+    saved = client.thread(thread_id)
+    assert saved is not None and (saved["mode"], saved["csv_file"]) == ("csv", "sales.csv")
+    assert client.delete_thread(thread_id) is True
+
+
+def test_a_csv_file_the_server_refuses_is_an_api_error_with_its_reason(
+    client: GeekbotClient,
+) -> None:
+    thread_id = client.new_thread("csv")
+    with pytest.raises(ApiError) as raised:
+        client.upload_csv(thread_id, "notes.txt", b"a\n")
+    assert raised.value.status == 415
+    with pytest.raises(ApiError) as raised:
+        client.upload_csv(thread_id, "header.csv", b"a,b\n")
+    assert raised.value.status == 422 and "zero data rows" in raised.value.detail
+    with pytest.raises(ApiError) as raised:
+        list(client.ask(thread_id, "Anything?", mode="csv"))  # no file was ever accepted
+    assert raised.value.status == 409 and "upload the file again" in raised.value.detail
+
+
+def test_a_thread_is_reserved_with_its_mode_and_a_question_carries_a_mode_only_when_given() -> None:
+    sent: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        sent.append(body)
+        if request.url.path == "/v1/threads":
+            return httpx.Response(201, json={"thread_id": "t-abc", "mode": body["mode"]})
+        return stream_of('event: done\ndata: {"answer": "x"}\n\n')
+
+    client = mocked(handler)
+    assert client.new_thread("csv") == "t-abc" and client.new_thread() == "t-abc"
+    list(client.ask("t-abc", "q"))
+    list(client.ask("t-abc", "q", mode="csv"))
+    assert sent == [
+        {"mode": "csv"},
+        {"mode": "chat"},
+        {"question": "q", "think": False},  # as before C5: no mode unless the page has one
+        {"question": "q", "think": False, "mode": "csv"},
+    ]
 
 
 def test_the_refusals_before_the_stream_are_api_errors(client: GeekbotClient) -> None:

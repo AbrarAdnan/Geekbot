@@ -37,6 +37,8 @@ from typing import Final
 
 import httpx
 
+from geekbot.fsutil import replace_file
+
 __all__ = [
     "DATASET_NAMES",
     "HEADLINE_SPLIT",
@@ -201,7 +203,7 @@ def fetch_beir(
             "damaged; nothing was unpacked."
         )
     archive = destination / f"{name}.zip"
-    part.replace(archive)
+    replace_file(part, archive)
     try:
         _extract(archive, destination)
         if not _is_extracted(folder):

@@ -11,6 +11,17 @@ streams, any other click re-runs the script and abandons the stream; the server 
 go away and forgets that turn. That is the cost of Streamlit's model; the page says so rather than
 hiding it.
 
+**CSV conversations (C5).** A blank conversation starts with a choice: the documents, or one CSV file.
+For a CSV file the page shows a file chooser and a button, and the file is sent **only from inside
+``if st.button(...)``** and the chooser is replaced (a new ``key``) once the file is loaded: the same
+two rules as the Knowledge page, for the same reason (v1 bug #1: a rerun must never repeat work). The
+server loads the table and the page shows what it found; the first question then makes the thread a
+CSV conversation for good. A saved CSV conversation is continued like a chat one. The reply is the
+package's own rendering, Markdown with the SQL that was run and a preview of its result: the server's
+output filter (G3) has removed images and outside links from it, as from every answer. What the
+*file* says about itself (its name, its columns, the loader's notes) is untrusted text and is shown
+with ``st.text``.
+
 **What is shown as what.** The answer is Markdown (the server's output filter has already removed
 images and links to places the sources do not name). Everything that came from a document, a source's
 title, path and passage, and what the user typed, is shown with ``st.text``: plain text, never
@@ -25,6 +36,7 @@ from geekbot.ui.client import ApiError, ClientError, GeekbotClient
 from geekbot.ui.display import (
     TurnView,
     assistant_message_id,
+    csv_upload_lines,
     passages_key,
     source_header,
     thread_label,
@@ -37,6 +49,12 @@ THREAD_PARAM: Final = "thread"  # the query parameter that carries the thread id
 THREAD_KEY: Final = "geekbot_thread"  # the same id in the session, for coming back from other pages
 THINK_KEY: Final = "geekbot_think"
 PASSAGES_KEY: Final = "geekbot_passages"  # {thread/message id: {n: passage}} for this session
+START_KEY: Final = "geekbot_start_with"  # the radio of a blank conversation
+CSV_LOADED_KEY: Final = "geekbot_csv_loaded"  # {thread id: the upload summary} until it is saved
+CSV_CHOOSER_KEY: Final = "geekbot_csv_chooser"  # counts uploads, to give the chooser a new key
+DOCUMENTS: Final = "My documents"
+CSV_FILE: Final = "A CSV file"
+CSV_TYPES: Final = ["csv", "tsv"]
 CURSOR: Final = " ▌"
 BUSY: Final = 409
 
@@ -52,20 +70,91 @@ def render(client: GeekbotClient) -> None:
         thread_id = _current_thread()
         _sidebar(client, thread_id)
         thread = client.thread(thread_id) if thread_id else None
-        _banner(client)
-        _history(thread_id, thread)
+        loaded = _csv_loaded(thread_id) if thread is None else None
+        csv_file = _csv_file_of(thread, loaded)
+        if thread_id is None and _start_choice() == CSV_FILE:
+            _csv_start(client)  # nothing to ask until a file is loaded
+            return
+        if csv_file is None:
+            _banner(client)
+        _history(thread_id, thread, loaded)
     except ClientError as error:
         st.error(str(error))
         return
-    if thread is not None and thread.get("mode") != "chat":
-        st.info(
-            "This conversation is about a CSV file. CSV conversations are started and read with "
-            "`geekbot csv ask`; the UI gets them in step C5."
-        )
-        return
-    question = st.chat_input("Ask about your documents")
+    prompt = f"Ask about {csv_file}" if csv_file is not None else "Ask about your documents"
+    question = st.chat_input(prompt)
     if question:
-        _ask(client, thread_id, question)
+        _ask(client, thread_id, question, csv=csv_file is not None)
+
+
+# --- CSV conversations (C5) --------------------------------------------------------------------
+
+
+def _csv_loaded(thread_id: str | None) -> dict[str, Any] | None:
+    """The upload summary of a CSV file loaded in this session into a thread not saved yet."""
+    if thread_id is None:
+        return None
+    summary = st.session_state.get(CSV_LOADED_KEY, {}).get(thread_id)
+    return summary if isinstance(summary, dict) else None
+
+
+def _csv_file_of(thread: dict[str, Any] | None, loaded: dict[str, Any] | None) -> str | None:
+    """The file name if the conversation is about a CSV file, else ``None`` (a chat conversation).
+
+    A saved thread says so itself. A thread that has a file but no answered turn is not saved on
+    the server yet, so this session's own record of the upload tells.
+    """
+    if thread is not None:
+        if thread.get("mode") != "csv":
+            return None
+        return str(thread.get("csv_file") or "the CSV file")
+    if loaded is not None:
+        return str(loaded.get("file") or "the CSV file")
+    return None
+
+
+def _start_choice() -> str:
+    """What a blank conversation will be about: the knowledge base, or one CSV file."""
+    return str(
+        st.radio(
+            "This conversation is about",
+            [DOCUMENTS, CSV_FILE],
+            key=START_KEY,
+            horizontal=True,
+            help="A CSV conversation answers numeric questions from one table and shows the SQL it "
+            "ran. It uses another model, so the first question swaps models and takes a few "
+            "seconds. The choice cannot be changed once the conversation has begun.",
+        )
+    )
+
+
+def _csv_start(client: GeekbotClient) -> None:
+    """The file chooser and its button. Nothing is sent unless the button was pressed this run."""
+    chooser = st.session_state.get(CSV_CHOOSER_KEY, 0)
+    chosen = st.file_uploader(
+        "A CSV or TSV file",
+        type=CSV_TYPES,
+        accept_multiple_files=False,
+        key=f"geekbot-csv-{chooser}",
+        help="The file is kept on the server, in its uploads folder.",
+    )
+    if st.button("Load the file", disabled=chosen is None) and chosen is not None:
+        _load_csv(client, chosen.name, chosen.getvalue())
+
+
+def _load_csv(client: GeekbotClient, name: str, data: bytes) -> None:
+    """Reserve a thread, send the file, remember what the server found, and show the thread."""
+    with st.spinner(f"Loading {name} ..."):
+        try:
+            thread_id = client.new_thread("csv")
+            summary = client.upload_csv(thread_id, name, data)
+        except ClientError as error:
+            st.error(str(error))
+            return
+    st.session_state.setdefault(CSV_LOADED_KEY, {})[thread_id] = summary
+    st.session_state[CSV_CHOOSER_KEY] = st.session_state.get(CSV_CHOOSER_KEY, 0) + 1
+    _select(thread_id)
+    st.rerun()
 
 
 # --- which conversation ----------------------------------------------------------------------
@@ -100,8 +189,9 @@ def _sidebar(client: GeekbotClient, current: str | None) -> None:
         st.toggle(
             "Think harder",
             key=THINK_KEY,
-            help="Let the model reason before it answers. Slower, and only a model with a "
-            "thinking mode can do it (the target model gemma4:12b can; gemma3:4b cannot).",
+            help="Let the model reason before it answers (document conversations only). Slower, "
+            "and only a model with a thinking mode can do it (the target model gemma4:12b can; "
+            "gemma3:4b cannot).",
         )
         st.subheader("Conversations")
         threads = client.threads()
@@ -129,6 +219,7 @@ def _delete_button(client: GeekbotClient, thread_id: str) -> None:
     except ApiError as error:
         st.error(error.detail)
         return
+    st.session_state.get(CSV_LOADED_KEY, {}).pop(thread_id, None)
     _select(None)
     st.rerun()
 
@@ -149,7 +240,14 @@ def _banner(client: GeekbotClient) -> None:
         )
 
 
-def _history(thread_id: str | None, thread: dict[str, Any] | None) -> None:
+def _history(
+    thread_id: str | None, thread: dict[str, Any] | None, loaded: dict[str, Any] | None = None
+) -> None:
+    if loaded is not None:  # a file was just loaded and nothing has been asked about it yet
+        with st.chat_message("assistant"):
+            st.text("\n".join(csv_upload_lines(loaded)))
+    elif thread is not None and thread.get("mode") == "csv":
+        st.caption(f"A conversation about {thread.get('csv_file') or 'a CSV file'}.")
     for message in (thread or {}).get("messages", []):
         with st.chat_message(message["role"]):
             if message["role"] == "user":
@@ -179,7 +277,7 @@ def _saved_sources(thread_id: str, message: dict[str, Any]) -> None:
 # --- asking ----------------------------------------------------------------------------------
 
 
-def _ask(client: GeekbotClient, thread_id: str | None, question: str) -> None:
+def _ask(client: GeekbotClient, thread_id: str | None, question: str, *, csv: bool = False) -> None:
     try:
         if thread_id is None:
             thread_id = client.new_thread()
@@ -190,7 +288,9 @@ def _ask(client: GeekbotClient, thread_id: str | None, question: str) -> None:
     with st.chat_message("user"):
         st.text(question)
     with st.chat_message("assistant"):
-        view = _stream(client, thread_id, question, think=bool(st.session_state.get(THINK_KEY)))
+        # The CSV model is not asked to reason, whatever the toggle says.
+        think = bool(st.session_state.get(THINK_KEY)) and not csv
+        view = _stream(client, thread_id, question, think=think, csv=csv)
         if view is not None and view.done is not None:
             _fresh_sources(thread_id, view.done)
             with st.expander("Details"):
@@ -198,15 +298,19 @@ def _ask(client: GeekbotClient, thread_id: str | None, question: str) -> None:
 
 
 def _stream(
-    client: GeekbotClient, thread_id: str, question: str, *, think: bool
+    client: GeekbotClient, thread_id: str, question: str, *, think: bool, csv: bool = False
 ) -> TurnView | None:
-    """Send the question and paint the answer as it arrives. ``None`` if no answer came."""
+    """Send the question and paint the answer as it arrives. ``None`` if no answer came.
+
+    A CSV question says so (``mode="csv"``): if the server has lost the conversation's file it then
+    answers 409 and says to upload it again, and does not answer from the documents instead.
+    """
     view = TurnView()
     status = st.empty()
     reasoning = _reasoning_box() if think else None
     answer = st.empty()
     try:
-        for event in client.ask(thread_id, question, think=think):
+        for event in client.ask(thread_id, question, think=think, mode="csv" if csv else None):
             view.feed(event)
             _paint(view, status, answer, reasoning)
     except ApiError as error:

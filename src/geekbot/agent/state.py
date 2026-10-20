@@ -114,7 +114,10 @@ class AgentState(TypedDict, total=False):
         str  # input only: the mode the caller asks for ("chat" or "csv"), "" if none (C4)
     )
     mode: str  # the thread's mode, fixed at its first turn (C4): "chat" or "csv"
-    csv_file: str  # CSV mode: the name of the file the thread was started on (display only)
+    # CSV mode: the file the thread was started on. The command line keeps the plain name (display
+    # only); the server keeps the name of the stored upload, "<sha16>-name.csv", so that it can open
+    # the same file again after a restart (C5, ``server.csvmode.stored_file``).
+    csv_file: str
     csv_status: str  # CSV mode: the package's verdict for this turn: answered, abstained, ...
     standalone_question: str  # what retrieval searches for: the question, or its rewrite (S3.4)
     condense_seconds: float  # how long the rewrite took (only on a follow-up)

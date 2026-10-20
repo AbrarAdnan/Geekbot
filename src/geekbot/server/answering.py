@@ -19,25 +19,38 @@ at once would both start from the same history and one would overwrite the other
 (a question that waits for a minute while the user looks at a blank screen) the second asker is
 refused at once, with HTTP 409 and a sentence saying why. A gate with one slot is also all that C5
 needs for the swap to the CSV model, which must not happen under a running chat turn.
+
+**Which model is on the GPU (C5).** CSV conversations use another model (``CsvSetup``), and the two
+never share the GPU (PLAN.md §6.5 R-2, R-4). ``ready`` says the chat model is loaded and ``csv_ready``
+that the CSV model is; at most one is true. ``ensure_ready`` and ``ensure_csv_ready`` swap explicitly
+(the other model is unloaded first, then this one is loaded) and flip both flags under one lock, so
+the first question of the other kind pays the swap (2.7 s to the CSV model, 4.5 s back, measured in
+C3 on the target models) and the next of the same kind pays nothing. The warm-up at start-up loads the
+chat model only; the CSV model is loaded when the first CSV question comes.
 """
 
 import logging
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 from geekbot.agent.condense import CondenseOutput
-from geekbot.agent.runtime import AgentContext
+from geekbot.agent.runtime import (
+    AgentContext,
+    CsvTool,
+    UnavailableChat,
+    UnavailableRetriever,
+)
 from geekbot.config import Settings
 from geekbot.index.workspace import Workspace
-from geekbot.llm.chat import ChatModel, make_chat_model, make_structured_model
+from geekbot.llm.chat import ChatModel, StructuredChat, make_chat_model, make_structured_model
 from geekbot.llm.models import OllamaClient, swap_to_mode
 from geekbot.retrieval import SearchMode
 from geekbot.retrieval.factory import build_retriever, citation_scorer_of
 from geekbot.retrieval.rerank import PassageScorer
 
-__all__ = ["Answering", "TurnGate", "open_chat_answering"]
+__all__ = ["Answering", "CsvSetup", "TurnGate", "open_chat_answering"]
 
 log = logging.getLogger(__name__)
 
@@ -46,13 +59,26 @@ _WARM_TEXT = (
 )
 
 
+@dataclass(frozen=True)
+class CsvSetup:
+    """What the server needs to answer CSV questions (step C5): the CSV model, the model call that
+    rewrites a follow-up (it must use the CSV model, the one on the GPU, with the context size it was
+    loaded with: R-2), and the swap that loads the CSV model."""
+
+    model: str
+    condenser: StructuredChat | None
+    load: Callable[[], float]
+
+
 class Answering:
     """The server's answering tools: the graph context, a way to make the chat model, a warm-up.
 
     ``context`` is the context of an ordinary turn (thinking off). ``context_for(think=True)`` is the
     same with a chat model built to reason, for the "think harder" toggle of PLAN.md §6.5.
     ``ensure_ready`` runs the warm-up once (it blocks for seconds: call it from a worker thread) and
-    ``ready`` says whether it has run.
+    ``ready`` says whether it has run. ``csv`` (C5) is the CSV side: ``None`` when the server has no
+    CSV model set up; ``csv_context`` makes the graph context of a CSV turn and ``ensure_csv_ready``
+    swaps the GPU to the CSV model (the module docstring says how the two flags work together).
     """
 
     def __init__(
@@ -61,12 +87,15 @@ class Answering:
         *,
         make_llm: Callable[[bool], ChatModel],
         load: Callable[[], float],
+        csv: CsvSetup | None = None,
     ) -> None:
         self.context = context
         self._make_llm = make_llm
         self._load = load
+        self.csv = csv
         self._lock = threading.Lock()
         self.ready = False
+        self.csv_ready = False
 
     @property
     def model(self) -> str:
@@ -77,13 +106,48 @@ class Answering:
         """The graph context for one turn: the shared one, or with a reasoning chat model."""
         return replace(self.context, llm=self._make_llm(True)) if think else self.context
 
+    def csv_context(self, analyst: CsvTool) -> AgentContext:
+        """The graph context of a CSV turn: no knowledge base, no chat model, the loaded CSV.
+
+        What a CSV run must not have is replaced by objects that refuse to be used (the same ones the
+        command line passes), so a bug that reached for the retriever would fail loudly instead of
+        answering from documents in a CSV conversation. ``top_k`` is unused. The citation scorer is
+        dropped: a CSV answer has no sources to check.
+        """
+        if self.csv is None:
+            raise RuntimeError("this server has no CSV model set up")
+        return replace(
+            self.context,
+            retriever=UnavailableRetriever(),
+            llm=UnavailableChat(),
+            model=self.csv.model,
+            top_k=1,
+            condenser=self.csv.condenser,
+            csv=analyst,
+            citation_scorer=None,
+        )
+
     def ensure_ready(self) -> float:
-        """Load the models if that has not happened yet; return the seconds it took (0 if ready)."""
+        """Load the chat model if it is not the one on the GPU; return the seconds it took (0 if it
+        is). The swap unloads the CSV model first, and the two flags change together."""
         with self._lock:
             if self.ready:
                 return 0.0
             seconds = self._load()
             self.ready = True
+            self.csv_ready = False
+            return seconds
+
+    def ensure_csv_ready(self) -> float:
+        """Like ``ensure_ready``, for the CSV model: swap the GPU to it if it is not there."""
+        if self.csv is None:
+            raise RuntimeError("this server has no CSV model set up")
+        with self._lock:
+            if self.csv_ready:
+                return 0.0
+            seconds = self.csv.load()
+            self.csv_ready = True
+            self.ready = False
             return seconds
 
 
@@ -140,6 +204,20 @@ def _loader(settings: Settings, scorer: PassageScorer | None) -> Callable[[], fl
     return load
 
 
+def _csv_loader(settings: Settings) -> Callable[[], float]:
+    """The swap to the CSV model: unload the chat model, then load this one with its own context."""
+
+    def load() -> float:
+        started = time.perf_counter()
+        with OllamaClient(settings.ollama_host) as client:
+            swap = swap_to_mode(client, settings, "csv")
+        released = f", unloaded {', '.join(swap.unloaded)}" if swap.unloaded else ""
+        log.info("%s loaded in %.1f s%s", settings.resolved_csv_model, swap.warm_up_s, released)
+        return time.perf_counter() - started
+
+    return load
+
+
 def open_chat_answering(
     settings: Settings, workspace: Workspace, *, warm_up: bool = True
 ) -> Answering:
@@ -165,10 +243,22 @@ def open_chat_answering(
         citation_scorer=scorer,
         citation_weak_below=settings.cite_weak_below,
     )
+    csv_model = settings.resolved_csv_model
     answering = Answering(
         context,
         make_llm=lambda think: make_chat_model(settings, think=think),
         load=_loader(settings, scorer),
+        csv=CsvSetup(
+            model=csv_model,
+            condenser=make_structured_model(
+                settings,
+                CondenseOutput,
+                num_predict=settings.condense_num_predict,
+                model=csv_model,
+                num_ctx=settings.csv_num_ctx,
+            ),
+            load=_csv_loader(settings),
+        ),
     )
     if warm_up:
         seconds = answering.ensure_ready()
