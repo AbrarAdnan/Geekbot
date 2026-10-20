@@ -1,5 +1,7 @@
 """Tests for step S0.2: the Typer CLI. Stub commands must say which step builds them."""
 
+import re
+
 import pytest
 import typer
 from typer.testing import CliRunner
@@ -33,6 +35,8 @@ def test_serve_has_no_host_or_workers_option() -> None:
     """PLAN §6.2: one process, this machine only; the command offers no way around that."""
     result = runner.invoke(app, ["serve", "--help"])
     assert result.exit_code == 0
-    assert "--port" in result.output
-    assert "--workers" not in result.output
-    assert "--host" not in result.output
+    # CI turns colours on, and the colour codes split an option name into styled pieces.
+    text = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "--port" in text
+    assert "--workers" not in text
+    assert "--host" not in text
