@@ -165,9 +165,72 @@ def test_after_a_turn_the_thread_remembers_the_question_the_answer_and_their_lab
             "role": "assistant",
             "content": "Ninety days [1].",
             "labels": ["KB", "USER"],
+            # S4.2: an answer keeps the sources it was built from, and the marks it cites.
+            "cited": [1],
+            "sources": [
+                {
+                    "n": n,
+                    "chunk_id": f"chunk{n}",
+                    "title": "Handbook",
+                    "path": "/docs/handbook.md",
+                    "page": None,
+                    "section": "",
+                }
+                for n in (1, 2)
+            ],
         },
     ]
     assert final["thread_taint"] == ["KB", "USER"]
+
+
+def test_the_sources_of_an_answer_are_still_there_after_the_thread_is_read_back(
+    tmp_path: Path,
+) -> None:
+    """Citations persist (Gate A): a later turn replaces the state's sources, the history keeps them."""
+    setup = Setup(tmp_path)
+    setup.ask(Q1)
+    setup.retriever.chunks = (scored(1, "Backups are kept for 30 days."),)
+    final = setup.ask(Q2)
+    assert [s["chunk_id"] for s in final["sources"]] == ["chunk1"]  # the state holds this turn's
+    saved = asyncio.run(read_thread(setup.db, "t1"))
+    assert saved is not None
+    first, second = (m for m in saved["history"] if m["role"] == "assistant")
+    assert [s["n"] for s in first["sources"]] == [1, 2]  # and the first answer still has its own
+    assert [s["n"] for s in second["sources"]] == [1]
+    assert "text" not in first["sources"][0]  # references only, never the passages
+
+
+def test_an_answer_without_sources_keeps_neither_key(tmp_path: Path) -> None:
+    setup = Setup(tmp_path)
+    setup.ask(Q1)
+    setup.retriever.chunks = ()
+    final = setup.ask(Q2)
+    assert "sources" not in final["history"][-1]
+    assert "cited" not in final["history"][-1]
+    assert "sources" not in final["history"][0]  # a user message never has them
+
+
+def test_remember_stores_only_the_sources_the_prompt_held() -> None:
+    sources: Any = [
+        {
+            "n": n,
+            "chunk_id": f"c{n}",
+            "title": "T",
+            "path": "/p",
+            "page": 3,
+            "section": "S",
+            "text": "secret passage",
+            "score": 0.5,
+        }
+        for n in (1, 2, 3)
+    ]
+    state: Any = {"question": "q", "answer": "a [2]", "used": 2, "cited": [2], "sources": sources}
+    stored = remember(state, runtime())["history"][1]
+    assert stored["cited"] == [2]
+    assert stored["sources"] == [
+        {"n": n, "chunk_id": f"c{n}", "title": "T", "path": "/p", "page": 3, "section": "S"}
+        for n in (1, 2)
+    ]  # the third source never reached the model; the passage text is not kept
 
 
 def test_a_follow_up_is_rewritten_and_retrieval_searches_for_the_rewrite(tmp_path: Path) -> None:

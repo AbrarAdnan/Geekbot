@@ -32,6 +32,7 @@ from geekbot.agent.state import (
     AgentState,
     CitationScore,
     HistoryMessage,
+    HistorySource,
     SourceRef,
     StreamEvent,
 )
@@ -435,6 +436,13 @@ def remember(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any
     for ever; forgetting a message does **not** forget its taint: ``thread_taint`` is the union of
     every label the thread has ever carried and only grows (PLAN.md §8.2: monotonic, no
     declassification, so a thread cannot be cleaned by letting a tainted answer scroll away).
+
+    **Citations persist (S4.2).** An answer that was built from sources keeps them: the references of
+    the sources the prompt held (``used`` of them, numbered as the model saw them) and the ``[n]``
+    marks its text still cites. Without that, a thread read back after a reload would show ``[1]``
+    marks pointing at nothing, because the state's own ``sources`` are replaced by the next turn.
+    The references carry no chunk text (see ``HistorySource``). A turn without sources (nothing
+    found, a CSV answer) stores neither key.
     """
     turn = state.get("turn", 0) + 1
     labels = sorted(set(state.get("answer_labels", [])))
@@ -444,6 +452,20 @@ def remember(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any
     answered = HistoryMessage(
         id=f"t{turn}-assistant", role="assistant", content=state["answer"], labels=labels
     )
+    used = int(state.get("used", 0))
+    if used:
+        answered["cited"] = [int(n) for n in state.get("cited", [])]
+        answered["sources"] = [
+            HistorySource(
+                n=source["n"],
+                chunk_id=source["chunk_id"],
+                title=source["title"],
+                path=source["path"],
+                page=source["page"],
+                section=source["section"],
+            )
+            for source in state.get("sources", [])[:used]
+        ]
     kept = [*state.get("history", []), asked, answered]
     keep = max(2, runtime.context.history_keep_messages)
     kept = kept[-(keep - keep % 2) :]  # whole turns: an even number of messages

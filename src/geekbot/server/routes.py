@@ -6,9 +6,10 @@ thread (``anyio.to_thread.run_sync``); the handlers themselves only await and bu
 it becomes a job (``jobs.py``), so there is exactly one writer at a time and the request returns at
 once with HTTP 202.
 
-Not here yet: threads and streamed answers (S4.2), the path allowlist, upload limits and the API
-key (S4.3). Until S4.3 the ingest route accepts any path that exists on this machine; the server
-listens on 127.0.0.1 only (``app.HOST``), so only a program on this PC can ask.
+Threads and streamed answers are in ``threads.py`` (S4.2); the dependency helpers below are shared by
+both modules. Not here yet: the path allowlist, upload limits and the API key (S4.3). Until S4.3 the
+ingest route accepts any path that exists on this machine; the server listens on 127.0.0.1 only
+(``app.HOST``), so only a program on this PC can ask.
 """
 
 from collections import Counter
@@ -19,9 +20,11 @@ from typing import Annotated, Any
 import anyio.to_thread
 from fastapi import APIRouter, Depends, HTTPException, Request
 
+from geekbot.config import Settings
 from geekbot.domain import DocState
 from geekbot.index.workspace import Workspace
 from geekbot.ingest.pipeline import FileOutcome, Ingestor, collect_files
+from geekbot.server.answering import Answering, TurnGate
 from geekbot.server.jobs import Job, JobQueue, QueueFullError
 from geekbot.server.schemas import (
     DocumentOut,
@@ -48,8 +51,29 @@ def jobs_of(request: Request) -> JobQueue:
     return jobs
 
 
+def settings_of(request: Request) -> Settings:
+    """The settings the server was started with, kept on the application by the lifespan."""
+    settings: Settings = request.app.state.settings
+    return settings
+
+
+def answering_of(request: Request) -> Answering:
+    """The answering tools built at start-up (S4.2), kept on the application by the lifespan."""
+    answering: Answering = request.app.state.answering
+    return answering
+
+
+def gate_of(request: Request) -> TurnGate:
+    """The one-question-at-a-time gate (S4.2), kept on the application by the lifespan."""
+    gate: TurnGate = request.app.state.gate
+    return gate
+
+
 WorkspaceDep = Annotated[Workspace, Depends(workspace_of)]
 JobsDep = Annotated[JobQueue, Depends(jobs_of)]
+SettingsDep = Annotated[Settings, Depends(settings_of)]
+AnsweringDep = Annotated[Answering, Depends(answering_of)]
+GateDep = Annotated[TurnGate, Depends(gate_of)]
 
 
 # --- health ----------------------------------------------------------------------------------
@@ -69,8 +93,10 @@ async def healthz() -> HealthOut:
 
 
 @router.get("/v1/health")
-async def readiness(workspace: WorkspaceDep, jobs: JobsDep) -> ReadyOut:
-    """Readiness: what the storage holds and how busy the server is."""
+async def readiness(
+    workspace: WorkspaceDep, jobs: JobsDep, answering: AnsweringDep, gate: GateDep
+) -> ReadyOut:
+    """Readiness: what the storage holds, whether the chat model is loaded, what is running."""
 
     def read() -> tuple[Counter[str], int, int]:
         states = Counter[str](document.state for document in workspace.store.list_documents())
@@ -85,6 +111,9 @@ async def readiness(workspace: WorkspaceDep, jobs: JobsDep) -> ReadyOut:
         vectors=vectors,
         embedder=workspace.embedder.spec.model,
         jobs_active=jobs.active,
+        chat_model=answering.model,
+        chat_ready=answering.ready,
+        answering=gate.busy,
     )
 
 
