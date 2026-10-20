@@ -275,6 +275,26 @@ def swap_to(
     return SwapResult(loaded=model, unloaded=unloaded, unload_s=unload_s, warm_up_s=warm_up_s)
 
 
+def find_chat_problem(
+    settings: Settings, *, transport: httpx.BaseTransport | None = None
+) -> str | None:
+    """Why the chat model cannot be used right now (Ollama down, model not pulled), or ``None``.
+
+    The server asks this before it starts (step S4.2): the same two mistakes would otherwise surface
+    as a traceback from inside the start-up of the web server. One clear line up front is kinder.
+    It loads nothing, so it is cheap and does not touch the GPU.
+    """
+    model = settings.resolved_chat_model
+    try:
+        with OllamaClient(settings.ollama_host, transport=transport) as client:
+            available = client.list_models()
+    except OllamaError as error:
+        return f"cannot reach Ollama at {settings.ollama_host}: {error}"
+    if not model_is_pulled(model, available):
+        return f"the chat model {model} is not pulled: run `ollama pull {model}`"
+    return None
+
+
 def swap_to_mode(
     client: SwapClient, settings: Settings, mode: Mode, *, patience: Patience | None = None
 ) -> SwapResult:

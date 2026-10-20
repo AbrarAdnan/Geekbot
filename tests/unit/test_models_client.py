@@ -5,7 +5,8 @@ import json
 import httpx
 import pytest
 
-from geekbot.llm.models import OllamaClient, OllamaError, model_is_pulled
+from geekbot.config import Settings
+from geekbot.llm.models import OllamaClient, OllamaError, find_chat_problem, model_is_pulled
 
 
 def _client(handler: httpx.MockTransport) -> OllamaClient:
@@ -100,3 +101,45 @@ def test_loaded_models_without_a_list_is_an_ollama_error() -> None:
     transport = httpx.MockTransport(lambda _: httpx.Response(200, json={"models": "none"}))
     with _client(transport) as client, pytest.raises(OllamaError, match="/api/ps"):
         client.loaded_models()
+
+
+# --- find_chat_problem (step S4.2: `geekbot serve` asks before it starts) -----------------------
+
+
+def _ollama_with_models(*names: str) -> httpx.MockTransport:
+    return httpx.MockTransport(
+        lambda _: httpx.Response(200, json={"models": [{"name": name} for name in names]})
+    )
+
+
+def test_no_chat_problem_when_ollama_has_the_chat_model() -> None:
+    settings = Settings(_env_file=None)
+    transport = _ollama_with_models(settings.resolved_chat_model, "nomic-embed-text:latest")
+    assert find_chat_problem(settings, transport=transport) is None
+
+
+def test_the_chat_problem_names_the_model_and_the_command_that_fixes_it() -> None:
+    settings = Settings(_env_file=None)
+    problem = find_chat_problem(settings, transport=_ollama_with_models("qwen2.5-coder:3b"))
+    assert problem == (
+        f"the chat model {settings.resolved_chat_model} is not pulled: "
+        f"run `ollama pull {settings.resolved_chat_model}`"
+    )
+
+
+def test_the_chat_problem_follows_the_profile_and_the_override() -> None:
+    target = Settings(_env_file=None, profile="target")
+    assert target.resolved_chat_model == "gemma4:12b"
+    problem = find_chat_problem(target, transport=_ollama_with_models("gemma3:4b"))
+    assert problem is not None and "gemma4:12b" in problem
+    override = Settings(_env_file=None, chat_model="custom:7b")
+    assert find_chat_problem(override, transport=_ollama_with_models("custom:7b")) is None
+
+
+def test_the_chat_problem_says_when_ollama_cannot_be_reached() -> None:
+    def refuse(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused", request=request)
+
+    problem = find_chat_problem(Settings(_env_file=None), transport=httpx.MockTransport(refuse))
+    assert problem is not None
+    assert "cannot reach Ollama at http://127.0.0.1:11434" in problem

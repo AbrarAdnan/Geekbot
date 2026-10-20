@@ -17,74 +17,20 @@ from typing import Any
 
 import httpx
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from serverkit import make_app, wait_for, write_note
 
-from geekbot.config import Settings
-from geekbot.index.embedder import EmbedderSpec, PrefixedEmbeddings
 from geekbot.index.lock import StorageLockedError
-from geekbot.index.workspace import Workspace
-from geekbot.server import HOST, create_app
+from geekbot.server import HOST
 from geekbot.server.jobs import Job, JobQueue, QueueFullError
 
 pytestmark = pytest.mark.usefixtures("clean_geekbot_env")
-
-DIM = 4
-SPEC = EmbedderSpec(
-    model="fake",
-    digest="d1",
-    document_prefix="doc: ",
-    query_prefix="q: ",
-    dimension=DIM,
-    with_header=True,
-)
-
-
-class FixedEmbeddings:
-    """Four numbers per text, derived from its length: enough for a real index, no model."""
-
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        return [self.embed_query(t) for t in texts]
-
-    def embed_query(self, text: str) -> list[float]:
-        n = float(len(text) % 7 + 1)
-        return [n, 1.0, 0.5, 0.25]
-
-
-def open_fake_workspace(settings: Settings) -> Workspace:
-    embeddings = PrefixedEmbeddings(FixedEmbeddings(), document_prefix="doc: ", query_prefix="q: ")
-    return Workspace.open(settings, embeddings=embeddings, spec=SPEC)
-
-
-def settings_for(root: Path) -> Settings:
-    return Settings(_env_file=None, data_dir=root / "data")
-
-
-def make_app(root: Path) -> FastAPI:
-    return create_app(settings_for(root), open_workspace=open_fake_workspace)
 
 
 @pytest.fixture
 def client(tmp_path: Path) -> Iterator[TestClient]:
     with TestClient(make_app(tmp_path)) as opened:
         yield opened
-
-
-def wait_for(client: TestClient, job_id: str, timeout_s: float = 20.0) -> dict[str, Any]:
-    """Poll a job until it has finished."""
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
-        job: dict[str, Any] = client.get(f"/v1/jobs/{job_id}").json()
-        if job["state"] in ("done", "failed"):
-            return job
-        time.sleep(0.02)
-    raise AssertionError(f"job {job_id} did not finish in {timeout_s} s")
-
-
-def write_note(root: Path, name: str = "zebras.txt") -> Path:
-    path = root / name
-    path.write_text("Zebras live on the savanna.\n\nTheir stripes are unique.\n", encoding="utf-8")
-    return path
 
 
 # --- the job queue ---------------------------------------------------------------------------
@@ -204,6 +150,9 @@ def test_readiness_on_an_empty_store(client: TestClient) -> None:
         "vectors": 0,
         "embedder": "fake",
         "jobs_active": 0,
+        "chat_model": "fake-model:1b",  # S4.2: the answering tools are part of readiness
+        "chat_ready": True,
+        "answering": False,
     }
 
 

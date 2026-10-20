@@ -11,9 +11,16 @@ A node returns only the keys it changes, and LangGraph merges them into the stat
 has written yet is simply absent, which is why the state class is ``total=False``.
 """
 
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
-__all__ = ["AgentState", "CitationScore", "HistoryMessage", "SourceRef", "StreamEvent"]
+__all__ = [
+    "AgentState",
+    "CitationScore",
+    "HistoryMessage",
+    "HistorySource",
+    "SourceRef",
+    "StreamEvent",
+]
 
 
 class CitationScore(TypedDict):
@@ -50,6 +57,23 @@ class SourceRef(TypedDict):
     score: float
 
 
+class HistorySource(TypedDict):
+    """A source an earlier answer was built from, kept with that answer (step S4.2).
+
+    Only the reference, not the chunk's text: a thread keeps up to 40 messages and the checkpoint is
+    rewritten after every step, so the text of five chunks per answer would be copied again and again.
+    The reference is enough to show *where* an answer came from after a reload ("citations persist",
+    Gate A); ``chunk_id`` is there so a later route can fetch the text if the UI wants it.
+    """
+
+    n: int  # the number the answer's [n] mark means
+    chunk_id: str
+    title: str
+    path: str
+    page: int | None
+    section: str
+
+
 class HistoryMessage(TypedDict):
     """One message of the conversation so far, as plain data (step S3.4, PLAN.md §8.2).
 
@@ -58,12 +82,20 @@ class HistoryMessage(TypedDict):
     produced it (``["KB", "USER"]`` for an answer built from documents; none for the application's
     own "nothing found" sentence). The labels live next to the text they describe, never on a
     string, so they survive being saved and loaded again.
+
+    An assistant message that was built from sources also carries ``sources`` (the ones the prompt
+    held, numbered as the model saw them) and ``cited`` (the numbers its text still cites after the
+    citation check), so a thread read back later can show what each answer rested on (S4.2). The
+    two keys are absent on user messages, on "nothing found" answers, on CSV answers, and on every
+    message a thread saved before S4.2.
     """
 
     id: str  # "t<turn>-user" / "t<turn>-assistant"
     role: Literal["user", "assistant"]
     content: str
     labels: list[str]
+    cited: NotRequired[list[int]]
+    sources: NotRequired[list[HistorySource]]
 
 
 class AgentState(TypedDict, total=False):

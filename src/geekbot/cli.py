@@ -29,7 +29,7 @@ from geekbot.evals import (
     DEFAULT_TIME_LIMIT_S,
     SUITE_NAMES,
 )
-from geekbot.llm.models import OllamaClient, OllamaError, model_is_pulled
+from geekbot.llm.models import OllamaClient, OllamaError, find_chat_problem, model_is_pulled
 from geekbot.llm.vram import (
     NVIDIA_SMI_MEMORY_COMMAND,
     OLLAMA_PS_COMMAND,
@@ -1261,12 +1261,23 @@ def serve(
         int | None,
         typer.Option("--port", min=1, max=65535, help="Port to listen on (default: 8000)."),
     ] = None,
+    no_warmup: Annotated[
+        bool,
+        typer.Option(
+            "--no-warmup",
+            help="Do not load the chat model (onto the GPU) and the reranker when the server "
+            "starts: the first question loads them and waits. Use it while another program, such "
+            "as the CSV project, is using the GPU.",
+        ),
+    ] = False,
 ) -> None:
     """Start the API server on 127.0.0.1: the one process that owns the storage.
 
     It takes the storage lock before it listens, so a second server (or an `ingest` running at
     the same time) is refused. It takes no worker-count or host option: one process, this
-    machine only (PLAN.md §6.2; the outside-facing questions are S4.3's).
+    machine only (PLAN.md §6.2; the outside-facing questions are S4.3's). Unless --no-warmup is
+    given, the chat model is loaded onto the GPU (the other mode's model is unloaded first) and
+    the reranker onto the CPU before the server starts listening, so no question waits for a load.
     """
     # Imported here: FastAPI, Chroma and LangGraph are slow to import (see `ingest`).
     import uvicorn
@@ -1275,9 +1286,26 @@ def serve(
 
     settings = Settings()
     setup_logging(settings.log_level)
+    problem = find_chat_problem(settings)  # one line here, not a traceback from inside start-up
+    if problem is not None:
+        _fail(problem)
     listen_on = port or settings.server_port
     typer.echo(f"Geekbot API on http://{HOST}:{listen_on} (Ctrl+C to stop)", err=True)
-    uvicorn.run(create_app(settings), host=HOST, port=listen_on, workers=1, log_level="warning")
+    if no_warmup:
+        typer.echo("no warm-up: the first question loads the models and waits", err=True)
+    else:
+        typer.echo(
+            f"loading {settings.resolved_chat_model} and the reranker first; the server listens "
+            "when they are ready",
+            err=True,
+        )
+    uvicorn.run(
+        create_app(settings, warm_up=not no_warmup),
+        host=HOST,
+        port=listen_on,
+        workers=1,
+        log_level="warning",
+    )
 
 
 CsvFile = Annotated[

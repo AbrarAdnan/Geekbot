@@ -126,6 +126,9 @@ class Settings(BaseSettings):
     # -4), not a measurement; the check only reports, it never changes an answer.
     cite_weak_below: float = -3.0
     context_budget_tokens: int = Field(default=3000, gt=0)
+    # How many chunks the server's answer route asks retrieval for (step S4.2); `geekbot ask --top-k`
+    # has the same default. A starting point, not a measurement.
+    answer_top_k: int = Field(default=5, ge=1, le=20)
     # Conversation memory (step S3.4). The share of the prompt the earlier turns may take (whole
     # turns, newest first), how many messages a thread keeps, and the cap on the one model call that
     # rewrites a follow-up into a standalone question (PLAN §6.5: 96 tokens). Starting points, not
