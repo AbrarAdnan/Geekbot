@@ -5,6 +5,7 @@ from pathlib import Path
 from pypdf import PasswordType, PdfReader
 
 from geekbot.ingest.loaders.common import clean_text
+from geekbot.ingest.loaders.limits import check_page_limit
 from geekbot.ingest.loaders.model import LoadedDocument, LoadError, Segment
 
 
@@ -22,6 +23,7 @@ def load_pdf(path: Path) -> LoadedDocument:
     reader = PdfReader(path)
     if reader.is_encrypted and reader.decrypt("") == PasswordType.NOT_DECRYPTED:
         raise LoadError("the PDF is password-protected")
+    check_page_limit(len(reader.pages))  # before any page is read (S4.3)
     segments = []
     for number, page in enumerate(reader.pages, start=1):
         text = clean_text(page.extract_text())

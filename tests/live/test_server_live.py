@@ -6,7 +6,8 @@ the storage, loads the chat model onto the **GPU** and the reranker on the CPU),
 Gigalogy is not using the GPU: ``pytest -m live -s tests/live/test_server_live.py``. Deselected by
 default.
 
-The knowledge base is three one-sentence documents in a temporary folder, ingested through the API.
+The knowledge base is three one-sentence documents in a temporary folder, ingested through the API
+(the folder is the one allowed root, and every request carries the API key: step S4.3).
 The reranker's weights are copied from your own ``data/models`` if that folder exists (so nothing is
 downloaded); otherwise the first start-up downloads them once (about 87 MB). **This is a plumbing
 check, not a quality result and not an SLO measurement:** it shows that the pieces fit together on the
@@ -25,6 +26,7 @@ from serverkit import wait_for
 
 from geekbot.config import Settings
 from geekbot.server import create_app
+from geekbot.server.security import Perimeter
 from geekbot.sse import parse_text
 
 CORPUS = {
@@ -53,11 +55,16 @@ def server(tmp_path: Path) -> Iterator[TestClient]:
     docs.mkdir()
     for name, text in CORPUS.items():
         (docs / name).write_text(text, encoding="utf-8")
-    settings = Settings(data_dir=tmp_path / "data")
+    settings = Settings(data_dir=tmp_path / "data", allowed_roots=str(docs))
     models = Path("data") / "models"
     if models.is_dir():
         shutil.copytree(models, settings.data_dir / "models")
-    with TestClient(create_app(settings)) as client:
+    # S4.3: the real perimeter, as `geekbot serve` builds it (a key is required, made in the
+    # temporary data folder), so the live test goes through the same checks as the UI will.
+    perimeter = Perimeter.from_settings(settings)
+    headers = {"Authorization": f"Bearer {perimeter.api_key}"}
+    app = create_app(settings, perimeter=perimeter)
+    with TestClient(app, base_url="http://127.0.0.1:8000", headers=headers) as client:
         accepted = client.post("/v1/kb/ingest", json={"paths": [str(docs)]})
         assert accepted.status_code == 202
         job = wait_for(client, accepted.json()["id"], timeout_s=120)

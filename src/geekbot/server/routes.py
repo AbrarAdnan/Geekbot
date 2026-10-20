@@ -1,4 +1,4 @@
-"""The HTTP routes of step S4.1: health, the knowledge base, and jobs.
+"""The HTTP routes of steps S4.1 and S4.3: health, the knowledge base, and jobs.
 
 Every route that touches SQLite, Chroma or the file system hands the blocking call to a worker
 thread (``anyio.to_thread.run_sync``); the handlers themselves only await and build responses
@@ -7,9 +7,15 @@ it becomes a job (``jobs.py``), so there is exactly one writer at a time and the
 once with HTTP 202.
 
 Threads and streamed answers are in ``threads.py`` (S4.2); the dependency helpers below are shared by
-both modules. Not here yet: the path allowlist, upload limits and the API key (S4.3). Until S4.3 the
-ingest route accepts any path that exists on this machine; the server listens on 127.0.0.1 only
-(``app.HOST``), so only a program on this PC can ask.
+both modules.
+
+**What the knowledge-base routes may read (S4.3).** A client never gets a path to read from the
+server's disk unless the user opened that folder: ``/v1/kb/ingest`` takes full paths that must pass
+``security.PathPolicy`` (inside ``GEEKBOT_ALLOWED_ROOTS`` or the uploads folder, never the data
+folder, no network paths, no escape through a link), and every file a folder walk finds is checked
+again. ``/v1/kb/upload`` is the way in that needs no folder: the client sends the bytes. Who may call
+at all (the API key, the Host check, the body-size caps) is the middleware in ``security.py``, in
+front of every route here.
 """
 
 from collections import Counter
@@ -18,11 +24,12 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import anyio.to_thread
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from geekbot.config import Settings
 from geekbot.domain import DocState
 from geekbot.index.workspace import Workspace
+from geekbot.ingest.loaders import SUPPORTED_EXTENSIONS
 from geekbot.ingest.pipeline import FileOutcome, Ingestor, collect_files
 from geekbot.server.answering import Answering, TurnGate
 from geekbot.server.jobs import Job, JobQueue, QueueFullError
@@ -32,7 +39,16 @@ from geekbot.server.schemas import (
     IngestRequest,
     JobOut,
     ReadyOut,
+    UploadOut,
 )
+from geekbot.server.security import (
+    MAX_REFUSED_LISTED,
+    UPLOADS_DIR,
+    PathNotAllowedError,
+    PathPolicy,
+    Perimeter,
+)
+from geekbot.server.uploads import UploadError, save_upload
 
 __all__ = ["router"]
 
@@ -69,11 +85,18 @@ def gate_of(request: Request) -> TurnGate:
     return gate
 
 
+def perimeter_of(request: Request) -> Perimeter:
+    """The perimeter (S4.3): the path policy and the upload cap, kept on the application."""
+    perimeter: Perimeter = request.app.state.perimeter
+    return perimeter
+
+
 WorkspaceDep = Annotated[Workspace, Depends(workspace_of)]
 JobsDep = Annotated[JobQueue, Depends(jobs_of)]
 SettingsDep = Annotated[Settings, Depends(settings_of)]
 AnsweringDep = Annotated[Answering, Depends(answering_of)]
 GateDep = Annotated[TurnGate, Depends(gate_of)]
+PerimeterDep = Annotated[Perimeter, Depends(perimeter_of)]
 
 
 # --- health ----------------------------------------------------------------------------------
@@ -87,7 +110,8 @@ async def healthz() -> HealthOut:
     storage, no model, no ``await`` on anything slow. That is the whole point of the route: the
     heartbeat test (§6.3) calls it while an ingest and an answer run, and if any blocking call
     sneaks onto the event loop, this is the route whose latency shows it. A readiness check that
-    reads the storage is ``/v1/health``.
+    reads the storage is ``/v1/health``. It is also the one route that asks for no API key
+    (``security.PUBLIC_PATHS``), so the UI can tell that the server is up before it sends anything.
     """
     return HealthOut()
 
@@ -130,27 +154,54 @@ async def list_documents(
 
 
 @router.post("/v1/kb/ingest", status_code=202)
-async def ingest(body: IngestRequest, workspace: WorkspaceDep, jobs: JobsDep) -> JobOut:
-    """Queue an ingest of these files or folders; poll ``/v1/jobs/{id}`` for the outcome."""
-    paths = [Path(text) for text in body.paths]
-    missing = await anyio.to_thread.run_sync(_missing, paths)
-    if missing:
-        raise HTTPException(status_code=422, detail=f"not found on this machine: {missing}")
+async def ingest(
+    body: IngestRequest, workspace: WorkspaceDep, jobs: JobsDep, perimeter: PerimeterDep
+) -> JobOut:
+    """Queue an ingest of these files or folders; poll ``/v1/jobs/{id}`` for the outcome.
 
-    def work(job: Job) -> dict[str, Any]:
-        files, unsupported = collect_files(paths)
-        ingestor = Ingestor(
-            workspace.store, workspace.dense, workspace.embedder, workers=body.workers
+    Each path must be a full path inside a folder the server may read (see the module docstring):
+    403 for a path that is not allowed, 422 for text that is not a path or a path that does not exist.
+    Nothing is queued unless every path passes. The documents are stored under their *real* paths
+    (links resolved), which is what was checked and so what is read.
+    """
+    paths = await anyio.to_thread.run_sync(_admit, perimeter.paths, body.paths)
+    return _submit(jobs, "ingest", _ingest_work(workspace, perimeter.paths, paths, body.workers))
+
+
+@router.post("/v1/kb/upload", status_code=202)
+async def upload(
+    request: Request,
+    filename: Annotated[str, Query(min_length=1, max_length=255)],
+    settings: SettingsDep,
+    workspace: WorkspaceDep,
+    jobs: JobsDep,
+    perimeter: PerimeterDep,
+) -> UploadOut:
+    """Receive one file as the raw request body, save it, and queue its ingest.
+
+    ``filename`` says what the file is called and what type it is; only the name's last part and its
+    extension are used (``uploads.safe_upload_name``). The file is kept in the uploads folder as
+    ``<sha16>-<safe name>``. 415 for a type the loaders do not read, 413 over the size cap, 422 for an
+    empty body. If the job queue is full the file stays saved and the answer is 429: send it again.
+    """
+    try:
+        stored = await save_upload(
+            request.stream(),
+            filename=filename,
+            directory=settings.data_dir / UPLOADS_DIR,
+            max_bytes=perimeter.max_upload_bytes,
+            suffixes=SUPPORTED_EXTENSIONS,
         )
-        report = ingestor.ingest(files, on_file=lambda outcome: job.progress.append(_row(outcome)))
-        return {
-            "summary": report.summary(),
-            "failed": report.has_failures,
-            "unsupported": [str(path) for path in unsupported],
-            "files": [_row(outcome) for outcome in report.outcomes],
-        }
-
-    return _submit(jobs, "ingest", work)
+    except UploadError as error:
+        raise HTTPException(status_code=error.status, detail=str(error)) from error
+    job = _submit(jobs, "ingest", _ingest_work(workspace, perimeter.paths, [stored.path], 1))
+    return UploadOut(
+        job=job,
+        stored_as=stored.path.name,
+        sha256=stored.sha256,
+        size_bytes=stored.size,
+        existed=stored.existed,
+    )
 
 
 @router.delete("/v1/kb/documents/{doc_id}", status_code=202)
@@ -195,8 +246,57 @@ def _submit(jobs: JobQueue, kind: str, work: Callable[[Job], dict[str, Any]]) ->
         raise HTTPException(status_code=429, detail=str(error)) from error
 
 
-def _missing(paths: list[Path]) -> list[str]:
-    return [str(path) for path in paths if not path.exists()]
+def _admit(policy: PathPolicy, raw_paths: list[str]) -> list[Path]:
+    """The real path of every requested path, or the HTTP error that refuses the whole request.
+
+    All paths are checked against the policy before any is looked for, so a request that names a
+    forbidden path is answered 403 (422 for a malformed one) even when another path in it is missing,
+    and a missing path says nothing about the disk outside the allowed folders. Blocking: it resolves
+    links and looks at the disk, so the route runs it in a worker thread.
+    """
+    admitted: list[Path] = []
+    for raw in raw_paths:
+        try:
+            real = policy.check(raw)
+        except PathNotAllowedError as error:
+            status = 422 if error.malformed else 403
+            raise HTTPException(status_code=status, detail=str(error)) from error
+        if real not in admitted:
+            admitted.append(real)
+    missing = [str(path) for path in admitted if not path.exists()]
+    if missing:
+        raise HTTPException(status_code=422, detail=f"not found on this machine: {missing}")
+    return admitted
+
+
+def _ingest_work(
+    workspace: Workspace, policy: PathPolicy, paths: list[Path], workers: int
+) -> Callable[[Job], dict[str, Any]]:
+    """The job that ingests ``paths``: walk them, drop what the policy refuses, ingest the rest.
+
+    The paths were admitted when the request came in; the files *inside* a folder are checked here,
+    one by one, because a link in an allowed folder can lead outside it (``PathPolicy.split``).
+    Refused files are not an error: they are listed in the result (``refused``, the first
+    ``MAX_REFUSED_LISTED``, and ``refused_count``) and the rest of the folder is ingested.
+    """
+
+    def work(job: Job) -> dict[str, Any]:
+        found, unsupported = collect_files(paths)
+        files, refused = policy.split(found)
+        left_out, hidden = policy.split(unsupported)
+        ingestor = Ingestor(workspace.store, workspace.dense, workspace.embedder, workers=workers)
+        report = ingestor.ingest(files, on_file=lambda outcome: job.progress.append(_row(outcome)))
+        everything_refused = [*refused, *hidden]
+        return {
+            "summary": report.summary(),
+            "failed": report.has_failures,
+            "unsupported": [str(path) for path in left_out],
+            "refused": [str(path) for path in everything_refused[:MAX_REFUSED_LISTED]],
+            "refused_count": len(everything_refused),
+            "files": [_row(outcome) for outcome in report.outcomes],
+        }
+
+    return work
 
 
 def _row(outcome: FileOutcome) -> dict[str, Any]:

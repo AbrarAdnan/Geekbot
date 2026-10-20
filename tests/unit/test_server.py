@@ -168,7 +168,7 @@ def test_ingest_a_file_then_again_embeds_nothing(client: TestClient, tmp_path: P
 
     documents = client.get("/v1/kb/documents").json()
     assert [d["state"] for d in documents] == ["ready"]
-    assert documents[0]["path"] == str(note)
+    assert documents[0]["path"] == str(note.resolve())  # stored under its real path (S4.3)
     assert client.get("/v1/kb/documents", params={"state": "failed"}).json() == []
     health = client.get("/v1/health").json()
     assert health["documents"] == {"ready": 1}
@@ -191,7 +191,7 @@ def test_ingest_unsupported_and_bad_files_are_reported_not_fatal(
     body = {"paths": [str(folder), str(given)]}
     job = wait_for(client, client.post("/v1/kb/ingest", json=body).json()["id"])
     assert job["state"] == "done"
-    assert job["result"]["unsupported"] == [str(folder / "bin.xyz")]
+    assert job["result"]["unsupported"] == [str((folder / "bin.xyz").resolve())]
     statuses = {Path(f["path"]).name: f["status"] for f in job["result"]["files"]}
     assert statuses == {"zebras.txt": "ingested", "given.xyz": "skipped"}
 

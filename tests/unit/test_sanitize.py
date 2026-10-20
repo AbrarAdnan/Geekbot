@@ -307,7 +307,11 @@ def test_nothing_that_loads_or_leads_outside_survives(text: str) -> None:
     out = sanitize_text(text, ALLOWED).text
     assert "![" not in out
     assert not re.search(r"<(?:img|script|iframe|svg|object|embed)(?=[\s/>]|$)", out, re.IGNORECASE)
-    assert not re.search(r"<[A-Za-z][A-Za-z0-9+.\-]*:[^\s>]*>", out)  # an autolink
+    # An autolink may survive only if a source has its address (rule 2 in the module docstring); the
+    # check on links and definitions below says the same. Found in S4.3's full run: hypothesis built
+    # `<https://ok.example/p>` from the pieces, and this assertion forgot the exception.
+    for autolink in re.findall(r"<([A-Za-z][A-Za-z0-9+.\-]*:[^\s>]*)>", out):
+        assert autolink in ALLOWED
     for address in _links(out):
         assert not module._is_outside(address) or address in ALLOWED
     for line in out.split("\n"):

@@ -1,4 +1,4 @@
-# Geekbot v2 — implementation plan (rev 20)
+# Geekbot v2 — implementation plan (rev 21)
 
 > **The measured results are the product; the architecture exists to make them credible.**
 > (This line also opens the v2 README.)
@@ -193,6 +193,12 @@ project/
   - The reranker, the embedder, the 400 ms retrieval target and the golden set are left as they are until the whole project has been used (D-082); the user then writes evaluation questions from their own source files and the deferred decisions are gone over together
   - **No external API feature in the prototype (user, 2026-10-18; D-084):** S4.2's OpenAI-compatible `/v1/chat/completions`, its OpenAI-SDK contract test and the client SDK snippet are left out for now; S4.2 builds only the thread routes and the streamed answer route (server-sent events) that the Streamlit UI uses, under Geekbot's own `/v1/threads` paths. S4.3 keeps the protections of the local server and its upload and drops what only outside clients need. The endpoint comes back when the user wants other programs to talk to Geekbot
   - Cost, stated: the answering path reaches the user before its parallelism and retry behaviour exist, so the first prototype searches dense and BM25 one after the other (about 25 to 50 ms without the reranker, measured) and a failing model call is not retried; S3.6 measures and fixes that afterwards
+- **rev 21** (2026-10-20, user decisions at S4.3; D-089, D-090): **the perimeter as built** (§8.1 "Perimeter", the S4.3 row of §11, the API line of §14):
+  - **The API key is required on every route except `/healthz`, always**, not only for a non-local bind. The server cannot bind off the machine at all (`HOST` is a constant and `serve` has no host option), so the old condition never applied, and loopback alone keeps out other machines but not a web page open in the user's browser, another Windows account on the PC, or a local program. The key is a **local password shared by the server and the UI** (`GEEKBOT_API_KEY`, else `data/api-key` made on first start), not a cloud or provider key; it is never sent anywhere
+  - **"CORS allowlist" becomes "no CORS headers"**: the UI is a server-side Python client with no browser origin (D-084), so there is no origin to allow and a browser is never let read a response. A `Host` header allowlist (`127.0.0.1`, `localhost`) is added against DNS rebinding
+  - The path sandbox also refuses network and device paths before touching the disk, never reads the data folder, and checks every file of a folder walk again (a Windows junction can lead outside an allowed folder); with no `GEEKBOT_ALLOWED_ROOTS` set, only uploaded files can be ingested
+  - **A knowledge-base upload route, `POST /v1/kb/upload`, is added to S4.3** (raw body, stored as `<sha16>-<safe-name>` in `data/uploads`, type and size checked, then ingested). The user said to make it as needed; C5's CSV upload reuses its code
+  - Cost, stated: nothing in this revision is verified until the user's runs of S4.3; the limits (1 MB JSON, 100 MB a file, 2,000 PDF pages) are unmeasured starting points
 
 ## 5. v1 findings (verified; all fixed by v2)
 
@@ -494,8 +500,8 @@ START → mode? ─ chat ─► (the RAG graph above)
   - **Never off the machine:** the CSV never leaves the machine. The hosted providers are removed (§6.7), and the mode is fixed per thread, so CSV data never reaches the web tool.
   - **Read-only SQL:** a dedicated Geekbot test proves that the package refuses writes, `ATTACH` and `PRAGMA`. Only that tested property is claimed. Beyond it, the SQL checks are prototype-grade (INTEGRATION.md).
 - **Perimeter:**
-  - `127.0.0.1` bind; a non-local bind requires `GEEKBOT_API_KEY`; CORS allowlist.
-  - `GEEKBOT_ALLOWED_ROOTS` path sandbox (no symlink escape, empty input rejected).
+  - `127.0.0.1` bind only (no host option); every route except `/healthz` requires the API key (`GEEKBOT_API_KEY`, else generated into `data/api-key`; a local password, not a cloud key); `Host` header allowlist against DNS rebinding; no CORS headers (rev 21).
+  - `GEEKBOT_ALLOWED_ROOTS` path sandbox (no symlink escape, empty input rejected; network paths refused before the disk is touched; the data folder never readable; every file of a folder walk checked again).
   - Size and page limits; `<sha>-<safe-name>` uploads.
   - MCP is read-only by default.
 - **Not guaranteed:** answer manipulation by poisoned documents, or by instructions hidden in CSV cells. That is measured (hijack rate), never claimed solved.
@@ -694,7 +700,7 @@ A simulated user denies every approval. The report gives bypasses k/N (target 0)
 |---|---|---|---|---|
 | **S4.1 FastAPI core** | ASGI, lifespan, event-loop blocking, single-owner process | `server/app.py`, kb/jobs/health routes, writer lock at startup, heartbeat test | the `/healthz` route + the heartbeat test | `geekbot serve` · `pytest` |
 | **S4.2 Threads + streamed answers** (OpenAI-compatible API left out for now, rev 20, D-084) | SSE, stateless vs stateful | thread routes, the streamed question-and-answer route (SSE: answer pieces, sources, readings) under `/v1/threads`; **not** `/v1/chat/completions`, the client SDK or the OpenAI-SDK contract test (they come back when other programs need to talk to Geekbot) | the SSE event formatter | `pytest` |
-| **S4.3 Perimeter security** (outside-client items left out for now, rev 20, D-084) | threat modeling, auth, path traversal, upload hygiene | `server/security.py`, allowlist, limits, the UI's own API key, 127.0.0.1 only | the path allowlist check (no symlink escape) | `pytest` |
+| **S4.3 Perimeter security** (outside-client items left out for now, rev 20, D-084) | threat modeling, auth, path traversal, upload hygiene | `server/security.py`, allowlist, limits, the UI's own API key, 127.0.0.1 only; the upload route `POST /v1/kb/upload` and `server/uploads.py` (rev 21) | the path allowlist check (no symlink escape) | `pytest` |
 | **S4.4 Streamlit UI** | Streamlit's rerun model (the root of v1 bug #1), API-client UIs | chat / knowledge / settings / evals pages; v1 files removed | the knowledge page | `geekbot up` → try it in the browser |
 | **C5 CSV mode in the API + UI** | stateful sessions in a single-owner server, upload hygiene, memory limits | `POST /v1/threads` with `mode`, the CSV upload route (S4.3 limits, `data/uploads/`), `csv_mode/sessions.py`, the UI mode picker + upload + evidence view (SQL + result table), import-linter rule (§6.7); heartbeat test with a CSV question running | the session registry (one per thread, LRU eviction, size cap) | `pytest` · `geekbot up` → pick CSV mode, upload, ask |
 | ⛳ **Gate A review** | — | DoD checklist below; Phase 4 look-back | — | You run the checklist and we review together |
@@ -807,7 +813,7 @@ A simulated user denies every approval. The report gives bypasses k/N (target 0)
    - Web off: no egress.
    - A tainted web query shows the approval prompt.
    - CSV mode: pick it, upload a CSV, ask; the answer shows the SQL and the result table; a follow-up resolves; an unanswerable question is refused with a reason.
-6. The API: the OpenAI SDK streams; a non-local bind without a key is refused; an out-of-allowlist ingest returns 403; a planted image is stripped.
+6. The API: the OpenAI SDK streams; a request without the API key is refused (401) and one with a foreign `Host` header too (400); an out-of-allowlist ingest returns 403; a planted image is stripped.
 7. Evidence:
    - `geekbot bench --config evals/configs/bench.toml` 🎮 on an idle GPU: SLO + VRAM tables.
    - `geekbot eval injection`.

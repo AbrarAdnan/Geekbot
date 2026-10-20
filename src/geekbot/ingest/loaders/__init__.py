@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
+from geekbot.ingest.loaders.limits import check_file_limits
 from geekbot.ingest.loaders.model import DocKind, LoadedDocument, LoadError, Segment
 from geekbot.ingest.loaders.notebook import load_notebook
 from geekbot.ingest.loaders.office import KINDS as OFFICE_KINDS
@@ -88,6 +89,7 @@ def load_file(path: Path) -> LoadedDocument:
     if loader is None:
         raise UnsupportedFormatError(f"no loader for {extension or 'files without an extension'}")
     try:
+        check_file_limits(path)  # before any parser reads the file (S4.3)
         return loader(path)
     except LoadError:
         raise

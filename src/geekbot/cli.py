@@ -1275,22 +1275,32 @@ def serve(
 
     It takes the storage lock before it listens, so a second server (or an `ingest` running at
     the same time) is refused. It takes no worker-count or host option: one process, this
-    machine only (PLAN.md §6.2; the outside-facing questions are S4.3's). Unless --no-warmup is
+    machine only (PLAN.md §6.2). Every request but /healthz must carry the API key
+    (`Authorization: Bearer <key>`): the key of GEEKBOT_API_KEY, else the one in
+    <data folder>/api-key, which is created on first start (step S4.3). Unless --no-warmup is
     given, the chat model is loaded onto the GPU (the other mode's model is unloaded first) and
     the reranker onto the CPU before the server starts listening, so no question waits for a load.
     """
     # Imported here: FastAPI, Chroma and LangGraph are slow to import (see `ingest`).
     import uvicorn
 
+    from geekbot.apikey import ApiKeyError
     from geekbot.server.app import HOST, create_app
+    from geekbot.server.security import Perimeter, PolicyError
 
     settings = Settings()
     setup_logging(settings.log_level)
     problem = find_chat_problem(settings)  # one line here, not a traceback from inside start-up
     if problem is not None:
         _fail(problem)
+    try:
+        perimeter = Perimeter.from_settings(settings)
+    except (ApiKeyError, PolicyError) as error:
+        _fail(str(error))
     listen_on = port or settings.server_port
     typer.echo(f"Geekbot API on http://{HOST}:{listen_on} (Ctrl+C to stop)", err=True)
+    typer.echo(f"API key from {perimeter.key_origin}; send it as a Bearer token", err=True)
+    typer.echo(f"may read files in: {perimeter.paths.describe()}", err=True)
     if no_warmup:
         typer.echo("no warm-up: the first question loads the models and waits", err=True)
     else:
@@ -1300,7 +1310,7 @@ def serve(
             err=True,
         )
     uvicorn.run(
-        create_app(settings, warm_up=not no_warmup),
+        create_app(settings, warm_up=not no_warmup, perimeter=perimeter),
         host=HOST,
         port=listen_on,
         workers=1,

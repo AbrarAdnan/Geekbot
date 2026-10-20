@@ -9,7 +9,8 @@ from charset_normalizer import from_bytes
 from geekbot.ingest.loaders.model import LoadError
 
 # A text, code or notebook file bigger than this is refused instead of read whole into memory.
-# Nothing in the plan's corpus comes near it; the real size limits arrive with the server (S4.3).
+# Nothing in the plan's corpus comes near it. The limits for every other kind of file, and the
+# 100 MB ceiling over all of them, are in ``limits.py`` (S4.3).
 MAX_TEXT_BYTES: Final = 10_000_000
 
 _BINARY_SNIFF_BYTES: Final = 8192
