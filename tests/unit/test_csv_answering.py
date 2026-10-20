@@ -11,14 +11,20 @@ from pathlib import Path
 
 import pytest
 from chatkit import ScriptedChat, ScriptedCondenser, ScriptedRetriever
-from hypothesis import given
+from hypothesis import given, reject
 from hypothesis import strategies as st
 
 from geekbot.agent.runtime import AgentContext, UnavailableChat, UnavailableRetriever
 from geekbot.config import Settings
 from geekbot.server.answering import Answering, CsvSetup
 from geekbot.server.csvmode import stored_file
-from geekbot.server.uploads import SHA_CHARS, display_name, safe_upload_name, stored_name_ok
+from geekbot.server.uploads import (
+    SHA_CHARS,
+    UploadError,
+    display_name,
+    safe_upload_name,
+    stored_name_ok,
+)
 
 pytestmark = pytest.mark.usefixtures("clean_geekbot_env")
 
@@ -162,10 +168,23 @@ def test_display_name_removes_the_prefix_and_leaves_other_names_alone() -> None:
 def test_whatever_a_client_calls_a_file_its_stored_name_reads_back(
     given_name: str, sha: str
 ) -> None:
-    safe = safe_upload_name(given_name + ".csv", frozenset({".csv"}))
+    try:
+        safe = safe_upload_name(given_name + ".csv", frozenset({".csv"}))
+    except UploadError:
+        reject()  # a name that is nothing before the extension is refused: the next test says so
     stored = f"{sha}-{safe}"
     assert stored_name_ok(stored)
     assert display_name(stored) == safe
+
+
+@pytest.mark.parametrize("name", [".csv", "/.csv", "folder/.csv", "C:\\data\\.csv", "\\.csv"])
+def test_a_name_with_nothing_before_the_extension_is_refused_as_having_none(name: str) -> None:
+    """Found by CI's property test (the example ``"/"`` + ``".csv"``): only the last part of a name is
+    kept, ``.csv`` alone is a hidden file with no extension, so the upload is a 415 and not a file
+    called ``file.csv``. That is the S4.3 rule for every type, not something C5 added."""
+    with pytest.raises(UploadError) as raised:
+        safe_upload_name(name, frozenset({".csv"}))
+    assert raised.value.status == 415 and "no extension" in str(raised.value)
 
 
 def test_stored_file_finds_a_file_in_the_uploads_folder_and_nothing_else(tmp_path: Path) -> None:
