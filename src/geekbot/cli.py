@@ -1255,10 +1255,29 @@ def ask_timing(
     typer.echo(format_latency_report(report, setup=setup))
 
 
-@app.command(context_settings=_STUB)
-def serve() -> None:
-    """Start the API server."""
-    _not_built("serve", "S4.1")
+@app.command()
+def serve(
+    port: Annotated[
+        int | None,
+        typer.Option("--port", min=1, max=65535, help="Port to listen on (default: 8000)."),
+    ] = None,
+) -> None:
+    """Start the API server on 127.0.0.1: the one process that owns the storage.
+
+    It takes the storage lock before it listens, so a second server (or an `ingest` running at
+    the same time) is refused. It takes no worker-count or host option: one process, this
+    machine only (PLAN.md §6.2; the outside-facing questions are S4.3's).
+    """
+    # Imported here: FastAPI, Chroma and LangGraph are slow to import (see `ingest`).
+    import uvicorn
+
+    from geekbot.server.app import HOST, create_app
+
+    settings = Settings()
+    setup_logging(settings.log_level)
+    listen_on = port or settings.server_port
+    typer.echo(f"Geekbot API on http://{HOST}:{listen_on} (Ctrl+C to stop)", err=True)
+    uvicorn.run(create_app(settings), host=HOST, port=listen_on, workers=1, log_level="warning")
 
 
 CsvFile = Annotated[

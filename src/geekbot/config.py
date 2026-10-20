@@ -137,6 +137,7 @@ class Settings(BaseSettings):
     csv_question_time_limit_s: int = Field(default=60, gt=0)  # one question
     data_dir: Path = Path("data")
     log_level: LogLevel = "INFO"
+    server_port: int = Field(default=8000, ge=1, le=65535)  # `geekbot serve` (S4.1)
     # Unused until the server's auth (S4.3). It exists now so secret masking has a real secret.
     api_key: SecretStr | None = None
 
