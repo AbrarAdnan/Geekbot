@@ -28,6 +28,11 @@ large before FastAPI sees it. Without a ``perimeter`` argument ``create_app`` bu
 ``geekbot serve`` uses from the settings, key included, so forgetting to pass one gives the safe
 configuration, not an open server. While a key is required the ``/docs``, ``/redoc`` and
 ``/openapi.json`` pages are not served: a browser cannot send the key to open them.
+
+**C5 adds the registry of CSV sessions** (``csv_mode.sessions``) to the application state. Building it
+loads nothing (a session is made when a CSV is uploaded or asked about), so it needs no worker
+thread; closing it at shutdown does, because it closes the sessions' model clients.
+``open_csv_sessions`` is replaceable like the other two openers, so a test can give it fakes.
 """
 
 import logging
@@ -43,6 +48,8 @@ from geekbot.config import Settings
 from geekbot.index.lock import StorageLockedError
 from geekbot.index.workspace import Workspace
 from geekbot.server.answering import Answering, TurnGate, open_chat_answering
+from geekbot.server.csvmode import SessionsOpener, open_sessions
+from geekbot.server.csvroutes import router as csv_router
 from geekbot.server.jobs import JobQueue
 from geekbot.server.routes import router
 from geekbot.server.security import Perimeter, PerimeterMiddleware
@@ -63,13 +70,16 @@ def create_app(
     *,
     open_workspace: WorkspaceOpener | None = None,
     open_answering: AnsweringOpener | None = None,
+    open_csv_sessions: SessionsOpener | None = None,
     warm_up: bool = True,
     perimeter: Perimeter | None = None,
 ) -> FastAPI:
     """Build the application. Nothing is opened until the lifespan starts (server start-up).
 
     ``warm_up`` is passed to the real answering tools (``geekbot serve --no-warmup`` turns it off); an
-    ``open_answering`` function replaces them altogether (tests pass one with fake models).
+    ``open_answering`` function replaces them altogether (tests pass one with fake models), and an
+    ``open_csv_sessions`` function replaces the registry of CSV sessions (tests pass one that loads
+    fakes).
     ``perimeter`` is what the middleware enforces; left out, it is built from the settings with an
     API key (created and saved on first use), which can raise ``ApiKeyError`` or ``PolicyError``.
     """
@@ -82,6 +92,7 @@ def create_app(
         return open_chat_answering(settings, workspace, warm_up=warm_up)
 
     answering_opener: AnsweringOpener = open_answering or real_answering
+    sessions_opener: SessionsOpener = open_csv_sessions or open_sessions
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -94,15 +105,18 @@ def create_app(
             answering = await anyio.to_thread.run_sync(answering_opener, settings, workspace)
             jobs = JobQueue()
             await jobs.start()
+            csv_sessions = sessions_opener(settings)
             app.state.settings = settings
             app.state.workspace = workspace
             app.state.answering = answering
             app.state.gate = TurnGate()
             app.state.jobs = jobs
+            app.state.csv_sessions = csv_sessions
             try:
                 yield
             finally:
                 await jobs.stop()
+                await anyio.to_thread.run_sync(csv_sessions.close_all)
         finally:
             await anyio.to_thread.run_sync(workspace.close)
 
@@ -126,4 +140,5 @@ def create_app(
     )
     app.include_router(router)
     app.include_router(threads_router)
+    app.include_router(csv_router)
     return app

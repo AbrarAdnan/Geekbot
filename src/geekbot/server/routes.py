@@ -27,11 +27,13 @@ import anyio.to_thread
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from geekbot.config import Settings
+from geekbot.csv_mode.sessions import CsvSessions
 from geekbot.domain import DocState
 from geekbot.index.workspace import Workspace
 from geekbot.ingest.loaders import SUPPORTED_EXTENSIONS
 from geekbot.ingest.pipeline import FileOutcome, Ingestor, collect_files
 from geekbot.server.answering import Answering, TurnGate
+from geekbot.server.csvmode import CsvSession
 from geekbot.server.jobs import Job, JobQueue, QueueFullError
 from geekbot.server.schemas import (
     DocumentOut,
@@ -91,12 +93,19 @@ def perimeter_of(request: Request) -> Perimeter:
     return perimeter
 
 
+def csv_sessions_of(request: Request) -> CsvSessions[CsvSession]:
+    """The registry of loaded CSV sessions (C5), kept on the application by the lifespan."""
+    sessions: CsvSessions[CsvSession] = request.app.state.csv_sessions
+    return sessions
+
+
 WorkspaceDep = Annotated[Workspace, Depends(workspace_of)]
 JobsDep = Annotated[JobQueue, Depends(jobs_of)]
 SettingsDep = Annotated[Settings, Depends(settings_of)]
 AnsweringDep = Annotated[Answering, Depends(answering_of)]
 GateDep = Annotated[TurnGate, Depends(gate_of)]
 PerimeterDep = Annotated[Perimeter, Depends(perimeter_of)]
+CsvSessionsDep = Annotated[CsvSessions[CsvSession], Depends(csv_sessions_of)]
 
 
 # --- health ----------------------------------------------------------------------------------
@@ -118,9 +127,13 @@ async def healthz() -> HealthOut:
 
 @router.get("/v1/health")
 async def readiness(
-    workspace: WorkspaceDep, jobs: JobsDep, answering: AnsweringDep, gate: GateDep
+    workspace: WorkspaceDep,
+    jobs: JobsDep,
+    answering: AnsweringDep,
+    gate: GateDep,
+    sessions: CsvSessionsDep,
 ) -> ReadyOut:
-    """Readiness: what the storage holds, whether the chat model is loaded, what is running."""
+    """Readiness: what the storage holds, which model is loaded, what is running."""
 
     def read() -> tuple[Counter[str], int, int]:
         states = Counter[str](document.state for document in workspace.store.list_documents())
@@ -138,6 +151,9 @@ async def readiness(
         chat_model=answering.model,
         chat_ready=answering.ready,
         answering=gate.busy,
+        csv_model=answering.csv.model if answering.csv is not None else "",
+        csv_ready=answering.csv_ready,
+        csv_sessions=sessions.count,
     )
 
 

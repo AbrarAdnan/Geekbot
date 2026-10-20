@@ -25,15 +25,13 @@ import httpx
 from csv_analyst import CsvAnalystSession, IngestionError, RunRecord, Status, to_markdown
 from csv_analyst.llm.base import LLMProvider
 from geekbot.config import Settings
+from geekbot.csv_mode.errors import CsvLoadError
 from geekbot.csv_mode.provider import OllamaCsvProvider
 from geekbot.llm.models import OllamaClient, OllamaError, model_is_pulled
 
+__all__ = ["CsvAnalyst", "CsvAnswer", "CsvLoadError", "LoadTimer", "find_problem"]
+
 _NS_PER_MS = 1_000_000
-
-
-class CsvLoadError(Exception):
-    """The file is not a usable CSV. Geekbot's own type, so callers outside this package never
-    need the vendored package's ``IngestionError`` (the import boundary, ``csv_mode/__init__``)."""
 
 
 class LoadTimer:
@@ -199,6 +197,34 @@ class CsvAnalyst:
     def describe(self) -> str:
         """The package's "Loaded **file**: N rows, M columns…" message. No model call."""
         return self._session.describe()
+
+    # What the server's upload route reports and what the session registry weighs (step C5). They
+    # read the loaded table; none makes a model call.
+
+    @property
+    def rows(self) -> int:
+        """How many data rows the loaded table has."""
+        return int(self._session.df.shape[0])
+
+    @property
+    def column_names(self) -> list[str]:
+        """The table's column names, after the package's own clean-up. Untrusted text: they come from
+        the file's first line."""
+        return [str(name) for name in self._session.df.columns]
+
+    @property
+    def load_notes(self) -> list[str]:
+        """What the loader changed or skipped (ragged rows, renamed columns, NA-like values)."""
+        return [warning.message for warning in self._session.load_result.warnings]
+
+    @property
+    def memory_bytes(self) -> int:
+        """What the loaded table occupies in memory (pandas' deep count, index included).
+
+        This, not the file's size, is what a session costs: a table of strings is several times its
+        file. The registry (``csv_mode.sessions``) keeps the total under its bound with it.
+        """
+        return int(self._session.df.memory_usage(deep=True).sum())
 
     def ask(self, question: str, *, seed_offset: int = 0) -> CsvAnswer:
         """Answer one question from the data, within the per-question time cap.

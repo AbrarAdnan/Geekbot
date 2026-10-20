@@ -61,8 +61,10 @@ log = logging.getLogger(__name__)
 LOOPBACK_HOSTS: Final = ("127.0.0.1", "localhost")
 # The only routes that need no key: a liveness probe that touches nothing (the UI waits on it).
 PUBLIC_PATHS: Final = frozenset({"/healthz"})
-# The routes that take a file. C5 adds the CSV upload here.
-UPLOAD_PATHS: Final = frozenset({"/v1/kb/upload"})
+# The routes that take a file (a document upload and, since C5, a CSV upload): they may carry a body
+# of ``MAX_UPLOAD_BYTES``; every other route is held to ``MAX_BODY_BYTES``. The CSV route has a fixed
+# path (the thread is a query parameter) so that this stays an exact-match set.
+UPLOAD_PATHS: Final = frozenset({"/v1/kb/upload", "/v1/csv/upload"})
 MAX_BODY_BYTES: Final = 1_000_000  # a JSON request; the largest real one (200 paths) is under 50 KB
 MAX_UPLOAD_BYTES: Final = 100_000_000  # one uploaded file; the same as the loaders' file limit
 UPLOADS_DIR: Final = "uploads"  # inside the data folder

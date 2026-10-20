@@ -66,6 +66,7 @@ from geekbot.evals.runner import (
     record_of,
     run_queries,
 )
+from geekbot.fsutil import replace_file
 from geekbot.index.embedder import EmbedderSpec, EmbeddingsClient
 from geekbot.ingest.ids import doc_id_of
 from geekbot.ingest.loaders import LoadError, load_file
@@ -145,7 +146,7 @@ def _write_json(path: Path, data: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     partial = path.with_suffix(path.suffix + ".part")
     partial.write_text(json.dumps(data, indent=1, ensure_ascii=False, sort_keys=True), "utf-8")
-    partial.replace(path)
+    replace_file(partial, path)  # patient on Windows, where a scanner may hold the file
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:

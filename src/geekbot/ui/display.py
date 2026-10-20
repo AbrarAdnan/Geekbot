@@ -20,6 +20,7 @@ from geekbot.sse import SseEvent
 __all__ = [
     "TurnView",
     "assistant_message_id",
+    "csv_upload_lines",
     "document_rows",
     "health_rows",
     "human_bytes",
@@ -37,7 +38,10 @@ _UNITS: Final = ("B", "KB", "MB", "GB")
 DEFAULT_LINE_CHARS: Final = 100
 THREAD_LABEL_CHARS: Final = 48
 SENTENCE_CHARS: Final = 120
+COLUMN_CHARS: Final = 40  # one column name in the upload summary
 LOADING_MODEL: Final = "loading_model"
+LOADING_FILE: Final = "loading_file"
+ASKING: Final = "asking"
 
 
 def human_bytes(size: int) -> str:
@@ -109,6 +113,12 @@ def health_rows(health: dict[str, Any]) -> list[dict[str, str]]:
         ("Vectors", str(health.get("vectors", "?"))),
         ("Jobs running", str(health.get("jobs_active", "?"))),
     ]
+    if health.get("csv_model"):  # C5: the server has a CSV model set up
+        csv_loaded = (
+            "loaded" if health.get("csv_ready") else "not loaded (the first CSV question loads it)"
+        )
+        rows.insert(2, ("CSV model", f"{health['csv_model']}: {csv_loaded}"))
+        rows.append(("CSV tables in memory", str(health.get("csv_sessions", 0))))
     return [{"Setting": name, "Value": value} for name, value in rows]
 
 
@@ -168,22 +178,68 @@ def passages_key(thread_id: str, message_id: str) -> str:
     return f"{thread_id}/{message_id}"
 
 
-def turn_details(done: dict[str, Any]) -> list[str]:
-    """The lines of the "details" box under a fresh answer: model, timings, what was changed."""
-    lines = [f"model: {done.get('model', '?')}"]
+def csv_upload_lines(info: dict[str, Any]) -> list[str]:
+    """What an uploaded CSV turned out to be, one plain line each (the server's ``CsvUploadOut``).
+
+    The file's name, its columns and the loader's notes come from the file itself, so a page must
+    show these lines with ``st.text`` and never as Markdown: a column named ``![x](http://...)`` is
+    only a word. Each column name and note is cut to one short line.
+    """
+    rows = int(info.get("rows", 0))
+    lines = [f"{info.get('file', '?')}: {rows:,} rows, {info.get('column_count', 0)} columns"]
+    columns = [one_line(str(name), COLUMN_CHARS) for name in info.get("columns") or []]
+    if columns:
+        more = int(info.get("column_count", len(columns))) - len(columns)
+        lines.append("columns: " + ", ".join(columns) + (f" and {more} more" if more > 0 else ""))
+    lines += [one_line(str(note), SENTENCE_CHARS) for note in info.get("notes") or []]
+    if info.get("existed"):
+        lines.append("the server already had this exact file")
+    if info.get("memory_bytes") is not None:
+        lines.append(f"held in memory: {human_bytes(int(info['memory_bytes']))}")
+    return lines
+
+
+def _csv_timing(done: dict[str, Any]) -> str:
+    """``12.30 s, model load 2.70 s`` for a CSV turn (the whole question, from the package)."""
     generation = done.get("generation") or {}
-    timing = []
-    if "first_token_seconds" in generation:
-        timing.append(f"first token after {generation['first_token_seconds']:.2f} s")
+    parts = []
     if "seconds" in generation:
-        timing.append(f"{generation['seconds']:.2f} s in the model")
-    retrieval = (done.get("retrieval_ms") or {}).get("total")
-    if retrieval is not None:
-        timing.append(f"search {retrieval:.0f} ms")
-    if timing:
-        lines.append("time: " + ", ".join(timing))
-    if done.get("searched_as"):
-        lines.append(f"searched for: {done['searched_as']}")
+        parts.append(f"{generation['seconds']:.2f} s")
+    if generation.get("load_seconds"):
+        parts.append(f"model load {generation['load_seconds']:.2f} s")
+    return ", ".join(parts)
+
+
+def turn_details(done: dict[str, Any]) -> list[str]:
+    """The lines of the "details" box under a fresh answer: model, timings, what was changed.
+
+    A CSV turn (``mode == "csv"``) has no search and no first token: it shows the file, the package's
+    verdict and the time of the whole question instead.
+    """
+    lines = [f"model: {done.get('model', '?')}"]
+    if done.get("mode") == "csv":
+        if done.get("csv_file"):
+            lines.append(f"file: {done['csv_file']}")
+        if done.get("csv_status"):
+            lines.append(f"verdict: {done['csv_status']}")
+        if _csv_timing(done):
+            lines.append("time: " + _csv_timing(done))
+        if done.get("searched_as"):
+            lines.append(f"asked as: {done['searched_as']}")
+    else:
+        generation = done.get("generation") or {}
+        timing = []
+        if "first_token_seconds" in generation:
+            timing.append(f"first token after {generation['first_token_seconds']:.2f} s")
+        if "seconds" in generation:
+            timing.append(f"{generation['seconds']:.2f} s in the model")
+        retrieval = (done.get("retrieval_ms") or {}).get("total")
+        if retrieval is not None:
+            timing.append(f"search {retrieval:.0f} ms")
+        if timing:
+            lines.append("time: " + ", ".join(timing))
+        if done.get("searched_as"):
+            lines.append(f"searched for: {done['searched_as']}")
     if done.get("rewrite_error"):
         lines.append(f"the follow-up could not be rewritten: {done['rewrite_error']}")
     if done.get("dropped_citations"):
@@ -208,7 +264,12 @@ def turn_details(done: dict[str, Any]) -> list[str]:
 def _status_line(data: dict[str, Any]) -> str:
     if data.get("stage") == LOADING_MODEL:
         model = data.get("model", "the model")
-        return f"Loading {model} (the first question after a start is slow)"
+        return f"Loading {model} (the first question after a start or a change of mode is slow)"
+    if data.get("stage") == LOADING_FILE:
+        return f"Loading {one_line(str(data.get('file', 'the file')), COLUMN_CHARS)} again"
+    if data.get("stage") == ASKING:
+        file = one_line(str(data.get("file", "the table")), COLUMN_CHARS)
+        return f"Asking {file} (a question about a table takes a few seconds)"
     return "Working"
 
 

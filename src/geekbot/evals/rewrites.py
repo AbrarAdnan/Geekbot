@@ -34,6 +34,7 @@ from geekbot.agent.condense import (
 )
 from geekbot.agent.state import HistoryMessage
 from geekbot.evals.datasets import GoldenItem
+from geekbot.fsutil import replace_file
 from geekbot.llm.chat import StructuredChat
 
 __all__ = [
@@ -117,7 +118,7 @@ class RewriteCache:
         )
         partial = self.path.with_suffix(self.path.suffix + ".part")
         partial.write_text(text, encoding="utf-8")
-        partial.replace(self.path)
+        replace_file(partial, self.path)  # patient on Windows, where a scanner may hold the file
 
 
 def rewrite_followups(

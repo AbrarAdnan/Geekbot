@@ -1,8 +1,9 @@
 """Tests for step C2: who may import whom around the vendored ``csv_analyst`` package.
 
-PLAN.md §6.7 says only ``geekbot.csv_mode`` imports ``csv_analyst``. The real enforcement is an
-import-linter contract (Phase 4); until then this test reads every source file's imports with
-``ast`` (no code is run) and fails if the rule is broken. Imports inside functions count too.
+PLAN.md §6.7 says only ``geekbot.csv_mode`` imports ``csv_analyst``. Since C5 an import-linter
+contract (``lint-imports``, in ``pyproject.toml``) enforces it for the packages it lists; this test
+stays, because it reads *every* source file's imports with ``ast`` (no code is run), so a package
+added later and left out of the contract is still caught. Imports inside functions count too.
 """
 
 import ast

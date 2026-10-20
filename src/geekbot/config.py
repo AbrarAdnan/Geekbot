@@ -139,6 +139,13 @@ class Settings(BaseSettings):
     condense_num_predict: int = Field(default=96, gt=0)
     csv_llm_timeout_s: int = Field(default=60, gt=0)  # one Ollama call
     csv_question_time_limit_s: int = Field(default=60, gt=0)  # one question
+    # CSV conversations on the server (step C5): a loaded CSV session holds its whole table in memory
+    # (PLAN.md risk 20), so the registry keeps at most this many sessions and at most this many bytes
+    # of table memory in all (pandas' own count), least recently used going first. Both are guesses,
+    # not measurements: this PC also runs the user's other projects. A session that alone is over the
+    # byte bound is refused at upload.
+    csv_max_sessions: int = Field(default=4, ge=1)
+    csv_session_budget_bytes: int = Field(default=500_000_000, gt=0)
     data_dir: Path = Path("data")
     log_level: LogLevel = "INFO"
     server_port: int = Field(default=8000, ge=1, le=65535)  # `geekbot serve` (S4.1)
