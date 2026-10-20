@@ -17,7 +17,9 @@ aiosignal==1.4.0
 aiosqlite==0.22.1
     # via langgraph-checkpoint-sqlite
 annotated-doc==0.0.5
-    # via typer
+    # via
+    #   fastapi
+    #   typer
 annotated-types==0.8.0
     # via pydantic
 anyio==4.15.1
@@ -25,6 +27,7 @@ anyio==4.15.1
     #   httpx
     #   httpx2
     #   langsmith
+    #   starlette
     #   watchfiles
 ast-serialize==0.13.0
     # via mypy
@@ -89,6 +92,8 @@ durationpy==0.11
     # via kubernetes
 et-xmlfile==2.0.0
     # via openpyxl
+fastapi==0.146.0
+    # via geekbot (pyproject.toml)
 fastembed==0.9.0
     # via geekbot (pyproject.toml)
 filelock==4.2.0
@@ -253,6 +258,7 @@ openpyxl==3.1.5
 opentelemetry-api==1.45.1
     # via
     #   chromadb
+    #   fastapi
     #   opentelemetry-exporter-otlp-proto-grpc
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
@@ -328,6 +334,7 @@ pycparser==3.11
 pydantic==2.14.1
     # via
     #   chromadb
+    #   fastapi
     #   geekbot (pyproject.toml)
     #   kubernetes
     #   langchain-core
@@ -424,6 +431,8 @@ sqlglot==30.23.0
     # via geekbot (pyproject.toml)
 sqlite-vec==0.1.9
     # via langgraph-checkpoint-sqlite
+starlette==1.9.0
+    # via fastapi
 sympy==1.14.0
     # via onnxruntime
 tenacity==9.2.1
@@ -454,6 +463,7 @@ typing-extensions==4.16.0
     #   anyio
     #   beautifulsoup4
     #   chromadb
+    #   fastapi
     #   grpcio
     #   httpx2
     #   huggingface-hub
@@ -472,9 +482,11 @@ typing-extensions==4.16.0
     #   python-docx
     #   python-pptx
     #   referencing
+    #   starlette
     #   typing-inspection
 typing-inspection==0.4.4
     # via
+    #   fastapi
     #   pydantic
     #   pydantic-settings
 tzdata==2026.5
@@ -488,7 +500,9 @@ uuid-utils==0.17.1
     #   langchain-core
     #   langsmith
 uvicorn==0.54.0
-    # via chromadb
+    # via
+    #   chromadb
+    #   geekbot (pyproject.toml)
 virtualenv==21.14.7
     # via pre-commit
 watchfiles==1.3.0

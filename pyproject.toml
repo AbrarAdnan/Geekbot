@@ -50,6 +50,9 @@ dependencies = [
     # v1 pinned 0.3.11, which needs langchain-core 0.3; the 1.x package is the same algorithm and
     # CP2's v1 reference run checks that the two cut the golden corpus identically.
     "langchain-text-splitters>=1.0",
+    # The API server (S4.1): the one process that owns the storage (PLAN.md section 6.2).
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
 ]
 
 [project.optional-dependencies]
