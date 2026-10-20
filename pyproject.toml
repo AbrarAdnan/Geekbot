@@ -53,11 +53,15 @@ dependencies = [
     # The API server (S4.1): the one process that owns the storage (PLAN.md section 6.2).
     "fastapi>=0.115",
     "uvicorn>=0.30",
+    # The browser UI (S4.4): an API client only (geekbot.ui; import-linter keeps it out of the
+    # storage). Telemetry is switched off on the command line `geekbot up` builds.
+    "streamlit>=1.45",
 ]
 
 [project.optional-dependencies]
 dev = [
     "hypothesis>=6.100",  # property-based tests: the chunker's no-loss test (S1.2), IDs (S1.3)
+    "import-linter>=2.0",  # the UI-never-imports-storage contract (S4.4); `lint-imports`
     "mypy>=2.4",
     "pip-tools>=7.6.1",  # first release that supports pip 26.2
     "pre-commit>=4.6",
@@ -78,13 +82,6 @@ line-length = 100
 # pre-commit passes file names explicitly; this makes ruff apply the excludes to them too.
 force-exclude = true
 extend-exclude = [
-    # v1 code stays untouched until step S4.4 removes it (D-029). The "./" anchors each
-    # pattern to the repo root: a bare "app.py" would match every app.py in the tree,
-    # including the planned src/geekbot/server/app.py.
-    "./app.py",
-    "./rag_pipeline.py",
-    "./storage_utils.py",
-    "./get_embedding_function.py",
     # Test documents for the golden corpus (D-032), not our code.
     "evals/corpus",
     # ruff >= 0.16 also formats Python blocks inside Markdown; notes keep snippets as written.
@@ -128,3 +125,40 @@ addopts = [
     "not live",
 ]
 markers = ["live: needs a running Ollama and/or the GPU; deselected by default"]
+# The UI client (S4.4) gives its requests a timeout; Starlette's TestClient, which the UI tests
+# use in place of a real connection, warns about that argument on every call. A real
+# `httpx.Client` accepts it, so the warning is about the test double only.
+filterwarnings = ["ignore:You should not use the 'timeout' argument with the TestClient"]
+
+# `lint-imports` (CI and PLAN.md section 14). PLAN.md section 6.2: the UI is a client of the one
+# process that owns the storage, so nothing under geekbot.ui may import the storage, ingest,
+# retrieval, agent, llm, server or CSV packages, or the heavy libraries behind them. Indirect
+# imports count: a UI module that imports a helper which imports Chroma is a violation too. The UI
+# may use geekbot.apikey, geekbot.config and geekbot.sse, which import none of those.
+[tool.importlinter]
+root_packages = ["geekbot", "csv_analyst"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "The UI is an API client and never imports the storage or the server"
+type = "forbidden"
+source_modules = ["geekbot.ui"]
+forbidden_modules = [
+    "geekbot.index",
+    "geekbot.ingest",
+    "geekbot.retrieval",
+    "geekbot.agent",
+    "geekbot.llm",
+    "geekbot.server",
+    "geekbot.csv_mode",
+    "geekbot.evals",
+    "geekbot.doctor",
+    "geekbot.cli",
+    "csv_analyst",
+    "chromadb",
+    "langgraph",
+    "langchain_core",
+    "langchain_ollama",
+    "fastapi",
+    "uvicorn",
+]

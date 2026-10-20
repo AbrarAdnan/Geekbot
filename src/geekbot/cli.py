@@ -12,7 +12,7 @@ import time
 from collections.abc import Sequence
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Any, NoReturn
+from typing import TYPE_CHECKING, Annotated, Any, NoReturn
 
 import typer
 
@@ -42,6 +42,9 @@ from geekbot.llm.vram import (
 from geekbot.log import setup_logging
 from geekbot.retrieval import SearchMode
 from geekbot.swapcheck import format_swap_report, run_swap_cycles
+
+if TYPE_CHECKING:  # only for annotations: the server's modules are slow to import (see `ingest`)
+    from geekbot.server.security import Perimeter
 
 # show_locals off: a crash traceback must never print a local variable that holds a secret.
 app = typer.Typer(
@@ -1281,15 +1284,23 @@ def serve(
     given, the chat model is loaded onto the GPU (the other mode's model is unloaded first) and
     the reranker onto the CPU before the server starts listening, so no question waits for a load.
     """
-    # Imported here: FastAPI, Chroma and LangGraph are slow to import (see `ingest`).
-    import uvicorn
-
-    from geekbot.apikey import ApiKeyError
-    from geekbot.server.app import HOST, create_app
-    from geekbot.server.security import Perimeter, PolicyError
-
     settings = Settings()
     setup_logging(settings.log_level)
+    perimeter, listen_on = _prepare_server(settings, port)
+    _run_server(settings, perimeter, listen_on, no_warmup=no_warmup)
+
+
+def _prepare_server(settings: Settings, port: int | None) -> tuple["Perimeter", int]:
+    """What `serve` and `up` check and say before the server starts: model, key, folders, port.
+
+    Every failure is one line and exit code 1 (a bad key or root stops here, before any key file is
+    made). Returns the perimeter the server will enforce and the port it will listen on.
+    """
+    # Imported here: FastAPI, Chroma and LangGraph are slow to import (see `ingest`).
+    from geekbot.apikey import ApiKeyError
+    from geekbot.server.app import HOST
+    from geekbot.server.security import Perimeter, PolicyError
+
     problem = find_chat_problem(settings)  # one line here, not a traceback from inside start-up
     if problem is not None:
         _fail(problem)
@@ -1301,6 +1312,17 @@ def serve(
     typer.echo(f"Geekbot API on http://{HOST}:{listen_on} (Ctrl+C to stop)", err=True)
     typer.echo(f"API key from {perimeter.key_origin}; send it as a Bearer token", err=True)
     typer.echo(f"may read files in: {perimeter.paths.describe()}", err=True)
+    return perimeter, listen_on
+
+
+def _run_server(
+    settings: Settings, perimeter: "Perimeter", listen_on: int, *, no_warmup: bool
+) -> None:
+    """Start uvicorn with the app (this call blocks until the server stops)."""
+    import uvicorn
+
+    from geekbot.server.app import HOST, create_app
+
     if no_warmup:
         typer.echo("no warm-up: the first question loads the models and waits", err=True)
     else:
@@ -1316,6 +1338,65 @@ def serve(
         workers=1,
         log_level="warning",
     )
+
+
+@app.command()
+def up(
+    port: Annotated[
+        int | None,
+        typer.Option("--port", min=1, max=65535, help="Server port (default: 8000)."),
+    ] = None,
+    ui_port: Annotated[
+        int | None,
+        typer.Option("--ui-port", min=1, max=65535, help="Port of the browser UI (default: 8501)."),
+    ] = None,
+    no_warmup: Annotated[
+        bool,
+        typer.Option(
+            "--no-warmup",
+            help="Do not load the chat model (onto the GPU) and the reranker when the server "
+            "starts: the first question loads them and waits. Use it while another program, such "
+            "as the CSV project, is using the GPU.",
+        ),
+    ] = False,
+    no_browser: Annotated[
+        bool, typer.Option("--no-browser", help="Do not open the browser when the server is ready.")
+    ] = False,
+) -> None:
+    """Start the whole app: the API server and the browser UI, on 127.0.0.1 only (step S4.4).
+
+    The server is this process (the one that owns the storage; the same checks and banner as
+    `serve`). The UI is a Streamlit child process that talks to the server over HTTP with the same
+    API key and never touches the storage. The browser opens when the server answers, which is after
+    the chat model has loaded unless --no-warmup is given. Ctrl+C stops both.
+    """
+    import threading
+
+    from geekbot.ui import launch
+
+    settings = Settings()
+    setup_logging(settings.log_level)
+    if not launch.streamlit_available():
+        _fail("the UI needs the streamlit package: run `pip install -e .` in the geekbot env")
+    page_port = ui_port or settings.ui_port
+    if page_port == (port or settings.server_port):
+        _fail(f"the server and the UI cannot both use port {page_port}: give one of them --port")
+    perimeter, listen_on = _prepare_server(settings, port)
+    page_url = launch.ui_url(page_port)
+    typer.echo(f"Geekbot UI on {page_url}", err=True)
+    child = launch.start_streamlit(
+        launch.streamlit_command(page_port), launch.streamlit_env(listen_on)
+    )
+    if not no_browser:
+        threading.Thread(
+            target=launch.open_browser_when_ready,
+            args=(launch.health_url(listen_on), page_url),
+            daemon=True,
+        ).start()
+    try:
+        _run_server(settings, perimeter, listen_on, no_warmup=no_warmup)
+    finally:
+        launch.stop_child(child)
 
 
 CsvFile = Annotated[

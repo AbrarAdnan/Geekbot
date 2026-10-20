@@ -1,6 +1,7 @@
 """Tests for step S0.2: the Typer CLI. Stub commands must say which step builds them."""
 
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -157,3 +158,130 @@ def test_serve_stops_with_one_line_on_a_bad_perimeter_setting(
     assert complaint in result.output
     assert started == []  # the server never started
     assert not (tmp_path / "data" / "api-key").exists()  # and no key file was left behind
+
+
+# --- `geekbot up` (step S4.4) ----------------------------------------------------------------
+
+
+class FakeChild:
+    """Stands in for the Streamlit child process."""
+
+
+class Launched:
+    """What the fake launcher recorded: the child started, what it was given, what was stopped."""
+
+    def __init__(self) -> None:
+        self.child = FakeChild()
+        self.started: list[tuple[list[str], dict[str, str]]] = []
+        self.stopped: list[object] = []
+        self.browser: list[tuple[str, str]] = []
+        self.server: list[str] = []
+
+
+def stub_up(monkeypatch: pytest.MonkeyPatch, *, server_fails: bool = False) -> Launched:
+    """Let ``up`` run to the point of starting uvicorn and the child, both recorded, not started."""
+    launched = Launched()
+
+    def start(command: list[str], environment: dict[str, str]) -> FakeChild:
+        launched.started.append((command, environment))
+        return launched.child
+
+    def run_server(*args: Any, **kwargs: Any) -> None:
+        launched.server.append("started")
+        if server_fails:
+            raise RuntimeError("the storage is locked")
+
+    monkeypatch.setattr("geekbot.cli.find_chat_problem", lambda settings, **kwargs: None)
+    monkeypatch.setattr("geekbot.server.app.create_app", lambda settings, **kwargs: "the app")
+    monkeypatch.setattr("uvicorn.run", run_server)
+    monkeypatch.setattr("geekbot.ui.launch.streamlit_available", lambda: True)
+    monkeypatch.setattr("geekbot.ui.launch.start_streamlit", start)
+    monkeypatch.setattr("geekbot.ui.launch.stop_child", launched.stopped.append)
+    monkeypatch.setattr(
+        "geekbot.ui.launch.open_browser_when_ready",
+        lambda health, page, **kwargs: launched.browser.append((health, page)),
+    )
+    return launched
+
+
+def option_after(command: list[str], name: str) -> str:
+    return command[command.index(name) + 1]
+
+
+def test_up_offers_ports_and_no_way_to_widen_the_bind() -> None:
+    text = re.sub(r"\x1b\[[0-9;]*m", "", runner.invoke(app, ["up", "--help"]).output)
+    for wanted in ("--port", "--ui-port", "--no-warmup", "--no-browser"):
+        assert wanted in text
+    assert "--host" not in text
+    assert "--workers" not in text
+
+
+@pytest.mark.usefixtures("clean_geekbot_env")
+def test_up_starts_the_ui_on_its_port_tells_it_the_servers_and_stops_it_afterwards(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    launched = stub_up(monkeypatch)
+    result = runner.invoke(app, ["up", "--port", "9123", "--ui-port", "9124", "--no-browser"])
+    assert result.exit_code == 0, result.output
+    ((command, environment),) = launched.started
+    assert option_after(command, "--server.port") == "9124"
+    assert option_after(command, "--server.address") == "127.0.0.1"
+    assert environment["GEEKBOT_SERVER_PORT"] == "9123"  # the UI is told which port the server has
+    assert launched.server == ["started"]
+    assert launched.stopped == [launched.child]  # the child does not outlive the server
+    assert "Geekbot UI on http://127.0.0.1:9124" in result.output
+    assert launched.browser == []  # --no-browser
+
+
+@pytest.mark.usefixtures("clean_geekbot_env")
+def test_up_opens_the_browser_when_the_server_is_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+    launched = stub_up(monkeypatch)
+    result = runner.invoke(app, ["up"])
+    assert result.exit_code == 0, result.output
+    for _ in range(200):  # the browser is opened from a background thread
+        if launched.browser:
+            break
+        time.sleep(0.01)
+    assert launched.browser == [("http://127.0.0.1:8000/healthz", "http://127.0.0.1:8501")]
+
+
+@pytest.mark.usefixtures("clean_geekbot_env")
+def test_up_stops_the_ui_even_when_the_server_fails_to_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    launched = stub_up(monkeypatch, server_fails=True)
+    result = runner.invoke(app, ["up", "--no-browser"])
+    assert result.exit_code != 0  # the failure is not swallowed
+    assert launched.stopped == [launched.child]
+
+
+@pytest.mark.usefixtures("clean_geekbot_env")
+def test_up_stops_with_one_line_when_streamlit_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    launched = stub_up(monkeypatch)
+    monkeypatch.setattr("geekbot.ui.launch.streamlit_available", lambda: False)
+    result = runner.invoke(app, ["up"])
+    assert result.exit_code == 1
+    assert "streamlit" in result.output and "pip install" in result.output
+    assert launched.started == [] and launched.server == []
+
+
+@pytest.mark.usefixtures("clean_geekbot_env")
+def test_up_refuses_to_give_the_server_and_the_ui_one_port(monkeypatch: pytest.MonkeyPatch) -> None:
+    launched = stub_up(monkeypatch)
+    result = runner.invoke(app, ["up", "--port", "8501"])  # 8501 is the UI's default port
+    assert result.exit_code == 1
+    assert "cannot both use port 8501" in result.output
+    assert launched.started == [] and launched.server == []
+
+
+@pytest.mark.usefixtures("clean_geekbot_env")
+def test_up_checks_the_model_and_the_key_before_it_starts_anything(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    launched = stub_up(monkeypatch)
+    monkeypatch.setattr("geekbot.cli.find_chat_problem", lambda settings, **kwargs: "model missing")
+    result = runner.invoke(app, ["up"])
+    assert result.exit_code == 1
+    assert "error: model missing" in result.output
+    assert launched.started == [] and launched.server == []
+    assert not (tmp_path / "data" / "api-key").exists()

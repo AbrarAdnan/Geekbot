@@ -142,6 +142,9 @@ class Settings(BaseSettings):
     data_dir: Path = Path("data")
     log_level: LogLevel = "INFO"
     server_port: int = Field(default=8000, ge=1, le=65535)  # `geekbot serve` (S4.1)
+    # The UI's own port (step S4.4): `geekbot up` starts Streamlit on it, 127.0.0.1 only. 8501 is
+    # Streamlit's default.
+    ui_port: int = Field(default=8501, ge=1, le=65535)
     # The perimeter (step S4.3, PLAN §8.1). The server asks every request (but /healthz) for this key.
     # It is a local password between the server and the UI, not a cloud service's key.
     # Unset, `geekbot serve` makes one and keeps it in <data_dir>/api-key (geekbot.apikey), so the

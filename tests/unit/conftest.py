@@ -1,5 +1,6 @@
 """Fixtures shared by every test in ``tests/unit``."""
 
+import importlib.util
 import logging
 import os
 from collections.abc import Iterator
@@ -8,6 +9,14 @@ from pathlib import Path
 import pytest
 
 from geekbot.log import LOGGER_NAME
+
+# The two test files that import the UI's pages need Streamlit at collection time. In an environment
+# that has not installed it yet (S4.4 added the dependency) they are left out, instead of one import
+# error stopping the whole run; ``test_ui_launch.py::test_streamlit_is_found_in_this_environment``
+# is the loud one that says what is missing.
+collect_ignore: list[str] = (
+    [] if importlib.util.find_spec("streamlit") else ["test_ui_knowledge.py", "test_ui_pages.py"]
+)
 
 
 @pytest.fixture
