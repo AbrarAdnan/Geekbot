@@ -84,7 +84,9 @@ class AgentContext:
 
     ``model`` is the chat model's name, for messages and reports. ``top_k`` is how many chunks
     retrieval is asked for, and ``context_budget_tokens`` how much of the prompt they may take
-    (``Settings.context_budget_tokens`` has the default: one place says 3,000).
+    (``Settings.context_budget_tokens`` has the default: one place says 3,000). ``retriever`` is
+    any ``Retriever``; if it is a ``retrieval.staged.StagedSearch`` the graph runs its stages as
+    steps, the two searches side by side (S3.6), and otherwise it calls it whole.
 
     The next three are conversation memory (S3.4). ``condenser`` is the model call that rewrites a
     follow-up into a standalone question; without one, a follow-up is searched for as the user typed

@@ -20,9 +20,62 @@ from typing import Final
 
 from geekbot.domain import Chunk, ScoredChunk
 
-__all__ = ["DEFAULT_RRF_K", "reciprocal_rank_fusion"]
+__all__ = ["DEFAULT_RRF_K", "fuse_ranks", "reciprocal_rank_fusion"]
 
 DEFAULT_RRF_K: Final = 60
+
+
+def fuse_ranks(
+    rankings: Sequence[Sequence[str]],
+    *,
+    k: int = DEFAULT_RRF_K,
+    limit: int | None = None,
+) -> list[tuple[str, float]]:
+    """Merge best-first lists of chunk IDs into one list of ``(chunk_id, fused score)``.
+
+    ✍️ Written by Claude (prototyping mode, D-047). This is the whole of the algorithm described
+    above, on IDs alone, because that is all RRF ever looks at. The answer graph (S3.6) keeps the two
+    candidate lists in its state as IDs, not as chunks: the state is saved after every step and 100
+    chunk texts would be written again and again. ``reciprocal_rank_fusion`` below is this function
+    plus the bookkeeping that hands the chunks back, so there is one implementation of the ranking.
+
+    A chunk that a list holds twice counts at its first, best, position only. The order is fully
+    deterministic, which a benchmark needs: equal fused scores are broken by the chunk's best rank in
+    any list (a better rank first), then by which list it came from first (the earlier list in
+    ``rankings`` first), then by ``chunk_id``. The *scores* do not depend on the order of
+    ``rankings``; only these ties do. ``limit`` keeps the first ``limit`` results. ``ValueError`` if
+    ``k`` is negative or ``limit`` is below 1. Empty input, or lists that are all empty, give ``[]``.
+    """
+    if k < 0:
+        raise ValueError(f"k must not be negative, got {k}")
+    if limit is not None and limit < 1:
+        raise ValueError(f"limit must be at least 1, got {limit}")
+    fused: dict[str, float] = {}
+    best_rank: dict[str, int] = {}
+    first_list: dict[str, int] = {}
+    for list_index, ranking in enumerate(rankings):
+        seen: set[str] = set()
+        rank = 0
+        for chunk_id in ranking:
+            if chunk_id in seen:
+                continue
+            seen.add(chunk_id)
+            rank += 1
+            fused[chunk_id] = fused.get(chunk_id, 0.0) + 1.0 / (k + rank)
+            if chunk_id not in best_rank:
+                best_rank[chunk_id] = rank
+                first_list[chunk_id] = list_index
+            else:
+                best_rank[chunk_id] = min(best_rank[chunk_id], rank)
+    # Sums of reciprocals that are equal on paper can differ in the last bits when they are added in
+    # another order (floating point addition is not associative), so the sort looks at the score
+    # rounded to 12 places: a tie on paper is then a tie in the code and the tie-breakers apply.
+    ordered = sorted(
+        fused,
+        key=lambda cid: (-round(fused[cid], 12), best_rank[cid], first_list[cid], cid),
+    )
+    result = [(cid, fused[cid]) for cid in ordered]
+    return result if limit is None else result[:limit]
 
 
 def reciprocal_rank_fusion(
@@ -38,44 +91,16 @@ def reciprocal_rank_fusion(
     the same chunk twice only its first, best, position counts. The result holds every chunk that
     appears in any list once, with its fused score (higher is better), sorted by that score.
 
-    The order is fully deterministic, which a benchmark needs. Equal fused scores are broken by
-    the chunk's best rank in any list (a better rank first), then by which list it came from first
-    (the earlier list in ``rankings`` first), then by ``chunk_id``. The *scores* do not depend on the
-    order of ``rankings``; only these ties do.
-
-    ``limit`` keeps the first ``limit`` results. ``ValueError`` if ``k`` is negative or ``limit`` is
-    below 1. Empty input, or lists that are all empty, give an empty result.
+    The ranking itself (and the exact tie-breaking rule) is ``fuse_ranks``; this function only gives
+    the chunks back. ``limit`` keeps the first ``limit`` results. ``ValueError`` if ``k`` is negative
+    or ``limit`` is below 1.
     """
-    if k < 0:
-        raise ValueError(f"k must not be negative, got {k}")
-    if limit is not None and limit < 1:
-        raise ValueError(f"limit must be at least 1, got {limit}")
-    fused: dict[str, float] = {}
-    best_rank: dict[str, int] = {}
-    first_list: dict[str, int] = {}
     chunks: dict[str, Chunk] = {}
-    for list_index, ranking in enumerate(rankings):
-        seen: set[str] = set()
-        rank = 0
+    for ranking in rankings:
         for scored in ranking:
-            chunk_id = scored.chunk.chunk_id
-            if chunk_id in seen:
-                continue
-            seen.add(chunk_id)
-            rank += 1
-            fused[chunk_id] = fused.get(chunk_id, 0.0) + 1.0 / (k + rank)
-            if chunk_id not in chunks:
-                chunks[chunk_id] = scored.chunk
-                best_rank[chunk_id] = rank
-                first_list[chunk_id] = list_index
-            else:
-                best_rank[chunk_id] = min(best_rank[chunk_id], rank)
-    # Sums of reciprocals that are equal on paper can differ in the last bits when they are added in
-    # another order (floating point addition is not associative), so the sort looks at the score
-    # rounded to 12 places: a tie on paper is then a tie in the code and the tie-breakers apply.
-    ordered = sorted(
-        fused,
-        key=lambda cid: (-round(fused[cid], 12), best_rank[cid], first_list[cid], cid),
-    )
-    result = [ScoredChunk(chunk=chunks[cid], score=fused[cid]) for cid in ordered]
-    return result if limit is None else result[:limit]
+            chunks.setdefault(scored.chunk.chunk_id, scored.chunk)
+    ids = [[scored.chunk.chunk_id for scored in ranking] for ranking in rankings]
+    return [
+        ScoredChunk(chunk=chunks[chunk_id], score=score)
+        for chunk_id, score in fuse_ranks(ids, k=k, limit=limit)
+    ]

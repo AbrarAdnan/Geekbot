@@ -5,10 +5,12 @@ only promote what it is shown: a chunk that is rank 12 in both lists belongs nea
 fused list, but only if both sides returned it. The two lists are merged with Reciprocal Rank Fusion
 (``retrieval/fusion.py``) and cut to ``k``.
 
-The two searches run one after the other here. Running them in parallel is S3.6's job (the "dense ‖
-lexical" branches of the answer graph); doing it in the retriever would put threads in a place that
-has to stay easy to test and to measure, and the stage timings below say what that would save: the
-total is roughly the sum of ``dense`` and ``lexical``.
+The two searches run one after the other here. Running them side by side is S3.6's job and it was
+done in the answer graph, not here: ``retrieval.staged.StagedSearch`` is this retriever and the
+reranker cut into stages, which the graph runs as "dense ‖ lexical → fuse → rerank". Doing it in the
+retriever would have put threads in a place that has to stay easy to test and to measure (the ablation
+rungs of S2.6 are built from this class), and the stage timings below say what the overlap can save:
+the total here is roughly the sum of ``dense`` and ``lexical``.
 """
 
 import time

@@ -217,6 +217,45 @@ def test_think_is_passed_on_and_shown_in_the_meta_event(tmp_path: Path) -> None:
         assert fakes.thinks == [True]
 
 
+def stages_of(asked: Any) -> list[str]:
+    return [event.data["stage"] for event in asked.events if event.event == "status"]
+
+
+def test_steps_are_streamed_only_to_a_request_that_asks_for_them(client: TestClient) -> None:
+    quiet = ask(client, THREAD, Q)
+    assert "status" not in quiet.names  # S3.6 changed nothing for a client that does not ask
+    chatty = ask(client, "t-steps", Q, steps=True)
+    assert chatty.names[0] == "meta" and chatty.names[-1] == "done"
+    # A sequential retriever is one step; there is nothing separate to rank.
+    assert stages_of(chatty) == ["searching", "writing"]
+    assert chatty.text == quiet.text
+
+
+def test_a_staged_search_streams_searching_ranking_and_writing(tmp_path: Path) -> None:
+    with TestClient(make_app(tmp_path, staged=True)) as client:
+        ingest_note(client, tmp_path)
+        asked = ask(client, THREAD, Q, steps=True)
+        assert stages_of(asked) == ["searching", "ranking", "writing"]
+        status_at = [i for i, name in enumerate(asked.names) if name == "status"]
+        assert asked.names.index("text") > status_at[-1]  # the steps come before the first word
+        done = asked.data("done")
+        assert done["answer"] == "Ninety days [1]."
+        assert done["sources"][0]["path"].endswith("zebras.txt")
+        # the stages the graph timed: the sequential retriever reports the same ones, minus rerank
+        assert {"dense", "lexical", "fusion", "total"} <= set(done["retrieval_ms"])
+
+
+def test_a_staged_search_finds_what_the_sequential_one_finds(tmp_path: Path) -> None:
+    found: dict[str, Any] = {}
+    for staged in (False, True):
+        with TestClient(make_app(tmp_path, staged=staged)) as client:
+            if not staged:
+                ingest_note(client, tmp_path)  # the second app opens the same data folder
+            done = ask(client, f"t-{staged}", Q).data("done")
+            found[str(staged)] = done["sources"]
+    assert found["True"] == found["False"] != []
+
+
 def test_a_nothing_found_turn_is_an_abstention_without_sources(tmp_path: Path) -> None:
     with TestClient(make_app(tmp_path, retriever=ScriptedRetriever())) as client:
         client.app.state.fakes.retriever.chunks = ()  # type: ignore[attr-defined]
@@ -267,7 +306,7 @@ def test_a_second_question_while_one_is_running_is_refused_not_queued(client: Te
 
 
 def test_the_slot_is_free_after_every_kind_of_outcome(tmp_path: Path) -> None:
-    chat = ScriptedChat("Fine [1].", ConnectionError("down"), "Fine [1].")
+    chat = ScriptedChat("Fine [1].", RuntimeError("model crashed"), "Fine [1].")
     with TestClient(make_app(tmp_path, chat=chat)) as client:
         ingest_note(client, tmp_path)
         gate = client.app.state.gate  # type: ignore[attr-defined]
@@ -283,18 +322,34 @@ def test_the_slot_is_free_after_every_kind_of_outcome(tmp_path: Path) -> None:
 
 
 def test_a_model_failure_is_an_error_event_and_the_turn_is_not_remembered(tmp_path: Path) -> None:
-    chat = ScriptedChat(ConnectionError("down"), "Fine [1].")
+    # A permanent failure; a transient one is retried (S3.6) and is the next test.
+    chat = ScriptedChat(RuntimeError("model crashed"), "Fine [1].")
     with TestClient(make_app(tmp_path, chat=chat)) as client:
         ingest_note(client, tmp_path)
         failed = ask(client, THREAD, Q)
         assert failed.status == 200  # the stream had started
         assert failed.names == ["meta", "error"]
-        assert "ConnectionError: down" in failed.data("error")["message"]
+        assert "RuntimeError: model crashed" in failed.data("error")["message"]
         assert client.get(f"/v1/threads/{THREAD}").status_code == 404  # nothing was answered
         assert client.get("/v1/threads").json() == []
         again = ask(client, THREAD, Q)
         assert again.names[-1] == "done"
         assert again.data("done")["turn"] == 1  # no gap, no half turn
+
+
+def test_a_transient_model_failure_is_retried_and_the_user_only_sees_the_answer(
+    tmp_path: Path,
+) -> None:
+    """S3.6: the connection to the model is refused once; the graph runs ``generate`` again (the
+    unit-test conftest makes the wait between the two tries zero)."""
+    chat = ScriptedChat(ConnectionError("down"), "Fine [1].")
+    with TestClient(make_app(tmp_path, chat=chat)) as client:
+        ingest_note(client, tmp_path)
+        asked = ask(client, THREAD, Q)
+        assert asked.names == ["meta", "text", "done"]  # no error event, no second answer
+        assert asked.text == "Fine [1]."
+        assert asked.data("done")["turn"] == 1
+        assert len(chat.calls) == 2  # the failed call and the retry
 
 
 def test_an_unexpected_failure_is_reported_without_its_details(tmp_path: Path) -> None:

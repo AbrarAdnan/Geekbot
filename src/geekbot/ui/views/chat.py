@@ -303,14 +303,18 @@ def _stream(
     """Send the question and paint the answer as it arrives. ``None`` if no answer came.
 
     A CSV question says so (``mode="csv"``): if the server has lost the conversation's file it then
-    answers 409 and says to upload it again, and does not answer from the documents instead.
+    answers 409 and says to upload it again, and does not answer from the documents instead. A
+    document question asks for step events (``steps=True``), so the line under the question says
+    "Searching ...", "Ranking ...", "Writing ..." before the first word arrives (S3.6).
     """
     view = TurnView()
     status = st.empty()
     reasoning = _reasoning_box() if think else None
     answer = st.empty()
     try:
-        for event in client.ask(thread_id, question, think=think, mode="csv" if csv else None):
+        for event in client.ask(
+            thread_id, question, think=think, mode="csv" if csv else None, steps=not csv
+        ):
             view.feed(event)
             _paint(view, status, answer, reasoning)
     except ApiError as error:

@@ -42,6 +42,13 @@ COLUMN_CHARS: Final = 40  # one column name in the upload summary
 LOADING_MODEL: Final = "loading_model"
 LOADING_FILE: Final = "loading_file"
 ASKING: Final = "asking"
+# The steps a document question reports (S3.6) and the caption each gets. The names are the
+# server's ``agent.state.STEP_*``; the UI is an HTTP client and may not import them.
+STEP_CAPTIONS: Final = {
+    "searching": "Searching the documents",
+    "ranking": "Ranking the passages",
+    "writing": "Writing the answer",
+}
 
 
 def human_bytes(size: int) -> str:
@@ -270,7 +277,8 @@ def _status_line(data: dict[str, Any]) -> str:
     if data.get("stage") == ASKING:
         file = one_line(str(data.get("file", "the table")), COLUMN_CHARS)
         return f"Asking {file} (a question about a table takes a few seconds)"
-    return "Working"
+    caption = STEP_CAPTIONS.get(str(data.get("stage", "")))
+    return caption if caption is not None else "Working"
 
 
 @dataclass

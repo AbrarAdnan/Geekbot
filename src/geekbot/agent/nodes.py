@@ -14,6 +14,13 @@ thread, so the event loop stays free (PLAN.md §6.3) without rewriting a line he
 a saved thread and says what to search for; on a follow-up ``condense`` rewrites the question; then
 ``retrieve``, and either ``generate`` and ``validate_citations`` or ``no_context``; and ``remember``
 writes the turn into the thread's memory last, so a turn that failed is never remembered.
+
+**Two ways to search (S3.6).** A retriever that has stages (``retrieval.staged.StagedSearch``, what the
+server uses) is scheduled by the graph: ``retrieve`` only announces the search, ``search_dense`` and
+``search_lexical`` then run at the same moment, ``fuse`` merges their candidate IDs and ``rerank``
+reads the best few chunks and orders them. Any other retriever (a test's fake, ``geekbot ask``) is
+called whole inside ``retrieve``, as before S3.6. Both end with the same ``sources`` and
+``retrieval_ms`` in the state.
 """
 
 import time
@@ -29,16 +36,21 @@ from geekbot.agent.packing import pack_prompt
 from geekbot.agent.runtime import AgentContext
 from geekbot.agent.sanitize import StreamSanitizer, sanitize_text, source_urls
 from geekbot.agent.state import (
+    STEP_RANKING,
+    STEP_SEARCHING,
+    STEP_WRITING,
     AgentState,
     CitationScore,
     HistoryMessage,
     HistorySource,
     SourceRef,
+    StepEvent,
     StreamEvent,
 )
 from geekbot.domain import Label, ScoredChunk
 from geekbot.llm.chat import ChatError
 from geekbot.llm.streaming import read_stream
+from geekbot.retrieval.staged import StagedSearch
 
 __all__ = [
     "NO_CONTEXT_ANSWER",
@@ -46,13 +58,18 @@ __all__ = [
     "cite_check",
     "condense",
     "csv_ask",
+    "fuse",
     "generate",
     "has_sources",
     "label_names",
     "no_context",
     "remember",
+    "rerank",
     "retrieve",
+    "route_after_retrieve",
     "sanitize",
+    "search_dense",
+    "search_lexical",
     "section_trail",
     "source_refs",
     "validate_citations",
@@ -133,6 +150,13 @@ def begin_turn(state: AgentState) -> dict[str, Any]:
         "condense_error": "",
         "sources": [],
         "retrieval_ms": {},
+        "staged": False,
+        "dense_hits": [],
+        "lexical_hits": [],
+        "fused_hits": [],
+        "dense_ms": 0.0,
+        "lexical_ms": 0.0,
+        "fusion_ms": 0.0,
         "used": 0,
         "history_used": 0,
         "answer": "",
@@ -186,15 +210,111 @@ def condense(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any
     return {"standalone_question": rewritten, "condense_seconds": time.perf_counter() - started}
 
 
+def _announce(runtime: Runtime[AgentContext], name: str) -> None:
+    """Tell whoever listens to the stream which step the turn has reached (``StepEvent``, S3.6).
+
+    The writer does nothing when nobody listens (plain ``invoke``), and a step that has no listener
+    costs a function call. The event only informs: no node ever reads it back.
+    """
+    runtime.stream_writer(StepEvent(event="step", name=name))
+
+
+def _search_text(state: AgentState) -> str:
+    """What retrieval searches for: the user's words, or on a follow-up their rewrite."""
+    return state.get("standalone_question") or state["question"]
+
+
+def _staged(runtime: Runtime[AgentContext]) -> StagedSearch:
+    """The run's retriever as a ``StagedSearch``; a staged step cannot run on any other kind."""
+    retriever = runtime.context.retriever
+    if not isinstance(retriever, StagedSearch):
+        raise TypeError(
+            f"the search was planned in stages but the retriever is a {type(retriever).__name__}"
+        )
+    return retriever
+
+
 def retrieve(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any]:
-    """Find the chunks that may answer the question, with the time each stage took.
+    """Start the search: with a staged retriever only announce it, else run the retriever whole.
 
     What is searched for is ``standalone_question``: the user's words, or on a follow-up their rewrite.
+    A ``StagedSearch`` is scheduled by the graph (``route_after_retrieve`` sends the turn to
+    ``search_dense`` and ``search_lexical``, which run side by side), so all this step does is set
+    ``staged``. Any other retriever (a fake in a test, ``geekbot ask``) searches here in one call and
+    the turn goes straight on to ``generate``, as it did before S3.6. A transient failure of the call
+    is retried (``agent.resilience``); the search changes nothing, so running it again is safe.
     """
     context = runtime.context
-    query = state.get("standalone_question") or state["question"]
-    result = context.retriever.search(query, context.top_k)
+    _announce(runtime, STEP_SEARCHING)
+    if isinstance(context.retriever, StagedSearch):
+        return {"staged": True}
+    result = context.retriever.search(_search_text(state), context.top_k)
     return {"sources": source_refs(result.chunks), "retrieval_ms": dict(result.timings_ms)}
+
+
+def search_dense(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any]:
+    """The meaning-based half of a staged search: nearest vectors, as candidate IDs with scores.
+
+    Runs at the same moment as ``search_lexical`` (the graph starts both from ``retrieve``). It
+    writes only keys of its own, because two steps of one round may not write the same key.
+    """
+    found = _staged(runtime).dense_stage(_search_text(state), runtime.context.top_k)
+    return {"dense_hits": found.hits, "dense_ms": found.ms}
+
+
+def search_lexical(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any]:
+    """The word-based half of a staged search: BM25 matches, as candidate IDs with scores."""
+    found = _staged(runtime).lexical_stage(_search_text(state), runtime.context.top_k)
+    return {"lexical_hits": found.hits, "lexical_ms": found.ms}
+
+
+def fuse(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any]:
+    """Merge the two candidate lists by rank (RRF). Runs once, after both searches have finished."""
+    fused = _staged(runtime).fuse_stage(
+        state.get("dense_hits", []), state.get("lexical_hits", []), runtime.context.top_k
+    )
+    return {"fused_hits": fused.hits, "fusion_ms": fused.ms}
+
+
+def rerank(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any]:
+    """The last stage of a staged search: read the best candidates' text and order them.
+
+    The only step that reads chunk text; it turns the candidate IDs into the turn's ``sources`` and
+    the stage times into ``retrieval_ms`` (``total`` is what the user waited: the slower search plus
+    fusion plus this step, since the searches overlapped). The candidate lists are emptied, so the
+    state that is saved from here on does not carry them.
+    """
+    context = runtime.context
+    staged = _staged(runtime)
+    _announce(runtime, STEP_RANKING)
+    ranked = staged.rerank_stage(_search_text(state), state.get("fused_hits", []), context.top_k)
+    timings = staged.timings(
+        state.get("dense_ms", 0.0),
+        state.get("lexical_ms", 0.0),
+        state.get("fusion_ms", 0.0),
+        ranked.ms,
+        parallel=True,
+    )
+    return {
+        "sources": source_refs(ranked.chunks),
+        "retrieval_ms": timings,
+        "dense_hits": [],
+        "lexical_hits": [],
+        "fused_hits": [],
+    }
+
+
+def route_after_retrieve(
+    state: AgentState,
+) -> list[Literal["search_dense", "search_lexical"]] | Literal["generate", "no_context"]:
+    """The conditional edge after ``retrieve``: fan out into the two searches, or decide as before.
+
+    A turn whose search is staged returns a *list* of two steps, and LangGraph runs both in the same
+    round. Otherwise the search is already done and this is ``has_sources``.
+    """
+    if state.get("staged"):
+        return ["search_dense", "search_lexical"]
+    return has_sources(state)
 
 
 def has_sources(state: AgentState) -> Literal["generate", "no_context"]:
@@ -235,7 +355,8 @@ def generate(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any
        writer then does nothing). Any failure (Ollama down, model missing, a server error, a stream
        that breaks half way) becomes a single ``ChatError`` that names the model and keeps the
        original as its cause, so the caller handles one kind of exception whatever library
-       raised it.
+       raised it. The graph runs the node again after a transient failure (S3.6), but only one that
+       came before the first piece was sent: ``ChatError.partial`` says otherwise.
     3. The reply's text must not be empty: a model that spent its whole budget thinking would
        otherwise produce a blank answer that looks like success. That is a ``ChatError`` too, and
        the message says so when reasoning text did arrive.
@@ -257,16 +378,23 @@ def generate(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any
     if packed.used == 0:
         return no_context(state)
     emit = runtime.stream_writer
+    _announce(runtime, STEP_WRITING)
     # G3 (S3.5): what leaves this node as a stream event has been through the output cleaning, the
     # reasoning as well as the answer. A piece that ends inside a possible image or link is held back
     # until it is decided, so nothing the model wrote reaches a screen before it has been checked.
     allowed = source_urls(source["text"] for source in state["sources"][: packed.used])
     cleaners = {"text": StreamSanitizer(allowed), "thinking": StreamSanitizer(allowed)}
+    # S3.6: whether anything has left this node yet. A call that fails before that can be run again
+    # (``agent.resilience``); one that fails after it cannot, because the listener has already been
+    # shown the start of an answer that a second run would write again from the top.
+    sent = False
 
     def send(event: Literal["text", "thinking"]) -> Callable[[str], None]:
         def write(piece: str) -> None:
+            nonlocal sent
             safe = cleaners[event].feed(piece)
             if safe:
+                sent = True
                 emit(StreamEvent(event=event, text=safe))
 
         return write
@@ -283,7 +411,9 @@ def generate(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any
         )
     except Exception as error:
         detail = f"{type(error).__name__}: {error}"
-        raise ChatError(f"the chat model {context.model!r} failed ({detail})") from error
+        raise ChatError(
+            f"the chat model {context.model!r} failed ({detail})", partial=sent
+        ) from error
     for kind, cleaner in cleaners.items():
         held = cleaner.finish()
         if held:

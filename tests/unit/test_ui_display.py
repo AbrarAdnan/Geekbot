@@ -390,6 +390,27 @@ def test_a_status_shows_until_the_first_piece() -> None:
     assert view.status == ""
 
 
+def test_the_steps_of_a_document_question_each_have_a_caption_and_the_last_one_wins() -> None:
+    """S3.6: searching, ranking, writing, in the order the server announces them."""
+    view = TurnView()
+    captions = []
+    for step in ("searching", "ranking", "writing"):
+        feed(view, ("status", {"stage": step}))
+        captions.append(view.status)
+    assert captions == [
+        "Searching the documents",
+        "Ranking the passages",
+        "Writing the answer",
+    ]
+    feed(view, ("text", {"text": "Ninety"}))
+    assert view.status == ""  # the first word of the answer replaces the line
+
+
+def test_a_step_this_page_has_no_caption_for_is_shown_as_plain_work() -> None:
+    assert feed(TurnView(), ("status", {"stage": "compiling"})).status == "Working"
+    assert feed(TurnView(), ("status", {})).status == "Working"
+
+
 def test_thinking_is_kept_apart_from_the_answer() -> None:
     view = feed(TurnView(), ("thinking", {"text": "step 1. "}), ("thinking", {"text": "step 2."}))
     assert view.thinking == "step 1. step 2."

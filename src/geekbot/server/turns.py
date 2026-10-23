@@ -51,12 +51,16 @@ class TurnTranslator:
     - ``text`` and ``thinking`` events become ``text`` and ``thinking`` frames carrying ``{"text":
       piece}``. Empty pieces send nothing. The first piece of the *answer* has its leading whitespace
       removed, and so does each following piece until one has something left.
+    - ``step`` events (S3.6, a turn announcing that it has reached a step) become ``status`` frames
+      ``{stage: name}``, but only when the translator was made with ``steps=True``: the request
+      asked for progress. Without it they are dropped, and the stream is what it was before S3.6.
     - ``values`` payloads are the whole state after a step; only the latest is kept.
     - Anything else (a stream mode this does not know, an event of another kind) is ignored.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, steps: bool = False) -> None:
         self.final: dict[str, Any] | None = None
+        self._steps = steps
         self._text_started = False
 
     def feed(self, kind: str, payload: Any) -> list[str]:
@@ -68,6 +72,9 @@ class TurnTranslator:
             return []
         piece = str(payload.get("text", ""))
         event = payload.get("event")
+        if event == "step":
+            name = str(payload.get("name", ""))
+            return [format_event("status", {"stage": name})] if self._steps and name else []
         if event == "thinking":
             return [format_event("thinking", {"text": piece})] if piece else []
         if event == "text":

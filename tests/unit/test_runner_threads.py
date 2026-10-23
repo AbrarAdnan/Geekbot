@@ -48,8 +48,11 @@ def test_a_streamed_turn_yields_the_pieces_and_ends_with_the_finished_state(tmp_
     kinds = [kind for kind, _ in events]
     assert set(kinds) == {"custom", "values"}
     assert kinds[-1] == "values"
-    pieces = [payload for kind, payload in events if kind == "custom"]
-    assert all(piece["event"] == "text" for piece in pieces)
+    custom = [payload for kind, payload in events if kind == "custom"]
+    # Since S3.6 the turn also announces the steps it reaches (a plain retriever has no ranking step).
+    assert {event["event"] for event in custom} == {"step", "text"}
+    assert [e["name"] for e in custom if e["event"] == "step"] == ["searching", "writing"]
+    pieces = [event for event in custom if event["event"] == "text"]
     # The pieces may be cut differently from the model's (the cleaning holds a "[" back until it is
     # decided), but together they are the answer.
     assert "".join(piece["text"] for piece in pieces) == "Ninety days [1]."
@@ -63,7 +66,11 @@ def test_the_pieces_arrive_before_the_turn_is_over(tmp_path: Path) -> None:
     """Not after: the first piece comes before the state that holds the finished answer."""
     chat = ScriptedChat(["Ninety", " days [1]."])
     events = asyncio.run(events_of(Q1, context(chat), tmp_path / "t.db"))
-    first_piece = next(i for i, (kind, _) in enumerate(events) if kind == "custom")
+    first_piece = next(
+        i
+        for i, (kind, payload) in enumerate(events)
+        if kind == "custom" and payload["event"] == "text"
+    )
     with_answer = next(
         i for i, (kind, state) in enumerate(events) if kind == "values" and state.get("answer")
     )
@@ -96,6 +103,7 @@ def test_a_failing_model_raises_out_of_the_stream_and_the_turn_is_not_remembered
     tmp_path: Path,
 ) -> None:
     db = tmp_path / "t.db"
+    # Every try fails the same way: the refused connection is retried, then reported.
     ctx = context(ScriptedChat(ConnectionError("down")))
     with pytest.raises(ChatError, match="ConnectionError: down"):
         asyncio.run(events_of(Q1, ctx, db))

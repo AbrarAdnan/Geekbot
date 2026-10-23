@@ -3,7 +3,8 @@
 ``geekbot ask`` prepares everything for one question and exits. A server answers many, so it does that
 preparation once, in its lifespan, and keeps the result on ``app.state``:
 
-- the **retriever** (hybrid search plus the cross-encoder, over the workspace the lifespan opened);
+- the **retriever** (hybrid search plus the cross-encoder, over the workspace the lifespan opened;
+  since S3.6 in its staged form, so the graph can run the two searches side by side);
 - the **chat model** and the model that rewrites a follow-up, as LangChain objects (cheap to build,
   they only hold settings; the model itself lives in Ollama);
 - the **warm-up**: the chat model is loaded onto the GPU through the explicit swap (PLAN.md §6.5 R-2
@@ -227,7 +228,12 @@ def open_chat_answering(
     lifespan calls it in a worker thread. A missing model or an Ollama that went away since
     ``geekbot serve`` looked raises ``OllamaError`` and the server does not start.
     """
-    retriever = build_retriever(SearchMode.HYBRID_RERANK, workspace, settings)
+    # S3.6: with ``parallel_search`` on (the default) the retriever is the staged form of the same
+    # retrieval, which the answer graph runs as dense ‖ lexical → fuse → rerank; off gives the
+    # sequential classes and the graph calls them in one step. The results are the same.
+    retriever = build_retriever(
+        SearchMode.HYBRID_RERANK, workspace, settings, staged=settings.parallel_search
+    )
     scorer = citation_scorer_of(retriever)
     context = AgentContext(
         retriever=retriever,

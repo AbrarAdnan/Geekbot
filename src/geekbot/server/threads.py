@@ -15,6 +15,10 @@ order they come:
   was accepted and which model answers;
 - ``status``: ``{stage: "loading_model", model}``, only if the models were not warmed up at start-up
   (``geekbot serve --no-warmup``); the first question then waits for the load;
+- ``status`` again, **only when the request has** ``"steps": true`` (S3.6): ``{stage: "searching"}``
+  when the search starts, ``{stage: "ranking"}`` when the candidates are being ordered and
+  ``{stage: "writing"}`` when the model is about to answer. They are progress for a person watching
+  and carry nothing else; a client that does not ask never sees them;
 - ``text``: ``{text}``, a piece of the answer, as the model writes it. Already cleaned by the output
   filter (G3): no images, no links to places the sources do not name;
 - ``thinking``: ``{text}``, a piece of the model's reasoning (only with ``think``), cleaned the same way;
@@ -424,7 +428,7 @@ async def _answer_events(
     (``CancelledError`` / ``GeneratorExit``), and that must propagate. The ``finally`` gives the
     gate's slot back in every case.
     """
-    translator = TurnTranslator()
+    translator = TurnTranslator(steps=body.steps)
     try:
         yield format_event(
             "meta",

@@ -80,6 +80,41 @@ def test_the_pieces_are_passed_on_without_looking_inside() -> None:
     assert pieces(translator.feed("custom", text(hostile))) == [("text", {"text": hostile})]
 
 
+# --- step events (S3.6) ----------------------------------------------------------------------
+
+
+def step(name: str) -> dict[str, str]:
+    return {"event": "step", "name": name}
+
+
+def test_a_step_becomes_a_status_frame_when_the_request_asked_for_steps() -> None:
+    translator = TurnTranslator(steps=True)
+    frames = [
+        *translator.feed("custom", step("searching")),
+        *translator.feed("custom", step("ranking")),
+        *translator.feed("custom", step("writing")),
+    ]
+    assert pieces(frames) == [
+        ("status", {"stage": "searching"}),
+        ("status", {"stage": "ranking"}),
+        ("status", {"stage": "writing"}),
+    ]
+
+
+def test_without_the_request_steps_send_nothing_so_the_stream_is_what_it_was() -> None:
+    translator = TurnTranslator()
+    assert translator.feed("custom", step("searching")) == []
+    assert TurnTranslator(steps=False).feed("custom", step("writing")) == []
+
+
+def test_a_step_with_no_name_sends_nothing_and_a_step_does_not_start_the_answer() -> None:
+    translator = TurnTranslator(steps=True)
+    assert translator.feed("custom", {"event": "step"}) == []
+    assert translator.feed("custom", step("")) == []
+    translator.feed("custom", step("writing"))
+    assert pieces(translator.feed("custom", text("  A"))) == [("text", {"text": "A"})]
+
+
 # --- the state ---------------------------------------------------------------------------------
 
 

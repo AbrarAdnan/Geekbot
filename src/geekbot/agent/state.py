@@ -11,16 +11,29 @@ A node returns only the keys it changes, and LangGraph merges them into the stat
 has written yet is simply absent, which is why the state class is ``total=False``.
 """
 
-from typing import Literal, NotRequired, TypedDict
+from typing import Final, Literal, NotRequired, TypedDict
+
+from geekbot.retrieval import SearchHit
 
 __all__ = [
+    "STEP_RANKING",
+    "STEP_SEARCHING",
+    "STEP_WRITING",
     "AgentState",
     "CitationScore",
     "HistoryMessage",
     "HistorySource",
     "SourceRef",
+    "StepEvent",
     "StreamEvent",
 ]
+
+# The names of the steps a turn announces while it runs (``StepEvent``, S3.6): the search starts, the
+# candidates are being ranked, the model is about to write. The server turns them into ``status``
+# frames and the UI into a line under the question. A new name needs a caption in ``ui.display``.
+STEP_SEARCHING: Final = "searching"
+STEP_RANKING: Final = "ranking"
+STEP_WRITING: Final = "writing"
 
 
 class CitationScore(TypedDict):
@@ -124,6 +137,19 @@ class AgentState(TypedDict, total=False):
     condense_error: str  # why the rewrite fell back to the user's own words (only if it failed)
     sources: list[SourceRef]  # every chunk retrieval returned, best first
     retrieval_ms: dict[str, float]  # per stage, from the retriever's own timings
+    # Staged search (S3.6). When the retriever has stages (``retrieval.staged.StagedSearch``) the
+    # graph runs them as steps and these keys carry what moves between them: candidate IDs with their
+    # scores, never texts (the state is saved after every step), and each stage's time. The two
+    # searches run at the same moment, so each writes keys of its own: two steps of one round may
+    # not write the same key. The last stage (``rerank``) turns them into ``sources`` and
+    # ``retrieval_ms`` and empties the lists.
+    staged: bool  # this turn's search is scheduled by the graph, stage by stage
+    dense_hits: list[SearchHit]
+    lexical_hits: list[SearchHit]
+    fused_hits: list[SearchHit]
+    dense_ms: float
+    lexical_ms: float
+    fusion_ms: float
     used: int  # how many of the sources made it into the prompt
     history_used: int  # how many earlier messages made it into the prompt (S3.4)
     answer: str  # what the user sees; after S3.2's check, without citations that point nowhere
@@ -156,3 +182,15 @@ class StreamEvent(TypedDict):
 
     event: Literal["text", "thinking"]
     text: str
+
+
+class StepEvent(TypedDict):
+    """A turn announcing the step it has reached (S3.6), sent by the graph's search and answer nodes.
+
+    Like ``StreamEvent`` this is not state, only something for whoever is listening. ``name`` is one
+    of ``STEP_SEARCHING``, ``STEP_RANKING``, ``STEP_WRITING``. A listener that does not know the
+    event ignores it (the terminal does).
+    """
+
+    event: Literal["step"]
+    name: str

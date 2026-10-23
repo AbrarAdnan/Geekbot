@@ -167,13 +167,17 @@ def test_the_whole_final_state_is_plain_data_a_checkpointer_could_save() -> None
     assert json.loads(json.dumps(final)) == final
 
 
-def test_the_graph_has_its_ten_steps_and_the_two_ends() -> None:
+def test_the_graph_has_its_fourteen_steps_and_the_two_ends() -> None:
     nodes = set(build_graph().get_graph().nodes)
     assert nodes == {
         "__start__",
         "begin_turn",
         "condense",
         "retrieve",
+        "search_dense",  # the four staged steps (S3.6)
+        "search_lexical",
+        "fuse",
+        "rerank",
         "generate",
         "validate_citations",
         "cite_check",
@@ -309,15 +313,18 @@ def test_a_reply_without_metadata_still_gives_the_wall_clock_time() -> None:
 
 
 def streamed_events(chat: ChatModel) -> list[object]:
-    """The custom events a listener receives while the graph runs (``stream_mode="custom"``)."""
+    """The pieces of the answer a listener receives while the graph runs (``stream_mode="custom"``).
+
+    The step events of S3.6 (``searching``, ``writing``) travel on the same stream; they are tested
+    in ``test_parallel_graph.py`` and left out here, where the question is what the pieces are.
+    """
     graph = build_graph()
-    return list(
-        graph.stream(
-            {"question": "How long are chats kept?"},
-            context=context_for(FakeRetriever(TWO_CHUNKS), chat),
-            stream_mode="custom",
-        )
+    events = graph.stream(
+        {"question": "How long are chats kept?"},
+        context=context_for(FakeRetriever(TWO_CHUNKS), chat),
+        stream_mode="custom",
     )
+    return [event for event in events if event["event"] != "step"]
 
 
 def test_every_piece_of_the_answer_is_sent_to_whoever_listens_as_it_arrives() -> None:
@@ -341,7 +348,11 @@ def test_the_streamed_run_ends_in_the_same_state_as_a_plain_invoke() -> None:
     assert final["answer"] == "Ninety days [1] and."  # the check ran after the stream
     assert final["raw_answer"] == "Ninety days [1] and [9]."
     assert final["dropped_citations"] == [9]
-    assert [payload["text"] for mode, payload in events if mode == "custom"] == [
+    assert [
+        payload["text"]
+        for mode, payload in events
+        if mode == "custom" and payload["event"] == "text"
+    ] == [
         "Ninety ",
         "days [1] and [9].",
     ]
@@ -366,6 +377,8 @@ def test_the_first_piece_reaches_the_listener_before_the_model_has_finished() ->
     context = context_for(FakeRetriever(TWO_CHUNKS), WaitsForTheListener())
     received: list[object] = []
     for event in graph.stream({"question": "q"}, context=context, stream_mode="custom"):
+        if event["event"] == "step":
+            continue  # S3.6: "searching" and "writing" come before the first piece of the answer
         received.append(event)
         first_seen.set()
     assert received == [

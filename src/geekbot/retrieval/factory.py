@@ -30,8 +30,9 @@ def citation_scorer_of(retriever: Retriever) -> "PassageScorer | None":
     so no second copy is loaded; a retriever without a reranker means the check is skipped.
     """
     from geekbot.retrieval.rerank import Reranker
+    from geekbot.retrieval.staged import StagedSearch
 
-    return retriever.scorer if isinstance(retriever, Reranker) else None
+    return retriever.scorer if isinstance(retriever, Reranker | StagedSearch) else None
 
 
 def build_retriever(
@@ -40,6 +41,7 @@ def build_retriever(
     settings: "Settings",
     *,
     candidates: int = DEFAULT_CANDIDATES,
+    staged: bool = False,
 ) -> Retriever:
     """The retriever for ``mode``, reading from ``workspace``.
 
@@ -48,11 +50,16 @@ def build_retriever(
     - ``hybrid``: both, each asked for ``candidates`` chunks, fused by rank (RRF).
     - ``hybrid_rerank``: the hybrid result's best ``settings.rerank_depth`` chunks, re-scored by a
       cross-encoder on the CPU. Its model is downloaded on first use.
+
+    ``staged`` (S3.6) returns the two hybrid modes as a ``StagedSearch``: the same retrieval with
+    its stages exposed, which the answer graph runs side by side. Its own ``search`` gives the same
+    result as the sequential classes. The other two modes have one stage and ignore it.
     """
     from geekbot.retrieval.dense import DenseRetriever
     from geekbot.retrieval.hybrid import HybridRetriever
     from geekbot.retrieval.lexical import LexicalRetriever
     from geekbot.retrieval.rerank import FastembedScorer, Reranker
+    from geekbot.retrieval.staged import StagedSearch
 
     lexical = LexicalRetriever(workspace.store)
     if mode is SearchMode.LEXICAL:
@@ -60,12 +67,25 @@ def build_retriever(
     dense = DenseRetriever(workspace.store, workspace.dense, workspace.embedder)
     if mode is SearchMode.DENSE:
         return dense
-    hybrid = HybridRetriever(dense, lexical, candidates=candidates)
-    if mode is SearchMode.HYBRID:
-        return hybrid
-    scorer = FastembedScorer(
-        settings.rerank_model,
-        cache_dir=settings.data_dir / "models",
-        threads=settings.rerank_threads,
+    scorer = (
+        None
+        if mode is SearchMode.HYBRID
+        else FastembedScorer(
+            settings.rerank_model,
+            cache_dir=settings.data_dir / "models",
+            threads=settings.rerank_threads,
+        )
     )
+    if staged:
+        return StagedSearch(
+            dense,
+            lexical,
+            workspace.store.get_chunks,
+            scorer,
+            candidates=candidates,
+            depth=settings.rerank_depth,
+        )
+    hybrid = HybridRetriever(dense, lexical, candidates=candidates)
+    if scorer is None:
+        return hybrid
     return Reranker(hybrid, scorer, depth=settings.rerank_depth)

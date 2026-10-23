@@ -114,11 +114,14 @@ def make_app(
     hosts: tuple[str, ...] = TEST_HOSTS,
     max_body_bytes: int = MAX_BODY_BYTES,
     max_upload_bytes: int = MAX_UPLOAD_BYTES,
+    staged: bool = False,
 ) -> FastAPI:
     """An app over a fake-embedder workspace with scripted models.
 
     ``retriever`` replaces the real hybrid retriever (which searches whatever was ingested through
-    the API). ``warm=False`` starts the answering tools as ``--no-warmup`` would: not ready, until the
+    the API); ``staged`` makes that real retriever the staged form (S3.6), whose stages the answer
+    graph runs as steps, instead of the sequential class (no reranker in either, so no model is
+    needed). ``warm=False`` starts the answering tools as ``--no-warmup`` would: not ready, until the
     first question runs the (fake, instant) load. The perimeter (S4.3) is the real middleware with no
     API key unless ``api_key`` is given, the test host names allowed unless ``hosts`` says otherwise,
     and ``root`` as the one allowed folder (``settings_for``). The CSV side (C5) uses the real
@@ -134,7 +137,8 @@ def make_app(
 
     def open_answering(settings: Settings, workspace: Workspace) -> Answering:
         context = AgentContext(
-            retriever=fakes.retriever or build_retriever(SearchMode.HYBRID, workspace, settings),
+            retriever=fakes.retriever
+            or build_retriever(SearchMode.HYBRID, workspace, settings, staged=staged),
             llm=fakes.chat,
             model=MODEL,
             top_k=settings.answer_top_k,
