@@ -344,10 +344,12 @@ def test_the_threads_taint_never_goes_away(tmp_path: Path) -> None:
 
 
 def test_a_turn_that_fails_is_not_remembered_and_the_next_one_can_go_on(tmp_path: Path) -> None:
-    chat = ScriptedChat("Ninety days [1].", ConnectionError("down"), "A year [2].")
+    # A permanent failure: since S3.6 a transient one (a refused connection) is retried, and the
+    # next scripted reply would have been used by the retry instead of by the second question.
+    chat = ScriptedChat("Ninety days [1].", RuntimeError("model crashed"), "A year [2].")
     setup = Setup(tmp_path, chat=chat)
     setup.ask(Q1)
-    with pytest.raises(ChatError, match="ConnectionError: down"):
+    with pytest.raises(ChatError, match="RuntimeError: model crashed"):
         setup.ask(Q2)
     saved = asyncio.run(read_thread(setup.db, "t1"))
     assert saved is not None

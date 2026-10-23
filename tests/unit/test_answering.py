@@ -17,7 +17,9 @@ from serverkit import open_fake_workspace, settings_for
 from geekbot.agent.runtime import AgentContext
 from geekbot.config import Settings
 from geekbot.llm.models import SwapResult
+from geekbot.retrieval import SearchMode
 from geekbot.retrieval.rerank import Reranker
+from geekbot.retrieval.staged import StagedSearch
 from geekbot.server import answering as answering_module
 from geekbot.server.answering import Answering, TurnGate, open_chat_answering
 
@@ -228,11 +230,42 @@ def test_the_warm_up_swaps_the_gpu_to_the_chat_model_then_loads_the_reranker(
 
 
 def test_the_real_thing_builds_with_no_network_when_the_warm_up_is_off(tmp_path: Path) -> None:
-    """The retriever, the chat model and the rewrite model are only configured, not contacted."""
+    """The retriever, the chat model and the rewrite model are only configured, not contacted.
+
+    Since S3.6 the retriever is the staged form of hybrid search plus the cross-encoder, which the
+    answer graph runs as dense ‖ lexical → fuse → rerank.
+    """
     settings = settings_for(tmp_path)
+    assert settings.parallel_search is True
+    with open_fake_workspace(settings) as workspace:
+        answering = open_chat_answering(settings, workspace, warm_up=False)
+    assert isinstance(answering.context.retriever, StagedSearch)
+    assert answering.context.citation_scorer is answering.context.retriever.scorer
+    assert answering.context.citation_scorer is not None  # the reranker's model is shared
+    assert answering.context.top_k == settings.answer_top_k == 5
+    assert answering.ready is False
+
+
+def test_with_parallel_search_off_the_retriever_is_the_sequential_one(tmp_path: Path) -> None:
+    settings = settings_for(tmp_path).model_copy(update={"parallel_search": False})
     with open_fake_workspace(settings) as workspace:
         answering = open_chat_answering(settings, workspace, warm_up=False)
     assert isinstance(answering.context.retriever, Reranker)
     assert answering.context.citation_scorer is answering.context.retriever.scorer
-    assert answering.context.top_k == settings.answer_top_k == 5
-    assert answering.ready is False
+
+
+@pytest.mark.parametrize("parallel", [True, False])
+def test_the_setting_decides_whether_the_staged_form_is_asked_for(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, parallel: bool
+) -> None:
+    asked: list[dict[str, Any]] = []
+
+    def fake_build(mode: Any, workspace: Any, settings: Settings, **kwargs: Any) -> Reranker:
+        asked.append({"mode": mode, **kwargs})
+        return Reranker(ScriptedRetriever(), SpyScorer(), depth=3)
+
+    monkeypatch.setattr(answering_module, "build_retriever", fake_build)
+    settings = settings_for(tmp_path).model_copy(update={"parallel_search": parallel})
+    with open_fake_workspace(settings) as workspace:
+        open_chat_answering(settings, workspace, warm_up=False)
+    assert asked == [{"mode": SearchMode.HYBRID_RERANK, "staged": parallel}]

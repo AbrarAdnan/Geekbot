@@ -10,7 +10,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from geekbot.domain import Chunk, ScoredChunk
-from geekbot.retrieval.fusion import DEFAULT_RRF_K, reciprocal_rank_fusion
+from geekbot.retrieval.fusion import DEFAULT_RRF_K, fuse_ranks, reciprocal_rank_fusion
 
 
 def chunk(chunk_id: str) -> Chunk:
@@ -215,3 +215,34 @@ def test_the_order_of_the_lists_changes_only_ties(lists: list[list[str]]) -> Non
         {r.chunk.chunk_id: r.score for r in backward}
     )
     assert reciprocal_rank_fusion([ranked(*items) for items in lists if items]) == forward  # stable
+
+
+# --- the same ranking on IDs alone (S3.6) ----------------------------------------------------
+
+
+def test_fusing_ids_gives_the_hand_computed_example_too() -> None:
+    fused = fuse_ranks([["a", "b", "c"], ["b", "d", "a"]], k=60)
+    assert [chunk_id for chunk_id, _ in fused] == ["b", "a", "d", "c"]
+    scores = dict(fused)
+    assert scores["a"] == pytest.approx(1 / 61 + 1 / 63)
+    assert scores["d"] == pytest.approx(1 / 62)
+
+
+def test_fusing_ids_honours_limit_and_refuses_what_the_chunk_version_refuses() -> None:
+    assert [cid for cid, _ in fuse_ranks([["a", "b", "c"]], limit=2)] == ["a", "b"]
+    with pytest.raises(ValueError, match="k must not be negative"):
+        fuse_ranks([["a"]], k=-1)
+    with pytest.raises(ValueError, match="limit must be at least 1"):
+        fuse_ranks([["a"]], limit=0)
+    assert fuse_ranks([]) == []
+    assert fuse_ranks([[], []]) == []
+
+
+@given(lists=_LISTS, k=st.integers(min_value=0, max_value=100))
+def test_the_chunk_version_is_the_id_version_with_the_chunks_handed_back(
+    lists: list[list[str]], k: int
+) -> None:
+    """One implementation of the ranking: same order, same scores, whatever the input."""
+    by_ids = fuse_ranks(lists, k=k)
+    by_chunks = reciprocal_rank_fusion([ranked(*items) for items in lists if items], k=k)
+    assert [(r.chunk.chunk_id, r.score) for r in by_chunks] == by_ids

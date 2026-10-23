@@ -271,6 +271,22 @@ def test_a_thread_is_reserved_with_its_mode_and_a_question_carries_a_mode_only_w
     ]
 
 
+def test_a_question_asks_for_step_events_only_when_the_page_wants_them() -> None:
+    sent: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content))
+        return stream_of('event: done\ndata: {"answer": "x"}\n\n')
+
+    client = mocked(handler)
+    list(client.ask("t-abc", "q"))
+    list(client.ask("t-abc", "q", steps=True))
+    assert sent == [
+        {"question": "q", "think": False},  # as before S3.6: nothing new on the wire
+        {"question": "q", "think": False, "steps": True},
+    ]
+
+
 def test_the_refusals_before_the_stream_are_api_errors(client: GeekbotClient) -> None:
     with pytest.raises(ApiError) as raised:
         list(client.ask("t-x", ""))  # an empty question

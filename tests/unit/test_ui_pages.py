@@ -170,6 +170,7 @@ class FakeClient:
         self.documents_ready = 1
         self.asked: list[tuple[str, str, bool]] = []
         self.modes: list[str | None] = []  # the ``mode`` each question was sent with
+        self.steps: list[bool] = []  # whether each question asked for step events (S3.6)
         self.ingested: list[list[str]] = []
         self.new_threads: list[str] = []  # the mode of each thread id asked for
         self.csv_uploads: list[tuple[str, str, bytes]] = []
@@ -215,10 +216,17 @@ class FakeClient:
         return self.saved.pop(thread_id, None) is not None
 
     def ask(
-        self, thread_id: str, question: str, *, think: bool = False, mode: str | None = None
+        self,
+        thread_id: str,
+        question: str,
+        *,
+        think: bool = False,
+        mode: str | None = None,
+        steps: bool = False,
     ) -> Iterator[SseEvent]:
         self.asked.append((thread_id, question, think))
         self.modes.append(mode)
+        self.steps.append(steps)
         if self.ask_error is not None:
             raise self.ask_error
         yield from self.events
@@ -292,6 +300,21 @@ def test_the_think_toggle_is_sent_with_the_question() -> None:
     app.toggle[0].set_value(True).run()
     app.chat_input[0].set_value("Why?").run()
     assert fake.asked == [("t-new", "Why?", True)]
+
+
+def test_a_document_question_asks_for_step_events_and_a_csv_question_does_not() -> None:
+    """S3.6: the line under the question names the step ("Searching ...") for documents only; the CSV
+    stream has its own progress line and no steps to report."""
+    docs = FakeClient()
+    run_page("chat", docs).chat_input[0].set_value("How long?").run()
+    assert docs.steps == [True]
+    sheet = FakeClient()
+    sheet.saved["t-csv"] = CSV_SAVED
+    sheet.events = CSV_EVENTS
+    sheet.documents_ready = 0
+    app = run_page("chat", sheet, geekbot_thread="t-csv")
+    app.chat_input[0].set_value("And in March?").run()
+    assert sheet.steps == [False]
 
 
 def test_a_failed_answer_shows_the_error_and_none_of_the_pieces() -> None:

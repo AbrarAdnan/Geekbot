@@ -6,12 +6,26 @@
                         └ follow-up ─► condense ──┴─► csv_ask    (a CSV thread)
 
     retrieve ─┬ sources found ─► generate ─► validate_citations ─► cite_check ─► sanitize ─┐
-              └ nothing found ─► no_context ──────────────────────────────────────────────┤
+              ├ nothing found ─► no_context ──────────────────────────────────────────────┤
+              └ staged search ─► search_dense ┐                                           │
+                                 search_lexical┴─► fuse ─► rerank ─► (sources? as above)  │
     csv_ask ─────────────────────────────────────────────────────────────► sanitize ─────┴─► remember ─► END
 
 The chat branch is ``retrieve`` and what follows it; the CSV branch is the single node ``csv_ask``.
 Both branches end in ``remember``, and both reply texts pass ``sanitize`` first (S3.5, G3), except the
 application's own "nothing found" sentence, which no model wrote.
+
+**Staged search (S3.6).** When the retriever has stages (``retrieval.staged.StagedSearch``) ``retrieve``
+only announces the search and the conditional edge after it names *two* steps, ``search_dense`` and
+``search_lexical``. LangGraph runs the steps named by one edge in the same round, in parallel, and a
+list-form edge (``["search_dense", "search_lexical"] → "fuse"``) makes ``fuse`` wait for both. After
+``rerank`` the turn takes the same decision as after a whole-retriever search (``has_sources``). Any
+other retriever never enters the four staged steps.
+
+**Retries (S3.6).** The steps that call Ollama and change nothing (``retrieve``, ``search_dense`` and
+``generate``) carry a ``RetryPolicy`` that retries transient failures only (``agent.resilience``).
+``csv_ask`` has none: a CSV question can run for a minute and the package has its own retry logic.
+``condense`` has none because it never raises (it falls back to the user's own words).
 
 Every edge is written down. There is no agent loop and no model deciding what to do next: the three
 decisions (``route_after_begin``, ``route_after_condense``, ``has_sources``) are plain functions of the
@@ -43,6 +57,7 @@ the ``thread_id`` of the run's config, which is what makes a conversation resuma
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import RetryPolicy
 
 from geekbot.agent.mode import route_after_begin, route_after_condense
 from geekbot.agent.nodes import (
@@ -50,14 +65,20 @@ from geekbot.agent.nodes import (
     cite_check,
     condense,
     csv_ask,
+    fuse,
     generate,
     has_sources,
     no_context,
     remember,
+    rerank,
     retrieve,
+    route_after_retrieve,
     sanitize,
+    search_dense,
+    search_lexical,
     validate_citations,
 )
+from geekbot.agent.resilience import transient_retry
 from geekbot.agent.runtime import AgentContext
 from geekbot.agent.state import AgentState
 
@@ -66,18 +87,27 @@ __all__ = ["build_graph"]
 
 def build_graph(
     checkpointer: BaseCheckpointSaver[str] | None = None,
+    *,
+    retry: RetryPolicy | None = None,
 ) -> CompiledStateGraph[AgentState, AgentContext, AgentState, AgentState]:
     """The compiled answer graph. Run it with ``graph.invoke(state, context=AgentContext(...))``.
 
     ``checkpointer`` makes it a conversation: pass the same ``{"configurable": {"thread_id": ...}}``
     config to every run of a thread and the thread's memory carries over. Without one every run
-    starts from nothing.
+    starts from nothing. ``retry`` is the policy of the steps that call Ollama and change nothing
+    (S3.6); the default retries transient failures a few times (``agent.resilience.transient_retry``),
+    and a test passes a policy that does not wait.
     """
+    policy = retry if retry is not None else transient_retry()
     builder = StateGraph(AgentState, context_schema=AgentContext)
     builder.add_node("begin_turn", begin_turn)
     builder.add_node("condense", condense)
-    builder.add_node("retrieve", retrieve)
-    builder.add_node("generate", generate)
+    builder.add_node("retrieve", retrieve, retry_policy=policy)
+    builder.add_node("search_dense", search_dense, retry_policy=policy)
+    builder.add_node("search_lexical", search_lexical)
+    builder.add_node("fuse", fuse)
+    builder.add_node("rerank", rerank)
+    builder.add_node("generate", generate, retry_policy=policy)
     builder.add_node("validate_citations", validate_citations)
     builder.add_node("cite_check", cite_check)
     builder.add_node("sanitize", sanitize)
@@ -94,7 +124,19 @@ def build_graph(
         "condense", route_after_condense, {"retrieve": "retrieve", "csv_ask": "csv_ask"}
     )
     builder.add_conditional_edges(
-        "retrieve", has_sources, {"generate": "generate", "no_context": "no_context"}
+        "retrieve",
+        route_after_retrieve,
+        {
+            "generate": "generate",
+            "no_context": "no_context",
+            "search_dense": "search_dense",
+            "search_lexical": "search_lexical",
+        },
+    )
+    builder.add_edge(["search_dense", "search_lexical"], "fuse")
+    builder.add_edge("fuse", "rerank")
+    builder.add_conditional_edges(
+        "rerank", has_sources, {"generate": "generate", "no_context": "no_context"}
     )
     builder.add_edge("generate", "validate_citations")
     builder.add_edge("validate_citations", "cite_check")

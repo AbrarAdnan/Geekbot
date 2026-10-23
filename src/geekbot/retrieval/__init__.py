@@ -14,13 +14,32 @@ it inside SQLite.
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Final, Protocol
+from typing import Final, Protocol, TypedDict
 
 from geekbot.domain import ScoredChunk
 
-__all__ = ["EXCERPT_CHARS", "RetrievalResult", "Retriever", "SearchMode", "format_result"]
+__all__ = [
+    "EXCERPT_CHARS",
+    "RetrievalResult",
+    "Retriever",
+    "SearchHit",
+    "SearchMode",
+    "format_result",
+]
 
 EXCERPT_CHARS: Final = 200
+
+
+class SearchHit(TypedDict):
+    """One candidate as the answer graph keeps it between search steps (S3.6): an ID and a score.
+
+    Plain data on purpose. The graph's state is saved after every step, so it holds the *references*
+    to the candidates (``chunk_id`` and the score the search that found it gave) and the text is read
+    back from the store only for the few chunks that survive fusion (``retrieval.staged``).
+    """
+
+    chunk_id: str
+    score: float
 
 
 class SearchMode(StrEnum):

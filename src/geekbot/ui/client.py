@@ -292,7 +292,13 @@ class GeekbotClient:
         return True
 
     def ask(
-        self, thread_id: str, question: str, *, think: bool = False, mode: str | None = None
+        self,
+        thread_id: str,
+        question: str,
+        *,
+        think: bool = False,
+        mode: str | None = None,
+        steps: bool = False,
     ) -> Iterator[SseEvent]:
         """Ask a question and yield the answer's events as they arrive.
 
@@ -301,12 +307,16 @@ class GeekbotClient:
         thread is the other kind of conversation), and ``ServerUnavailableError`` if the connection
         fails or closes before a final event. Closing the generator early closes the connection,
         which the server takes as "the client went away". ``mode`` (``"csv"``) says what the page
-        believes the conversation is; left out, the server decides from the thread.
+        believes the conversation is; left out, the server decides from the thread. ``steps`` asks
+        the server for progress events while a chat question runs (``status`` frames that name the
+        step: searching, ranking, writing; S3.6); left out, the request is what it was before.
         """
         finished = False
         body: dict[str, Any] = {"question": question, "think": think}
         if mode is not None:
             body["mode"] = mode
+        if steps:
+            body["steps"] = True
         try:
             with self._http.stream(
                 "POST",

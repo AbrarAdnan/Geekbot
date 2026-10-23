@@ -226,6 +226,10 @@ class AskRequest(BaseModel):
     conversation. Given, it must agree with the thread (409 otherwise), and ``"csv"`` on a thread
     the server has no file for is a 409 that says to upload it again, instead of a question quietly
     answered from the documents. The UI sends it for every CSV conversation.
+
+    ``steps`` (S3.6) asks for progress events: while a chat question runs, ``status`` frames name the
+    step it has reached (``searching``, ``ranking``, ``writing``). Off by default, so a client that
+    only wants the answer receives only the answer's events.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -233,6 +237,7 @@ class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=MAX_QUESTION_CHARS)
     think: bool = False
     mode: Literal["chat", "csv"] | None = None
+    steps: bool = False
 
 
 class SourceRefOut(BaseModel):

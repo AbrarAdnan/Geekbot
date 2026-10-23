@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from geekbot.agent import graph as graph_module
+from geekbot.agent.resilience import transient_retry
 from geekbot.log import LOGGER_NAME
 
 # The two test files that import the UI's pages need Streamlit at collection time. In an environment
@@ -31,6 +33,21 @@ def clean_geekbot_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         if name.startswith("GEEKBOT_"):
             monkeypatch.delenv(name)
     monkeypatch.chdir(tmp_path)
+
+
+@pytest.fixture(autouse=True)
+def _retries_do_not_wait(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the answer graph's default retry policy retry at once (S3.6).
+
+    The real policy waits about 0.5 s, then 1 s, plus jitter, before it runs a step again. Many tests
+    script a refused connection to see what a failing model does; with the real waits each of them
+    would sit for seconds. The policy is the same otherwise (same attempts, same ``retry_on``), and
+    ``test_resilience.py`` checks the real numbers by calling ``transient_retry()`` itself, which this
+    does not touch.
+    """
+    monkeypatch.setattr(
+        graph_module, "transient_retry", lambda: transient_retry(initial_interval=0.0, jitter=False)
+    )
 
 
 @pytest.fixture(autouse=True)

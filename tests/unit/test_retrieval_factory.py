@@ -18,10 +18,11 @@ from geekbot.index.workspace import Workspace
 from geekbot.ingest.pipeline import Ingestor, collect_files
 from geekbot.retrieval import Retriever, SearchMode
 from geekbot.retrieval.dense import DenseRetriever
-from geekbot.retrieval.factory import build_retriever
+from geekbot.retrieval.factory import build_retriever, citation_scorer_of
 from geekbot.retrieval.hybrid import HybridRetriever
 from geekbot.retrieval.lexical import LexicalRetriever
 from geekbot.retrieval.rerank import Reranker
+from geekbot.retrieval.staged import StagedSearch
 
 pytestmark = pytest.mark.usefixtures("clean_geekbot_env")
 
@@ -146,3 +147,41 @@ def test_the_candidates_option_reaches_the_hybrid_search(
         build_retriever(SearchMode.HYBRID, workspace, settings, candidates=0)
     with pytest.raises(ValueError, match="candidates"):
         build_retriever(SearchMode.HYBRID_RERANK, workspace, settings, candidates=0)
+    with pytest.raises(ValueError, match="candidates"):
+        build_retriever(SearchMode.HYBRID_RERANK, workspace, settings, candidates=0, staged=True)
+
+
+# --- the staged form (S3.6) ----------------------------------------------------------------------
+
+
+def test_staged_gives_the_two_hybrid_modes_their_stages_and_the_other_two_modes_ignore_it(
+    workspace: Workspace, fake_scorer: type[FakeScorer], tmp_path: Path
+) -> None:
+    settings = Settings(_env_file=None, data_dir=tmp_path / "data", rerank_depth=2)
+    hybrid = build_retriever(SearchMode.HYBRID, workspace, settings, staged=True)
+    assert isinstance(hybrid, StagedSearch)
+    assert hybrid.scorer is None
+    assert fake_scorer.built == []  # a mode that never reranks loads no scorer, staged or not
+    reranking = build_retriever(SearchMode.HYBRID_RERANK, workspace, settings, staged=True)
+    assert isinstance(reranking, StagedSearch)
+    (scorer,) = fake_scorer.built
+    assert reranking.scorer is scorer
+    assert citation_scorer_of(reranking) is scorer  # the citation check finds it, as in Reranker
+    dense = build_retriever(SearchMode.DENSE, workspace, settings, staged=True)
+    lexical = build_retriever(SearchMode.LEXICAL, workspace, settings, staged=True)
+    assert isinstance(dense, DenseRetriever)
+    assert isinstance(lexical, LexicalRetriever)
+
+
+@pytest.mark.parametrize("mode", [SearchMode.HYBRID, SearchMode.HYBRID_RERANK])
+def test_the_staged_form_finds_what_the_sequential_form_finds_on_a_real_store(
+    workspace: Workspace, fake_scorer: type[FakeScorer], tmp_path: Path, mode: SearchMode
+) -> None:
+    """Same documents, same chunks, same scores: the staged form only changes the schedule."""
+    settings = Settings(_env_file=None, data_dir=tmp_path / "data", rerank_depth=3)
+    sequential = build_retriever(mode, workspace, settings)
+    staged = build_retriever(mode, workspace, settings, staged=True)
+    for query in ("bread", "zebra stripes", "river flows", "quartz mineral", "nothing like it"):
+        wanted = [(s.chunk.chunk_id, s.score) for s in sequential.search(query, 3).chunks]
+        got = [(s.chunk.chunk_id, s.score) for s in staged.search(query, 3).chunks]
+        assert got == wanted, query

@@ -36,7 +36,16 @@ __all__ = [
 
 
 class ChatError(RuntimeError):
-    """The chat model could not answer: Ollama is down, the model is missing, or it errored."""
+    """The chat model could not answer: Ollama is down, the model is missing, or it errored.
+
+    ``partial`` (S3.6) says that some of the reply had already been sent to the listener when the
+    call failed. Such a failure must not be retried: the retry would write the answer again after
+    the half that is already on the screen (``agent.resilience``).
+    """
+
+    def __init__(self, message: str, *, partial: bool = False) -> None:
+        super().__init__(message)
+        self.partial = partial
 
 
 class ChatModel(Protocol):

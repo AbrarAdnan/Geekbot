@@ -110,6 +110,11 @@ class Settings(BaseSettings):
     rerank_model: str = "Xenova/ms-marco-MiniLM-L-6-v2"
     rerank_depth: int = Field(default=10, gt=0)
     rerank_threads: int | None = Field(default=None, gt=0)
+    # Whether the server's answer graph runs the dense and the lexical search side by side (step
+    # S3.6, PLAN §7) or lets one retriever do them in order, as before. The result is the same either
+    # way; the saving is at most the shorter of the two searches, and S3.6's live smoke test is what
+    # measures whether it is worth its overhead. Off is the escape hatch.
+    parallel_search: bool = True
     # The answer graph (step S3.1, PLAN §6.5, §7). The cap on the reply, the sampling temperature
     # and the room for sources in the prompt are starting points, not measurements: S3.3 measures
     # speed and S5.1 sweeps the settings. ``chat_num_ctx`` above is what the model is warmed up
