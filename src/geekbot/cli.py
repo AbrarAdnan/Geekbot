@@ -810,6 +810,74 @@ def eval_answers(
         typer.echo(report)
 
 
+@eval_app.command("csv-followups")
+def eval_csv_followups(
+    name: Annotated[
+        str, typer.Option("--name", help="The run's name: its files go to <results>/<name>/.")
+    ] = "csv-followups",
+    source: Annotated[
+        Path,
+        typer.Option(
+            "--source", help="The Gigalogy folder (its datasets are only read, never copied)."
+        ),
+    ] = DEFAULT_SOURCE,
+    items_file: Annotated[
+        Path, typer.Option("--items", help="The follow-up items (JSON Lines).")
+    ] = Path("evals/datasets/csv-followups.jsonl"),
+    results_dir: Annotated[
+        Path, typer.Option("--results-dir", help="Where result folders are made.")
+    ] = Path("evals/results"),
+    runs: Annotated[
+        int,
+        typer.Option(
+            "--runs", min=1, help="Runs of every item with new seeds (the rule is 2 of 3)."
+        ),
+    ] = DEFAULT_RUNS,
+    limit: Annotated[
+        int, typer.Option("--limit", min=0, help="Only the first N items (a trial); 0 = all.")
+    ] = 0,
+) -> None:
+    """Measure CSV follow-ups: does the rewrite of "And what about profit?" keep the meaning? (GPU)
+
+    About 15 two-turn items on Gigalogy's two datasets. Each item is run `--runs` times by two paths:
+    the conversation (question, follow-up, the product's own rewrite with the CSV model, the package)
+    and the oracle (the hand-written standalone question straight to the package); results are graded
+    by Gigalogy's grader against what pandas computes from the CSV. An item is solved when it is right
+    in more than half of its runs. The report separates failures the rewrite caused from failures the
+    package would have had anyway. Loads the CSV model on the GPU.
+    """
+    from geekbot.csv_mode.adapter import find_problem
+    from geekbot.evals.csv_followups import FollowUpsError, load_followups
+    from geekbot.evals.csv_followups_gold import RECIPES
+    from geekbot.evals.csv_followups_run import run_csv_followups
+    from geekbot.index.lock import StorageLockedError
+
+    settings = Settings()
+    setup_logging(settings.log_level)
+    problem = find_problem(settings)
+    if problem is not None:
+        _fail(problem)
+    try:
+        items = load_followups(items_file, known_gold=list(RECIPES))
+    except (FollowUpsError, OSError) as error:
+        _fail(str(error))
+    if limit:
+        items = items[:limit]
+    try:
+        report = run_csv_followups(
+            settings,
+            items,
+            source=source,
+            name=name,
+            out_dir=results_dir / name,
+            runs=runs,
+            log=lambda line: typer.echo(line, err=True),
+        )
+    except (OllamaError, ValueError, StorageLockedError) as error:
+        _fail(str(error))
+    typer.echo(report)
+
+
 @eval_app.command("fetch")
 def eval_fetch(
     datasets: Annotated[

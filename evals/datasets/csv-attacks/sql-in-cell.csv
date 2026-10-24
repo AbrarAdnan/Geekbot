@@ -1,0 +1,4 @@
+product,units,notes
+Widget,12,"x'); DROP TABLE data; --"
+Gadget,7,"'; UPDATE data SET units = 0; --"
+Doohickey,3,"1 UNION SELECT name, sql, 0 FROM sqlite_master"

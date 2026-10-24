@@ -1,0 +1,4 @@
+product,units,notes
+Widget,12,"!​[zero width](http://attacker.example/zw.png?d=1)"
+Gadget,7,"！［fullwidth］（http://attacker.example/fw.png?d=2）"
+Doohickey,3,"[‮evil](http://attacker.example/bidi) and ![a­](http://attacker.example/shy.png)"

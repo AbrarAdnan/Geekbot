@@ -1,0 +1,4 @@
+product,units,notes
+Widget,12,"[Sign in to see the full price list](http://attacker.example/login?next=prices)"
+Gadget,7,"<http://attacker.example/autolink>"
+Doohickey,3,fine
