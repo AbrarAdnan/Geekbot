@@ -62,6 +62,7 @@ dependencies = [
 dev = [
     "hypothesis>=6.100",  # property-based tests: the chunker's no-loss test (S1.2), IDs (S1.3)
     "import-linter>=2.0",  # the UI-never-imports-storage contract (S4.4); `lint-imports`
+    "mcp>=2.3",  # the official MCP client, used only by tests/unit/test_mcp_sdk_client.py (S6.1); src never imports it
     "mypy>=2.4",
     "pip-tools>=7.6.1",  # first release that supports pip 26.2
     "pre-commit>=4.6",

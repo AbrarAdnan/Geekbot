@@ -878,6 +878,40 @@ def eval_csv_followups(
     typer.echo(report)
 
 
+@app.command("mcp-stdio")
+def mcp_stdio() -> None:
+    """Speak MCP over stdin and stdout, for a client that starts a program (needs a running server)
+
+    Reads one JSON-RPC message per line, passes it to the running server's `/mcp` (read-only tools:
+    `search_knowledge_base`, `list_documents`) with the API key the UI uses, and writes the answer as one
+    line. Standard output carries nothing but the protocol; notes go to standard error. Start the
+    server first (`geekbot up` or `geekbot serve`). For a client that calls an HTTP address, use
+    `http://127.0.0.1:<port>/mcp` with the key as a bearer token instead.
+    """
+    import sys
+
+    import httpx
+
+    from geekbot.apikey import ApiKeyError, load_api_key
+    from geekbot.mcp_stdio import relay, send_over_http
+
+    settings = Settings()
+    try:
+        key = load_api_key(settings)
+    except ApiKeyError as error:
+        _fail(str(error))
+    if key is None:
+        _fail("there is no API key yet: start the server first (`geekbot up` or `geekbot serve`)")
+    url = f"http://127.0.0.1:{settings.server_port}/mcp"
+    with httpx.Client(timeout=httpx.Timeout(60.0, connect=3.0)) as client:
+        relay(
+            sys.stdin,
+            send_over_http(client, url, key.value),
+            lambda line: print(line, flush=True),
+            lambda text: print(text, file=sys.stderr, flush=True),
+        )
+
+
 @eval_app.command("injection")
 def eval_injection(
     name: Annotated[

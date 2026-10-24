@@ -51,6 +51,7 @@ from geekbot.server.answering import Answering, TurnGate, open_chat_answering
 from geekbot.server.csvmode import SessionsOpener, open_sessions
 from geekbot.server.csvroutes import router as csv_router
 from geekbot.server.jobs import JobQueue
+from geekbot.server.mcp import router as mcp_router
 from geekbot.server.routes import router
 from geekbot.server.security import Perimeter, PerimeterMiddleware
 from geekbot.server.threads import router as threads_router
@@ -141,4 +142,7 @@ def create_app(
     app.include_router(router)
     app.include_router(threads_router)
     app.include_router(csv_router)
+    app.include_router(
+        mcp_router
+    )  # S6.1: read-only tools for MCP clients, under the same perimeter
     return app

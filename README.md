@@ -24,6 +24,9 @@ CSV file by writing and running a read-only SQL query.
 - **Web search, opt-in.** Off by default, and off means the search tool is not even built. When it is on, your
   own words go out as you typed them; a query rewritten from earlier answers that used documents or web
   pages is shown to you, as the exact text that would leave your machine, and is only sent if you say so.
+- **An MCP server, read-only.** Tools such as Claude Code can search your knowledge base through the Model
+  Context Protocol (`search_knowledge_base`, `list_documents`); there is no tool that writes, ingests, deletes
+  or reaches the network (see "Use it from another program").
 - **Local only.** Models run in [Ollama](https://ollama.com), the index is SQLite (the source of truth) plus
   Chroma (a derived index), and the server listens on `127.0.0.1` only. The browser UI and the server share a
   local password (an API key in `data/api-key`); nothing is sent to any cloud service.
@@ -49,6 +52,25 @@ setting, including the web search.
 `gemma3:4b` is the light model used while building (the `proto` profile). The target models are `gemma4:12b`
 for chat and `qwen2.5-coder:7b` for CSV mode (`GEEKBOT_PROFILE=target`): every number below comes from them.
 Nothing over 12 billion parameters is used.
+
+## Use it from another program (MCP)
+
+While `geekbot up` (or `geekbot serve`) is running, the server offers two read-only tools at
+`http://127.0.0.1:8000/mcp`. Like every route it needs the API key (a bearer token; the key is in
+`data/api-key`, or `GEEKBOT_API_KEY`), and a request whose `Origin` is not this machine is refused.
+
+```
+claude mcp add --transport http geekbot http://127.0.0.1:8000/mcp --header "Authorization: Bearer <the key>"
+claude mcp add geekbot -- geekbot mcp-stdio
+```
+
+The first line is for a client that calls an address; the second starts `geekbot mcp-stdio`, a small relay for a
+client that talks over standard input and output (it holds no storage and needs the server running). What was
+checked: the official MCP SDK's client lists the tools, searches and gets a protocol error for a malformed call
+against a real server over a real socket, in both of its negotiation modes (`tests/unit/test_mcp_sdk_client.py`),
+and the same against the running server with `gemma4:12b` loaded. **The `claude mcp add` commands themselves were
+not run** (they change your Claude configuration). The text a tool returns is quoted from your documents, cleaned
+like a chat answer (no images) and headed by a sentence that says it is data, not instructions.
 
 ## Results
 
