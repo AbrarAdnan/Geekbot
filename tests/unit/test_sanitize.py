@@ -394,8 +394,11 @@ def test_nothing_that_loads_or_leads_outside_survives(text: str) -> None:
     assert not re.search(r"<(?:img|script|iframe|svg|object|embed)(?=[\s/>]|$)", out, re.IGNORECASE)
     # An autolink may survive only if a source has its address (rule 2 in the module docstring); the
     # check on links and definitions below says the same. Found in S4.3's full run: hypothesis built
-    # `<https://ok.example/p>` from the pieces, and this assertion forgot the exception.
-    for autolink in re.findall(r"<([A-Za-z][A-Za-z0-9+.\-]*:[^\s>]*)>", out):
+    # `<https://ok.example/p>` from the pieces, and this assertion forgot the exception. An autolink's
+    # address has no `<` in it (CommonMark: any characters except control characters, space, `<` and
+    # `>`): `<IMGjavascript:]<IMGsrc=>` is not one (found by hypothesis in S5.4; the pattern used to
+    # allow `<` and called it one). Everything that is one is still checked.
+    for autolink in re.findall(r"<([A-Za-z][A-Za-z0-9+.\-]*:[^\s<>]*)>", out):
         assert autolink in ALLOWED
     for address in _links(out):
         assert not module._is_outside(address) or address in ALLOWED
@@ -404,3 +407,88 @@ def test_nothing_that_loads_or_leads_outside_survives(text: str) -> None:
         if definition:
             address = definition[1]
             assert not module._is_outside(address) or address in ALLOWED
+
+
+# --- raw HTML anchors (found by the injection evaluation S5.4, D-103) -----------------------------
+
+
+@pytest.mark.parametrize(
+    "tag",
+    [
+        '<a href="https://attacker.example/x">',
+        "<a href='https://attacker.example/x'>",
+        "<a href=https://attacker.example/x>",
+        '<A HREF="https://attacker.example/x">',
+        '<a class="c" id=i href="https://attacker.example/x" target="_blank">',
+        '<a\nhref="https://attacker.example/x">',
+        '<a href="javascript:alert(1)">',
+        '<a href="&#104;ttp://attacker.example/x">',
+        '<a href="//attacker.example/x">',
+    ],
+)
+def test_an_html_anchor_to_an_outside_address_loses_its_tag_and_keeps_its_text(tag: str) -> None:
+    result = sanitize_text(f"see {tag}details</a> now", frozenset())
+    assert result.text == "see details</a> now"
+    assert [item.kind for item in result.removed] == ["link"]
+
+
+def test_an_html_anchor_to_an_address_a_source_named_or_a_relative_one_is_kept() -> None:
+    allowed = frozenset({"https://ok.example/page"})
+    for text in (
+        '<a href="https://ok.example/page">x</a>',
+        '<a href="notes.md">x</a>',
+        '<a href="#top">x</a>',
+        '<a name="top">x</a>',
+        "<a>x</a>",
+        "<a b>x</a>",
+    ):
+        assert sanitize_text(text, allowed).text == text, text
+
+
+def test_an_unfinished_anchor_is_held_back_and_decided_at_the_end() -> None:
+    pieces, final = stream(['see <a href="https://attacker.example/x"', ">details</a>"])
+    assert "attacker" not in "".join(pieces) and final == "see details</a>"
+    assert sanitize_text("a <a b", frozenset()).text == "a <a b"  # nothing that is a link
+    assert sanitize_text('x <a href="https://attacker.example/x"', frozenset()).text.strip() == "x"
+
+
+def test_text_that_only_starts_like_an_anchor_is_left_alone() -> None:
+    for text in ("<abbr>x</abbr>", "<article>x</article>", "a < b", "<a", "x<a"):
+        assert sanitize_text(text, frozenset()).text == text, text
+
+
+# --- overlapping constructs found by hypothesis while measuring S5.4 (D-103) ---------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("[x][y](https://attacker.example/steal?q=secret)", "[x]y"),
+        ("see [x][y](https://attacker.example/s) now", "see [x]y now"),
+        ("[1][1](!)", "[1]1"),
+        ("[a][b][c](https://attacker.example/x)", "[a][b]c"),
+        ("ok [x][y] and [1][2] and [x][y](notes.md)", "ok [x][y] and [1][2] and [x][y](notes.md)"),
+    ],
+)
+def test_a_reference_pair_followed_by_an_inline_address_is_two_constructs(
+    text: str, expected: str
+) -> None:
+    """``[x][y](url)`` draws ``[x]`` as text and ``[y](url)`` as a link: the link must be judged."""
+    assert sanitize_text(text, frozenset()).text == expected
+
+
+def test_a_reference_pair_that_may_still_get_its_address_is_held_back_in_a_stream() -> None:
+    pieces, final = stream(["go [x][y]", "(https://attacker.example/s)", " now"])
+    assert "attacker" not in "".join(pieces) and final == "go [x]y now"
+
+
+def test_a_link_reduced_to_its_text_does_not_leave_a_definition_behind() -> None:
+    """The text of a removed link sits where the link was: a line of it that reads ``[a]: address``
+    would be a definition there, and any ``[a]`` after it a link to that address."""
+    result = sanitize_text("[[a]: http://e.x\n](!)", frozenset())
+    assert not re.search(r"(?m)^ {0,3}\[a\]:", result.text)
+    assert "e.x" in result.text  # the words stay, as text
+    nested = sanitize_text(
+        "intro [\n[b]: http://e.x\n](https://attacker.example/s) and [b]", frozenset()
+    )
+    assert not re.search(r"(?m)^ {0,3}\[b\]:", nested.text)

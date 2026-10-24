@@ -878,6 +878,83 @@ def eval_csv_followups(
     typer.echo(report)
 
 
+@eval_app.command("injection")
+def eval_injection(
+    name: Annotated[
+        str, typer.Option("--name", help="The run's name: its files go to <results>/<name>/.")
+    ] = "injection",
+    phase: Annotated[
+        list[str] | None,
+        typer.Option("--phase", help="docs, csv and/or report (repeatable). Default: all three."),
+    ] = None,
+    runs: Annotated[
+        int, typer.Option("--runs", min=1, help="Attempts per attack (sampling varies).")
+    ] = 3,
+    dataset: Annotated[
+        Path, typer.Option("--dataset", help="The planted documents and pages (JSON Lines).")
+    ] = Path("evals/datasets/injection.jsonl"),
+    attacks: Annotated[
+        Path, typer.Option("--attacks", help="The folder of CSV-cell attack files.")
+    ] = Path("evals/datasets/csv-attacks"),
+    results_dir: Annotated[
+        Path, typer.Option("--results-dir", help="Where result folders are made.")
+    ] = Path("evals/results"),
+    limit: Annotated[
+        int, typer.Option("--limit", min=0, help="Only the first N attacks of each kind; 0 = all.")
+    ] = 0,
+) -> None:
+    """Plant attacks and count what gets through: bypasses of the controls, and hijacks (GPU)
+
+    About 30 synthetic documents and web pages (a web call carrying secret text, an image or link that
+    would carry data out, instructions meant to outlive a turn, forged citations) and 13 CSV-cell
+    attacks, each run `--runs` times through the real answer graph with the real models. A simulated
+    user denies every approval. **Bypasses** (a guaranteed control failed: the output filter, the
+    egress gate, the citation check, the read-only SQL) have a target of 0; **hijacks** (the model
+    obeyed) are measured, never claimed solved. The planted text is always among the sources the
+    model reads (worst-case placement). Nothing here calls the web: the search backend is canned.
+    """
+    from geekbot.evals.csv_attacks import CsvAttackError, load_csv_attacks
+    from geekbot.evals.injection import InjectionError, load_cases
+    from geekbot.evals.injection_run import PHASES, run_injection
+    from geekbot.index.lock import StorageLockedError
+
+    phases = tuple(phase) if phase else PHASES
+    unknown = [item for item in phases if item not in PHASES]
+    if unknown:
+        _fail(f"unknown phase {', '.join(unknown)}; the phases are {', '.join(PHASES)}")
+    try:
+        cases = load_cases(dataset)
+        csv_attacks = load_csv_attacks(attacks)
+    except (InjectionError, CsvAttackError, OSError) as error:
+        _fail(str(error))
+    if limit:
+        cases, csv_attacks = cases[:limit], csv_attacks[:limit]
+    settings = Settings()
+    setup_logging(settings.log_level)
+    if {"docs", "csv"} & set(phases):
+        from geekbot.csv_mode.adapter import find_problem
+
+        problem = find_problem(settings) if "csv" in phases else None
+        if problem is not None:
+            _fail(problem)
+    try:
+        report = run_injection(
+            settings,
+            cases,
+            csv_attacks,
+            attacks_dir=attacks,
+            name=name,
+            out_dir=results_dir / name,
+            phases=phases,
+            runs=runs,
+            log=lambda line: typer.echo(line, err=True),
+        )
+    except (OllamaError, ValueError, StorageLockedError) as error:
+        _fail(str(error))
+    if report is not None:
+        typer.echo(report)
+
+
 @eval_app.command("fetch")
 def eval_fetch(
     datasets: Annotated[

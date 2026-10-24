@@ -13,7 +13,8 @@ asks the model not to write either; this file is the guarantee that does not dep
    ``<img>`` (with the other tags that load something: ``script``, ``iframe``, ``object``, ``embed``,
    ``link``, ``meta``, ``style``, ``svg``, ``video``, ``audio``, ``source``, ``picture``).
 2. **Links to the outside become their text**: ``[text](https://x)`` and ``<https://x>`` are replaced by
-   ``text`` (nothing, for the autolink) unless the address appears, character for character, in a
+   ``text`` (nothing, for the autolink; for a raw HTML anchor ``<a href="https://x">``, only the opening
+   tag goes and the text stays) unless the address appears, character for character, in a
    source shown to the model (``source_urls``). Only a plainly relative address (``notes.md``,
    ``#section``, ``docs/a.txt``) is kept without that test: it cannot leave the page. Everything else
    counts as outside, a scheme (``javascript:``, ``data:``, ``file:``, ``mailto:``) as much as
@@ -82,6 +83,8 @@ _AUTOLINK_OR_TAG: Final = re.compile(r"<(?:[A-Za-z][A-Za-z0-9+.\-]*:[^\s<>]*|/?[
 # completed by text that has not arrived.
 _OPEN_TAG: Final = re.compile(r"</?[A-Za-z][^<>]*\Z")
 _URL: Final = re.compile(r"https?://[^\s<>()\[\]\"'`]+")
+# The ``href`` of a raw HTML anchor: quoted with ``"`` or ``'``, or bare (the groups are the three forms).
+_HREF: Final = re.compile(r"(?is)\bhref\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^\s>\"']+))")
 _DANGEROUS_TAGS: Final = frozenset(
     {
         "img",
@@ -309,6 +312,25 @@ def _clean_inner(
     return out, removed
 
 
+_DEFINITION_LINE: Final = re.compile(r" {0,3}\[(?=[^\[\]\n]*[^\s\[\]])[^\[\]\n]*\]:")
+
+
+def _defuse_definitions(text: str, *, first_at_start: bool) -> str:
+    """``text`` with the ``[`` of every line that reads as a link-reference definition escaped.
+
+    For text that is about to be put where a link was: its lines are at the start of a line (the first
+    only if ``first_at_start``), where ``[x]: address`` is a definition, however deeply it was nested
+    in brackets before. A line that only looks like one is made literal (``\\[x]: ...``) and still
+    reads the same.
+    """
+    lines = text.split("\n")
+    for number, line in enumerate(lines):
+        if (number > 0 or first_at_start) and _DEFINITION_LINE.match(line):
+            indent = len(line) - len(line.lstrip(" "))
+            lines[number] = line[:indent] + "\\" + line[indent:]
+    return "\n".join(lines)
+
+
 def _scan_image(text: str, p: int, final: bool, allowed: Collection[str]) -> _Hit:
     """``![alt](url)`` and ``![alt][ref]`` at ``p`` are removed; a bare ``![alt]`` is made literal."""
     close = _bracket_end(text, p + 1, final)
@@ -372,12 +394,23 @@ def _scan_link(text: str, p: int, final: bool, allowed: Collection[str], line_st
         if not _is_outside(address) or address in allowed:
             kept = plain + text[after : end + 1]
             return _Hit("replace", end + 1, kept, inner_removed)
-        return _Hit("replace", end + 1, cleaned, [*inner_removed, _record("link", address)])
+        # The link is reduced to its text, which then sits where the link was: a line of it that reads as
+        # a link-reference definition would count as one there (found by hypothesis, S5.4: ``[[a]: http://
+        # e.x`` newline ``](!)`` came out as a live definition for the outside).
+        text_only = _defuse_definitions(cleaned, first_at_start=line_start)
+        return _Hit("replace", end + 1, text_only, [*inner_removed, _record("link", address)])
     if following == "[":
         end = _bracket_end(text, after, final)
         if end in (_MORE, _OVERFLOW):
             return _MORE_HIT if end == _MORE else _OVERFLOW_HIT
         if end == _NONE:
+            return _Hit("replace", after, plain, inner_removed)
+        # ``[x][y](https://...)``: with no definition for ``y`` the first pair is plain text and the
+        # second one is an inline link, which markdown draws (found by hypothesis in S5.4: it came
+        # out untouched). So the first pair ends this construct and ``[y](...)`` is read on its own.
+        if end + 1 >= len(text) and not final:
+            return _MORE_HIT
+        if end + 1 < len(text) and text[end + 1] == "(":
             return _Hit("replace", after, plain, inner_removed)
         # the label is clean too: with no definition behind it the brackets are ordinary text and
         # an autolink or an image inside would be drawn
@@ -442,7 +475,7 @@ def _scan_html(text: str, p: int, final: bool, allowed: Collection[str]) -> _Hit
         if address in allowed:
             return _Hit("replace", k2 + 1, text[p : k2 + 1], None)
         return _Hit("replace", k2 + 1, "", [_record("link", address)])
-    if name in _DANGEROUS_TAGS:
+    if name in _DANGEROUS_TAGS or (name == "a" and following.isspace()):
         limit = min(len(text), p + _MAX_CONSTRUCT)
         end = text.find(">", p, limit)
         if end == -1:
@@ -450,7 +483,18 @@ def _scan_html(text: str, p: int, final: bool, allowed: Collection[str]) -> _Hit
                 return _OVERFLOW_HIT
             if not final:
                 return _MORE_HIT
+            if name == "a" and _HREF.search(text, p) is None:
+                return _PLAIN  # "<a b" with nothing that is a link
             return _Hit("replace", len(text), "", [_record("html", name)])  # an unfinished tag
+        if name == "a":
+            # A raw HTML anchor is a link like ``[x](u)``: kept only for an address a source named (or a
+            # plainly relative one), else the tag goes and its text stays (found by S5.4, D-103: the
+            # anchor ``<a href="https://attacker.example/x">`` was not in the list and survived).
+            match = _HREF.search(text, p, end)
+            address = next((g for g in match.groups() if g is not None), "") if match else ""
+            if match is None or not _is_outside(address) or address in allowed:
+                return _PLAIN
+            return _Hit("replace", end + 1, "", [_record("link", address)])
         return _Hit("replace", end + 1, "", [_record("html", name)])
     return _PLAIN
 
