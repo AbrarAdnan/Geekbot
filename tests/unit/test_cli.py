@@ -108,6 +108,22 @@ def stub_the_server(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 
 @pytest.mark.usefixtures("clean_geekbot_env")
+def test_serve_stops_with_one_line_when_another_process_owns_the_storage(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Gate A: a second `serve` used to die inside uvicorn with a traceback and exit code 3."""
+    from geekbot.index.lock import StorageLock
+
+    started = stub_the_server(monkeypatch)
+    with StorageLock(tmp_path / "data"):  # the first server, as far as the lock can tell
+        result = runner.invoke(app, ["serve"])
+    assert result.exit_code == 1
+    assert "error: another Geekbot process already owns the storage" in result.output
+    assert "Traceback" not in result.output
+    assert started == []  # the server never started
+
+
+@pytest.mark.usefixtures("clean_geekbot_env")
 def test_serve_makes_a_key_the_first_time_and_never_prints_it(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -285,3 +301,17 @@ def test_up_checks_the_model_and_the_key_before_it_starts_anything(
     assert "error: model missing" in result.output
     assert launched.started == [] and launched.server == []
     assert not (tmp_path / "data" / "api-key").exists()
+
+
+@pytest.mark.usefixtures("clean_geekbot_env")
+def test_up_stops_before_the_ui_when_another_process_owns_the_storage(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from geekbot.index.lock import StorageLock
+
+    launched = stub_up(monkeypatch)
+    with StorageLock(tmp_path / "data"):
+        result = runner.invoke(app, ["up", "--no-browser"])
+    assert result.exit_code == 1
+    assert "error: another Geekbot process already owns the storage" in result.output
+    assert launched.started == [] and launched.server == []  # no UI child, no server

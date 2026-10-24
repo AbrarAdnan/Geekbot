@@ -1298,6 +1298,7 @@ def _prepare_server(settings: Settings, port: int | None) -> tuple["Perimeter", 
     """
     # Imported here: FastAPI, Chroma and LangGraph are slow to import (see `ingest`).
     from geekbot.apikey import ApiKeyError
+    from geekbot.index.lock import StorageLock, StorageLockedError
     from geekbot.server.app import HOST
     from geekbot.server.security import Perimeter, PolicyError
 
@@ -1308,6 +1309,16 @@ def _prepare_server(settings: Settings, port: int | None) -> tuple["Perimeter", 
         perimeter = Perimeter.from_settings(settings)
     except (ApiKeyError, PolicyError) as error:
         _fail(str(error))
+    # The server would refuse a second owner anyway (its start-up takes the lock), but as a
+    # traceback from inside uvicorn with exit code 3 (found in the Gate A hand check). Take the lock
+    # and let it go at once, so a person reads one line and the exit code is 1; and `up` stops
+    # before it has started the UI.
+    lock = StorageLock(settings.data_dir)
+    try:
+        lock.acquire()
+    except StorageLockedError as error:
+        _fail(str(error))
+    lock.release()
     listen_on = port or settings.server_port
     typer.echo(f"Geekbot API on http://{HOST}:{listen_on} (Ctrl+C to stop)", err=True)
     typer.echo(f"API key from {perimeter.key_origin}; send it as a Bearer token", err=True)

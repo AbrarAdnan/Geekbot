@@ -181,7 +181,13 @@ def test_the_answer_path_against_the_latency_targets(server: TestClient) -> None
                 loads += 1
 
     model = health["chat_model"]
-    print(f"\nthe answer path on {model} (proto profile: a plumbing check, not an SLO result)")
+    profile = Settings().profile
+    kind = (
+        "target profile: the readings that count, if the PC was quiet"
+        if profile == "target"
+        else "proto profile: a plumbing check, not an SLO result"
+    )
+    print(f"\nthe answer path on {model} ({kind})")
     print(f"{runs} warm turns over {len(QUESTIONS)} questions; the 95th percentile of so few runs")
     print("is close to the slowest one.\n")
     print("retrieval, by stage:")
