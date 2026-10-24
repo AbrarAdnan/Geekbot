@@ -167,7 +167,7 @@ def test_the_whole_final_state_is_plain_data_a_checkpointer_could_save() -> None
     assert json.loads(json.dumps(final)) == final
 
 
-def test_the_graph_has_its_fourteen_steps_and_the_two_ends() -> None:
+def test_the_graph_has_its_sixteen_steps_and_the_two_ends() -> None:
     nodes = set(build_graph().get_graph().nodes)
     assert nodes == {
         "__start__",
@@ -178,6 +178,8 @@ def test_the_graph_has_its_fourteen_steps_and_the_two_ends() -> None:
         "search_lexical",
         "fuse",
         "rerank",
+        "egress_gate",  # S5.3: the only way a question's words can leave the machine
+        "web",
         "generate",
         "validate_citations",
         "cite_check",

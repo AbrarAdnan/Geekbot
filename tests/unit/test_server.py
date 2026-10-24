@@ -156,6 +156,7 @@ def test_readiness_on_an_empty_store(client: TestClient) -> None:
         "csv_model": "fake-csv:1b",  # C5: so is the CSV side
         "csv_ready": False,
         "csv_sessions": 0,
+        "web_enabled": False,  # S5.3: off by default, and off means no tool at all
     }
 
 

@@ -9,7 +9,7 @@ import asyncio
 import json
 import logging
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, NoReturn
@@ -1025,6 +1025,65 @@ def eval_report(
     typer.echo(f"wrote {target}")
 
 
+MAX_APPROVAL_ROUNDS = (
+    3  # the gate asks at most once per turn; this only stops a loop that never ends
+)
+
+
+def _approval_reply(question: dict[str, Any]) -> dict[str, str]:
+    """Show the egress gate's question on the terminal and turn the user's answer into a reply.
+
+    The default is **no**: pressing Enter, or any answer this does not understand, sends nothing.
+    Everything shown is the exact text that would leave the machine.
+    """
+    query = str(question.get("query", ""))
+    typer.echo("", err=True)
+    typer.echo("The web search would send this text off this machine:", err=True)
+    typer.echo(f"    {query}", err=True)
+    typer.echo(
+        f"You are asked because: {question.get('reason', '')} "
+        f"(labels: {', '.join(str(name) for name in question.get('labels', []))}).",
+        err=True,
+    )
+    choice = (
+        str(
+            typer.prompt(
+                "Send it as it is (y), edit it (e), or do not search (n)", default="n", err=True
+            )
+        )
+        .strip()
+        .lower()
+    )
+    if choice in {"y", "yes"}:
+        return {"action": "approve", "query": query}
+    if choice in {"e", "edit"}:
+        return {"action": "edit", "query": str(typer.prompt("The text to send instead", err=True))}
+    return {"action": "deny", "query": ""}
+
+
+def _answer_with_approvals(run: Callable[[dict[str, str] | None], Any]) -> Any:
+    """Run a turn; while it stops at the egress gate's question, ask the user and continue it."""
+    from geekbot.agent.runner import interrupt_question
+
+    answered = run(None)
+    for _ in range(MAX_APPROVAL_ROUNDS):
+        question = interrupt_question(answered.final)
+        if question is None:
+            return answered
+        answered = run(_approval_reply(question))
+    _fail("the web search kept asking for approval; nothing was sent")
+
+
+def _echo_egress(final: dict[str, Any]) -> None:
+    """One line on stderr for every decision of the egress gate this turn (nothing without the web)."""
+    for record in final.get("egress_log", []):
+        typer.echo(
+            f"[web] {record['decision']}: {record['query']!r} ({record['reason']})", err=True
+        )
+    if final.get("web_error"):
+        typer.echo(f"[web] the search did not work: {final['web_error']}", err=True)
+
+
 @app.command()
 def ask(
     question: Annotated[str, typer.Argument(help="Your question, in your own words.")],
@@ -1082,6 +1141,15 @@ def ask(
             "alone. See `geekbot thread show` and `thread delete`.",
         ),
     ] = None,
+    web: Annotated[
+        bool,
+        typer.Option(
+            "--web",
+            help="Also search the web for this question (needs GEEKBOT_WEB_ENABLED=true). Your own "
+            "words are sent as they are. In a conversation that has used documents, web pages or "
+            "tool output, a rewritten question is shown to you first and only sent if you say so.",
+        ),
+    ] = False,
 ) -> None:
     """Answer a question from the knowledge base with the chat model (uses the GPU).
 
@@ -1122,6 +1190,8 @@ def ask(
     from geekbot.llm.models import swap_to_mode
     from geekbot.retrieval.factory import build_retriever, citation_scorer_of
     from geekbot.retrieval.rerank import RerankError
+    from geekbot.tools import build_tools, web_tool
+    from geekbot.tools.web import WebSearchError
 
     try:
         check_question(question)  # before any model is loaded: a mistake here should cost nothing
@@ -1137,6 +1207,14 @@ def ask(
     # Opening the store would create an empty database (see `search`); a question never does.
     if not (settings.data_dir / DB_FILE_NAME).is_file():
         _fail(nothing)
+    if web and not settings.web_enabled:
+        _fail(
+            "web search is switched off: set GEEKBOT_WEB_ENABLED=true (and a backend) to use --web"
+        )
+    try:
+        web_gate = web_tool(build_tools(settings)) if web else None
+    except WebSearchError as error:
+        _fail(str(error))
     if thread is not None:
         # A thread keeps the mode it started with: say so before any model is loaded (C4).
         saved = asyncio.run(read_thread(settings.data_dir / THREADS_DB, thread))
@@ -1171,6 +1249,7 @@ def ask(
                 history_keep_messages=settings.history_keep_messages,
                 citation_scorer=citation_scorer_of(retriever),
                 citation_weak_below=settings.cite_weak_below,
+                web=web_gate,
             )
             typer.echo(f"asking {model}{' with thinking on' if think else ''}...", err=True)
             collector = (
@@ -1182,16 +1261,22 @@ def ask(
                 if stream
                 else None
             )
-            answered = asyncio.run(
-                run_turn(
-                    question,
-                    context=context,
-                    thread=thread,
-                    threads_db=settings.data_dir / THREADS_DB,
-                    collector=collector,
-                    mode="chat",
+
+            def run(resume: dict[str, str] | None) -> StreamedAnswer:
+                return asyncio.run(
+                    run_turn(
+                        question,
+                        context=context,
+                        thread=thread,
+                        threads_db=settings.data_dir / THREADS_DB,
+                        collector=collector,
+                        mode="chat",
+                        web=web,
+                        resume=resume,
+                    )
                 )
-            )
+
+            answered = _answer_with_approvals(run)
     except StorageLockedError as error:
         _fail(str(error))
     except FingerprintMismatchError as error:
@@ -1205,6 +1290,7 @@ def ask(
         typer.echo(format_after_stream(answered, model=model, thread=thread))
     else:
         typer.echo(format_answer(final, model=model, show_thinking=show_thinking, thread=thread))
+    _echo_egress(final)
     if show_prompt:
         # `remember` has already added this turn's two messages; the prompt held the ones before.
         packed = pack_prompt(

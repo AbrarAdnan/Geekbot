@@ -178,6 +178,20 @@ class Settings(BaseSettings):
     # server then reads nothing but what was uploaded to it. Write it in `.env` WITHOUT quotes: a
     # double-quoted value has its backslash sequences interpreted (C:\notes holds a line break).
     allowed_roots: str = ""
+    # Web search (step S5.3, PLAN §8.1 G2). Off by default and off means no egress at all: with it off
+    # the tool is not even built. On, a search is an opt-in per question (the UI's checkbox,
+    # ``geekbot ask --web``), and a query built from text the user did not write waits for their
+    # approval (``agent.taint.egress_decision``). The backend is a choice of where the query goes:
+    # ``duckduckgo`` (its HTML page), ``searxng`` (a SearXNG instance you run, ``web_searxng_url``),
+    # or ``fixture`` (a JSON file of canned results, ``web_fixture``: no network, for the injection
+    # evaluation and for trying the approval prompt offline). Results are titles, links and snippets;
+    # no result page is ever fetched. The limits are starting points, not measurements.
+    web_enabled: bool = False
+    web_backend: Literal["duckduckgo", "searxng", "fixture"] = "duckduckgo"
+    web_searxng_url: str = ""
+    web_fixture: Path | None = None
+    web_max_results: int = Field(default=5, ge=1, le=10)
+    web_timeout_s: float = Field(default=8.0, gt=0, le=60)
 
     @property
     def allowed_root_paths(self) -> tuple[Path, ...]:

@@ -7,6 +7,16 @@
     GET    /v1/threads/{id}                 one thread with its messages and, per answer, its sources
     DELETE /v1/threads/{id}                 204; 404 if there is none; 409 while a question is running
     POST   /v1/threads/{id}/messages        {"question": "...", "think": false} -> an SSE stream
+    POST   /v1/threads/{id}/approval        {"action": "approve|edit|deny", "query": "..."} -> an SSE stream
+
+**Web search (S5.3).** ``{"web": true}`` on a question asks for a web search on that turn (409 if the
+server has the web off, which is the default, or the conversation is a CSV one). Most turns just
+search: the user's own words are theirs to send. A query a model rewrote in a conversation that has
+carried documents, web text or tool output stops the turn at the egress gate: the stream ends with an
+``approval`` event ``{tool, query, labels, reason}`` and **no** ``done``; ``GET /v1/threads/{id}`` then
+shows ``pending_approval``, a new question in the thread is a 409, and ``/approval`` answers the
+question and streams the rest of the turn (same events as ``/messages``). Nothing is sent before the
+answer, and an answer without a waiting question is a 404.
 
 **The answer is a stream** (``text/event-stream``, written with ``sse.format_event``). Events, in the
 order they come:
@@ -83,6 +93,7 @@ from geekbot.server.answering import Answering, CsvSetup, TurnGate
 from geekbot.server.csvmode import CsvSession, stored_file
 from geekbot.server.routes import AnsweringDep, CsvSessionsDep, GateDep, SettingsDep
 from geekbot.server.schemas import (
+    ApprovalRequest,
     AskRequest,
     ThreadCreated,
     ThreadOut,
@@ -101,6 +112,16 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/threads", tags=["threads"])
 
 BUSY: Final = "a question is already being answered; try again when it has finished"
+WAITING: Final = (
+    "a web search is waiting for your answer in this conversation: approve, edit or deny it first"
+)
+RESUMING: Final = (
+    "(the answer to the web search's question)"  # the question is not read on a resume
+)
+NO_WEB: Final = "web search is switched off on this server (GEEKBOT_WEB_ENABLED)"
+NO_WEB_IN_CSV: Final = (
+    "web search is not available in a CSV conversation: its data stays on this machine"
+)
 SSE_HEADERS: Final = {"Cache-Control": "no-store", "X-Accel-Buffering": "no"}
 
 
@@ -225,6 +246,8 @@ async def ask(
     except QuestionError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     saved = await read_thread_info(_db(settings), thread_id)
+    if saved is not None and saved.pending is not None:
+        raise HTTPException(status_code=409, detail=WAITING)
     uploaded = saved is None and sessions.has(thread_id)
     try:
         mode = choose_mode(
@@ -232,6 +255,10 @@ async def ask(
         )
     except ModeError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
+    if body.web and mode == "csv":
+        raise HTTPException(status_code=409, detail=NO_WEB_IN_CSV)
+    if body.web and not answering.web_enabled:
+        raise HTTPException(status_code=409, detail=NO_WEB)
     if mode == "csv":
         return await _ask_csv(
             thread_id=thread_id,
@@ -255,6 +282,59 @@ async def ask(
             answering=answering,
             gate=gate,
             token=token,
+        ),
+        media_type="text/event-stream",
+        headers=SSE_HEADERS,
+        background=BackgroundTask(_release, gate, token),
+    )
+
+
+@router.post(
+    "/{thread_id}/approval",
+    response_class=StreamingResponse,
+    responses={
+        200: {
+            "description": "The rest of the turn that stopped at the web search's question, as the "
+            "same event stream as the question's: meta, status, text, thinking, done, error.",
+            "content": {"text/event-stream": {}},
+        }
+    },
+)
+async def approve(
+    thread_id: ThreadName,
+    body: ApprovalRequest,
+    settings: SettingsDep,
+    answering: AnsweringDep,
+    gate: GateDep,
+) -> StreamingResponse:
+    """Answer the question a turn stopped at (S5.3) and stream the rest of the turn.
+
+    404 when nothing is waiting in the thread (an answer without a question is never accepted, so a
+    stray or repeated request cannot send anything), 409 when another question is being answered.
+    The turn continues from the step that asked: the gate sends exactly the text that was shown
+    (``approve``), the user's own text (``edit``) or nothing (``deny``), then the turn goes on to the
+    answer. A turn can stop at most once, so the stream ends with ``done`` or ``error``.
+    """
+    saved = await read_thread_info(_db(settings), thread_id)
+    if saved is None or saved.pending is None:
+        raise HTTPException(
+            status_code=404, detail=f"nothing is waiting for an answer in {thread_id!r}"
+        )
+    token = gate.try_acquire(thread_id)
+    if token is None:
+        raise HTTPException(status_code=409, detail=BUSY)
+    turn = int(saved.values.get("turn", 0)) + 1
+    request = AskRequest(question=RESUMING, think=body.think, steps=body.steps, web=True)
+    return StreamingResponse(
+        _answer_events(
+            thread_id=thread_id,
+            body=request,
+            turn=turn,
+            settings=settings,
+            answering=answering,
+            gate=gate,
+            token=token,
+            resume=body,
         ),
         media_type="text/event-stream",
         headers=SSE_HEADERS,
@@ -420,6 +500,7 @@ async def _answer_events(
     answering: Answering,
     gate: TurnGate,
     token: object,
+    resume: ApprovalRequest | None = None,
 ) -> AsyncIterator[str]:
     """The frames of one answer, from ``meta`` to ``done`` (or ``error``).
 
@@ -427,6 +508,11 @@ async def _answer_events(
     been sent long ago. Only ``Exception`` is caught: a client that went away cancels this generator
     (``CancelledError`` / ``GeneratorExit``), and that must propagate. The ``finally`` gives the
     gate's slot back in every case.
+
+    A turn that asked for a web search can stop at the egress gate's question (S5.3): the stream then
+    ends with an ``approval`` frame and **no** ``done``: the turn is waiting, the slot is given back
+    (a waiting turn holds no model and no thread of work), and the user's answer arrives through
+    ``approve`` below as ``resume``, which continues the same turn from where it stopped.
     """
     translator = TurnTranslator(steps=body.steps)
     try:
@@ -449,6 +535,8 @@ async def _answer_events(
             thread=thread_id,
             threads_db=_db(settings),
             mode="chat",
+            web=body.web,
+            resume={"action": resume.action, "query": resume.query} if resume is not None else None,
         )
         try:
             async for kind, payload in events:
@@ -458,6 +546,13 @@ async def _answer_events(
             await events.aclose()
         if translator.final is None:
             raise RuntimeError("the graph ended without a final state")
+        if translator.approval is not None:
+            log.info(
+                "thread %s turn %d is waiting for the user's answer to the web search",
+                thread_id,
+                turn,
+            )
+            return
         done = TurnOut.of(translator.final, thread_id=thread_id, model=answering.model)
         _log_turn(done)
         yield format_event("done", done.model_dump(mode="json"))

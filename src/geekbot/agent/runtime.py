@@ -17,6 +17,7 @@ from langchain_core.messages import BaseMessage
 from geekbot.llm.chat import ChatModel, StructuredChat
 from geekbot.retrieval import RetrievalResult, Retriever
 from geekbot.retrieval.rerank import PassageScorer
+from geekbot.tools.egress import GatedTool
 
 __all__ = [
     "AgentContext",
@@ -99,6 +100,12 @@ class AgentContext:
     ``citation_scorer`` (S3.5) is the cross-encoder that ``cite_check`` uses to score each cited
     source against the sentence that cites it; ``None`` (no reranker in the retriever, or a test)
     skips the check. ``citation_weak_below`` is the score under which a citation is called weak.
+
+    ``web`` (S5.3) is the web search tool behind the egress gate (``tools.egress.GatedTool``); ``None``
+    when the web is off, which is the default and means a turn that asks for a search is told there is
+    none. ``approvals`` says that a person can be asked a question in the middle of a turn: it is true
+    when the turn is saved in a thread (the runner sets it), because a question needs a checkpoint to
+    wait in. A gate that needs to ask and cannot treats that as a denial.
     """
 
     retriever: Retriever
@@ -112,3 +119,5 @@ class AgentContext:
     csv: CsvTool | None = None
     citation_scorer: PassageScorer | None = None
     citation_weak_below: float = -3.0
+    web: GatedTool | None = None
+    approvals: bool = False

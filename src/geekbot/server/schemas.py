@@ -22,10 +22,13 @@ from geekbot.server.jobs import Job, JobState
 from geekbot.server.uploads import display_name
 
 __all__ = [
+    "ApprovalOut",
+    "ApprovalRequest",
     "AskRequest",
     "CheckOut",
     "CsvUploadOut",
     "DocumentOut",
+    "EgressOut",
     "HealthOut",
     "IngestRequest",
     "JobOut",
@@ -84,6 +87,7 @@ class ReadyOut(BaseModel):
     csv_model: str = ""
     csv_ready: bool = False
     csv_sessions: int = 0
+    web_enabled: bool = False  # S5.3: the web search tool exists on this server (off by default)
 
 
 class DocumentOut(BaseModel):
@@ -238,10 +242,67 @@ class AskRequest(BaseModel):
     think: bool = False
     mode: Literal["chat", "csv"] | None = None
     steps: bool = False
+    web: bool = False
+
+
+class ApprovalRequest(BaseModel):
+    """``POST /v1/threads/{id}/approval``: the user's answer to the egress gate's question (S5.3).
+
+    ``approve`` sends the exact query that was shown; ``edit`` sends ``query`` instead (the user's own
+    text); ``deny`` sends nothing and the turn goes on without the web. ``query`` is only read for
+    ``edit``. Closed fields and a closed set of actions: an answer the server cannot read is a 422 and
+    never counts as consent.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["approve", "edit", "deny"]
+    query: str = Field(default="", max_length=MAX_QUESTION_CHARS)
+    think: bool = False  # as in the question that stopped: the continued turn writes its answer
+    steps: bool = False  # with the same chat model and the same progress events
+
+
+class ApprovalOut(BaseModel):
+    """The egress gate's question: the exact text that would leave the machine, and why it is asked.
+
+    ``labels`` are what the text was built from (``KB``, ``WEB``, ``TOOL``, ``UNKNOWN`` mean text the
+    user did not write). Sent as the ``approval`` event of a stream, and as ``pending_approval`` of a
+    thread that is waiting. ``query`` is built from untrusted text: show it as plain text.
+    """
+
+    tool: str
+    query: str
+    labels: list[str]
+    reason: str
+    question: str = ""  # what the user typed: the waiting turn is not in the thread's history yet
+
+    @classmethod
+    def of(cls, question: Mapping[str, Any]) -> Self:
+        return cls(
+            tool=str(question.get("tool", "")),
+            question=str(question.get("question", "")),
+            query=str(question.get("query", "")),
+            labels=[str(name) for name in question.get("labels", [])],
+            reason=str(question.get("reason", "")),
+        )
+
+
+class EgressOut(BaseModel):
+    """One decision of the egress gate during a turn (see ``agent.state.EgressRecord``)."""
+
+    tool: str
+    query: str
+    decision: str
+    tainted: bool
+    reason: str
 
 
 class SourceRefOut(BaseModel):
-    """Where an answer's ``[n]`` mark points: the document, and the place in it. No passage text."""
+    """Where an answer's ``[n]`` mark points: the document, and the place in it. No passage text.
+
+    ``origin`` is ``KB`` for a document and ``WEB`` for a search result (then ``path`` is its address,
+    to be shown as text, and ``section`` its host).
+    """
 
     n: int
     chunk_id: str
@@ -249,6 +310,7 @@ class SourceRefOut(BaseModel):
     path: str
     page: int | None
     section: str
+    origin: str = "KB"
 
 
 class SourceOut(SourceRefOut):
@@ -309,6 +371,8 @@ class TurnOut(BaseModel):
     generation: dict[str, float]
     csv_file: str | None = None
     csv_status: str | None = None
+    egress: list[EgressOut] = Field(default_factory=list)
+    web_error: str | None = None
 
     @classmethod
     def of(cls, final: Mapping[str, Any], *, thread_id: str, model: str) -> Self:
@@ -322,6 +386,7 @@ class TurnOut(BaseModel):
                 path=source["path"],
                 page=source["page"],
                 section=source["section"],
+                origin=str(source.get("origin") or "KB"),
                 score=source["score"],
                 text=source["text"],
             )
@@ -361,6 +426,17 @@ class TurnOut(BaseModel):
             generation={name: float(v) for name, v in final.get("generation", {}).items()},
             csv_file=_shown_csv_file(final.get("csv_file")),
             csv_status=str(final.get("csv_status") or "") or None,
+            egress=[
+                EgressOut(
+                    tool=record["tool"],
+                    query=record["query"],
+                    decision=record["decision"],
+                    tainted=bool(record["tainted"]),
+                    reason=record["reason"],
+                )
+                for record in final.get("egress_log", [])
+            ],
+            web_error=str(final.get("web_error") or "") or None,
         )
 
 
@@ -432,9 +508,14 @@ class ThreadSummary(BaseModel):
 
 
 class ThreadOut(ThreadSummary):
-    """A thread with its remembered messages, oldest first."""
+    """A thread with its remembered messages, oldest first.
+
+    ``pending_approval`` is the egress gate's open question when the thread's last turn is waiting for
+    the user (S5.3); ``None`` otherwise.
+    """
 
     messages: list[MessageOut]
+    pending_approval: ApprovalOut | None = None
 
     @classmethod
     def of(cls, info: ThreadInfo) -> Self:
@@ -442,4 +523,5 @@ class ThreadOut(ThreadSummary):
         return cls(
             **summary.model_dump(),
             messages=[MessageOut.of(message) for message in info.values.get("history", [])],
+            pending_approval=ApprovalOut.of(info.pending) if info.pending else None,
         )

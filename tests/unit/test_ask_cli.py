@@ -758,3 +758,110 @@ def test_the_cli_does_not_import_the_slow_libraries_at_start_up() -> None:
     } | {alias.name for node in tree.body if isinstance(node, ast.Import) for alias in node.names}
     slow = ("langgraph", "langchain", "geekbot.agent", "geekbot.llm.chat", "chromadb")
     assert not [name for name in top_level if name.startswith(slow)]
+
+
+# --- the web search: ask --web (S5.3) ----------------------------------------------------------
+
+
+@pytest.fixture
+def web(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """The web switched on with a fixture backend (canned results, no network)."""
+    import json
+
+    page = tmp_path / "web.json"
+    page.write_text(
+        json.dumps(
+            {
+                "pages": [
+                    {
+                        "match": [],
+                        "title": "A web page",
+                        "url": "https://pages.example/bread",
+                        "snippet": "Sourdough needs a starter.",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("GEEKBOT_WEB_ENABLED", "true")
+    monkeypatch.setenv("GEEKBOT_WEB_BACKEND", "fixture")
+    monkeypatch.setenv("GEEKBOT_WEB_FIXTURE", str(page))
+    return page
+
+
+def test_web_needs_the_switch_and_says_so_before_any_model_is_loaded(
+    indexed: None, llm: FakeLlm
+) -> None:
+    result = ask(BREAD, "--mode", "lexical", "--web")
+    assert result.exit_code == 1
+    assert "switched off" in result.output and "GEEKBOT_WEB_ENABLED" in result.output
+    assert llm.swaps == []
+
+
+def test_a_backend_without_its_setting_stops_the_command_with_one_line(
+    indexed: None, llm: FakeLlm, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GEEKBOT_WEB_ENABLED", "true")
+    monkeypatch.setenv("GEEKBOT_WEB_BACKEND", "searxng")
+    result = ask(BREAD, "--mode", "lexical", "--web")
+    assert result.exit_code == 1 and "GEEKBOT_WEB_SEARXNG_URL" in result.output
+    assert llm.swaps == []
+
+
+def test_the_users_own_question_is_searched_and_the_result_is_a_source(
+    indexed: None, llm: FakeLlm, web: Path
+) -> None:
+    result = ask(BREAD, "--mode", "lexical", "--thread", "t1", "--web")
+    assert result.exit_code == 0, result.output
+    assert f"[web] allowed: '{BREAD}'" in result.output
+    assert "https://pages.example/bread" in result.output  # the source, with its address
+    assert "WEB" in result.output  # the answer's labels
+
+
+def test_without_the_flag_the_web_is_not_touched_even_when_it_is_on(
+    indexed: None, llm: FakeLlm, web: Path
+) -> None:
+    result = ask(BREAD, "--mode", "lexical", "--thread", "t1")
+    assert result.exit_code == 0 and "[web]" not in result.output
+    assert "pages.example" not in result.output
+
+
+def follow_up(*args: str, answer: str) -> Any:
+    return runner.invoke(
+        app, ["ask", FOLLOW_UP, "--mode", "lexical", "--thread", "t1", "--web", *args], input=answer
+    )
+
+
+def test_a_rewritten_follow_up_asks_first_and_yes_sends_that_text(
+    indexed: None, llm: FakeLlm, web: Path
+) -> None:
+    ask(BREAD, "--mode", "lexical", "--thread", "t1", "--web")
+    result = follow_up(answer="y\n")
+    assert result.exit_code == 0, result.output
+    assert "The web search would send this text off this machine:" in result.output
+    assert "    river Brahmaputra flows" in result.output
+    assert "[web] approved: 'river Brahmaputra flows'" in result.output
+
+
+def test_enter_alone_sends_nothing(indexed: None, llm: FakeLlm, web: Path) -> None:
+    ask(BREAD, "--mode", "lexical", "--thread", "t1", "--web")
+    result = follow_up(answer="\n")
+    assert result.exit_code == 0, result.output
+    assert "[web] denied: 'river Brahmaputra flows'" in result.output
+    assert "pages.example" not in result.output.split("The web search would send")[1]
+
+
+def test_an_edit_sends_the_users_own_text(indexed: None, llm: FakeLlm, web: Path) -> None:
+    ask(BREAD, "--mode", "lexical", "--thread", "t1", "--web")
+    result = follow_up(answer="e\nmy own words\n")
+    assert result.exit_code == 0, result.output
+    assert "[web] edited: 'my own words'" in result.output
+
+
+def test_an_answer_the_prompt_does_not_understand_is_a_no(
+    indexed: None, llm: FakeLlm, web: Path
+) -> None:
+    ask(BREAD, "--mode", "lexical", "--thread", "t1", "--web")
+    result = follow_up(answer="sure, why not\n")
+    assert "[web] denied:" in result.output

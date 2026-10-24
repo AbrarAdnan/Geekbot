@@ -47,6 +47,7 @@ ASKING: Final = "asking"
 STEP_CAPTIONS: Final = {
     "searching": "Searching the documents",
     "ranking": "Ranking the passages",
+    "web": "Searching the web",
     "writing": "Writing the answer",
 }
 
@@ -162,7 +163,10 @@ def thread_label(summary: dict[str, Any]) -> str:
 
 def source_header(source: dict[str, Any], *, cited: bool = False) -> str:
     """``[2] Handbook · Retention · page 3``, with ``(cited)`` when the answer used the mark."""
-    parts = [f"[{source['n']}] {source['title']}"]
+    if source.get("origin") == "WEB":  # a search result, not a document (S5.3)
+        parts = [f"[{source['n']}] web", source["title"]]
+    else:
+        parts = [f"[{source['n']}] {source['title']}"]
     if source.get("section"):
         parts.append(str(source["section"]))
     if source.get("page") is not None:
@@ -203,6 +207,50 @@ def csv_upload_lines(info: dict[str, Any]) -> list[str]:
         lines.append("the server already had this exact file")
     if info.get("memory_bytes") is not None:
         lines.append(f"held in memory: {human_bytes(int(info['memory_bytes']))}")
+    return lines
+
+
+EGRESS_WORDS: Final = {
+    "allowed": "searched the web for",
+    "approved": "searched the web, as you approved, for",
+    "edited": "searched the web, with your edit, for",
+    "denied": "did not search the web (you said no or could not be asked) for",
+    "blocked": "did not search the web for",
+    "failed": "tried to search the web but it failed, for",
+}
+
+
+def egress_lines(done: dict[str, Any]) -> list[str]:
+    """One plain line per decision of the egress gate this turn, then a failed search's reason.
+
+    The query is built from untrusted text when a model wrote it, so these lines go to ``st.text``,
+    never to Markdown, like every other line of the details box.
+    """
+    lines = []
+    for record in done.get("egress") or []:
+        verb = EGRESS_WORDS.get(str(record.get("decision")), "web search:")
+        reason = one_line(str(record.get("reason", "")), SENTENCE_CHARS)
+        lines.append(f"{verb}: {one_line(str(record.get('query', '')), SENTENCE_CHARS)} ({reason})")
+    if done.get("web_error"):
+        lines.append(
+            f"the web search did not work: {one_line(str(done['web_error']), SENTENCE_CHARS)}"
+        )
+    return lines
+
+
+def approval_lines(question: dict[str, Any]) -> list[str]:
+    """What the page shows about the web search's question, one plain line each.
+
+    The query is exactly what would leave the machine; ``labels`` say what it was built from.
+    """
+    labels = ", ".join(str(name) for name in question.get("labels") or [])
+    lines = []
+    if question.get("question"):
+        lines.append(f"You asked: {one_line(str(question['question']), SENTENCE_CHARS)}")
+    lines.append(
+        f"The web search would send this text off this machine: {question.get('query', '')}"
+    )
+    lines.append(f"You are asked because: {question.get('reason', '')} (built from: {labels})")
     return lines
 
 
@@ -258,6 +306,7 @@ def turn_details(done: dict[str, Any]) -> list[str]:
             lines.append(f"citation [{check['n']}] may not support: {sentence}")
     if done.get("removed_markup"):
         lines.append("removed from the answer: " + ", ".join(map(str, done["removed_markup"])))
+    lines += egress_lines(done)
     labels = " + ".join(map(str, done.get("labels") or []))
     if labels:
         outside = " (includes text from outside the chat)" if done.get("tainted") else ""
@@ -298,6 +347,7 @@ class TurnView:
     meta: dict[str, Any] = field(default_factory=dict)
     done: dict[str, Any] | None = None
     error: str | None = None
+    approval: dict[str, Any] | None = None  # the web search's question: the turn is waiting (S5.3)
 
     def feed(self, event: SseEvent) -> None:
         """Take one event in. An event this client does not know, or a malformed one, is ignored."""
@@ -315,6 +365,9 @@ class TurnView:
                 self.status = ""
             case "done":
                 self.done = data
+                self.status = ""
+            case "approval":
+                self.approval = data
                 self.status = ""
             case "error":
                 self.error = str(data.get("message") or "the answer failed")

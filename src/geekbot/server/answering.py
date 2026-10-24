@@ -50,6 +50,7 @@ from geekbot.llm.models import OllamaClient, swap_to_mode
 from geekbot.retrieval import SearchMode
 from geekbot.retrieval.factory import build_retriever, citation_scorer_of
 from geekbot.retrieval.rerank import PassageScorer
+from geekbot.tools import build_tools, web_tool
 
 __all__ = ["Answering", "CsvSetup", "TurnGate", "open_chat_answering"]
 
@@ -103,6 +104,11 @@ class Answering:
         """The chat model's tag, for the stream and the health route."""
         return self.context.model
 
+    @property
+    def web_enabled(self) -> bool:
+        """Whether this server has a web search tool at all (``GEEKBOT_WEB_ENABLED``, S5.3)."""
+        return self.context.web is not None
+
     def context_for(self, *, think: bool) -> AgentContext:
         """The graph context for one turn: the shared one, or with a reasoning chat model."""
         return replace(self.context, llm=self._make_llm(True)) if think else self.context
@@ -126,6 +132,7 @@ class Answering:
             condenser=self.csv.condenser,
             csv=analyst,
             citation_scorer=None,
+            web=None,  # CSV data never reaches the web tool (PLAN.md §8.1): the run has none to reach
         )
 
     def ensure_ready(self) -> float:
@@ -248,6 +255,9 @@ def open_chat_answering(
         history_keep_messages=settings.history_keep_messages,
         citation_scorer=scorer,
         citation_weak_below=settings.cite_weak_below,
+        # S5.3: with the web off (the default) there is no tool at all, so a turn that asks for a
+        # search is told there is none. With it on, the tool sits behind the egress gate.
+        web=web_tool(build_tools(settings)),
     )
     csv_model = settings.resolved_csv_model
     answering = Answering(

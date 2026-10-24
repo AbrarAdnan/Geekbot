@@ -23,11 +23,14 @@ called whole inside ``retrieve``, as before S3.6. Both end with the same ``sourc
 ``retrieval_ms`` in the state.
 """
 
+import hashlib
 import time
 from collections.abc import Callable, Iterable, Sequence
 from typing import Any, Final, Literal
+from urllib.parse import urlsplit
 
 from langgraph.runtime import Runtime
+from langgraph.types import interrupt
 
 from geekbot.agent.citations import check_citations, citing_sentences, is_refusal
 from geekbot.agent.condense import CondenseOutput, build_condense_messages, clean_standalone
@@ -38,26 +41,34 @@ from geekbot.agent.sanitize import StreamSanitizer, sanitize_text, source_urls
 from geekbot.agent.state import (
     STEP_RANKING,
     STEP_SEARCHING,
+    STEP_WEB,
     STEP_WRITING,
     AgentState,
     CitationScore,
+    EgressRecord,
     HistoryMessage,
     HistorySource,
     SourceRef,
     StepEvent,
     StreamEvent,
 )
-from geekbot.domain import Label, ScoredChunk
+from geekbot.agent.taint import EgressAction, query_labels
+from geekbot.domain import Label, ScoredChunk, label_of
 from geekbot.llm.chat import ChatError
 from geekbot.llm.streaming import read_stream
 from geekbot.retrieval.staged import StagedSearch
+from geekbot.tools.egress import EgressRefused
+from geekbot.tools.web import WebHit, WebQueryError, WebSearchError, clean_query
 
 __all__ = [
+    "APPROVAL_KIND",
     "NO_CONTEXT_ANSWER",
+    "after_search",
     "begin_turn",
     "cite_check",
     "condense",
     "csv_ask",
+    "egress_gate",
     "fuse",
     "generate",
     "has_sources",
@@ -66,6 +77,7 @@ __all__ = [
     "remember",
     "rerank",
     "retrieve",
+    "route_after_gate",
     "route_after_retrieve",
     "sanitize",
     "search_dense",
@@ -73,7 +85,13 @@ __all__ = [
     "section_trail",
     "source_refs",
     "validate_citations",
+    "web_search",
+    "web_source_refs",
 ]
+
+# The ``kind`` of the question the egress gate asks the user (S5.3). The server and the terminal show
+# the prompt for it and send back ``{"action": "approve" | "edit" | "deny", "query": text}``.
+APPROVAL_KIND: Final = "egress_approval"
 
 _ERROR_WIDTH: Final = 300  # how much of an error message is kept in the state
 
@@ -145,6 +163,14 @@ def begin_turn(state: AgentState) -> dict[str, Any]:
         "mode": choose_mode(state.get("mode"), state.get("requested_mode")),
         "requested_mode": "",
         "csv_status": "",
+        # S5.3: a search is asked for per turn and never carries over (like ``requested_mode``).
+        "use_web": bool(state.get("requested_web")),
+        "requested_web": False,
+        "web_query": "",
+        "web_labels": [],
+        "web_approved": "",
+        "web_error": "",
+        "egress_log": [],
         "standalone_question": state["question"],
         "condense_seconds": 0.0,
         "condense_error": "",
@@ -306,7 +332,10 @@ def rerank(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any]:
 
 def route_after_retrieve(
     state: AgentState,
-) -> list[Literal["search_dense", "search_lexical"]] | Literal["generate", "no_context"]:
+) -> (
+    list[Literal["search_dense", "search_lexical"]]
+    | Literal["egress_gate", "generate", "no_context"]
+):
     """The conditional edge after ``retrieve``: fan out into the two searches, or decide as before.
 
     A turn whose search is staged returns a *list* of two steps, and LangGraph runs both in the same
@@ -314,12 +343,27 @@ def route_after_retrieve(
     """
     if state.get("staged"):
         return ["search_dense", "search_lexical"]
-    return has_sources(state)
+    return after_search(state)
 
 
 def has_sources(state: AgentState) -> Literal["generate", "no_context"]:
-    """The graph's one decision (a conditional edge): answer, or say nothing was found."""
+    """The decision after the sources are final: answer, or say nothing was found."""
     return "generate" if state.get("sources") else "no_context"
+
+
+def after_search(state: AgentState) -> Literal["egress_gate", "generate", "no_context"]:
+    """The conditional edge after the knowledge base has been searched (S5.3).
+
+    A turn that asked for a web search (``use_web``) goes to the egress gate *whatever the knowledge
+    base found*: the search is the user's request, not a fallback the program decides on. Any other turn
+    is ``has_sources``, so with the web off (the default) this edge is the one it always was.
+    """
+    return "egress_gate" if state.get("use_web") else has_sources(state)
+
+
+def route_after_gate(state: AgentState) -> Literal["web", "generate", "no_context"]:
+    """The conditional edge after the gate: search if it left a query to send, else carry on."""
+    return "web" if state.get("web_query") else has_sources(state)
 
 
 def no_context(state: AgentState) -> dict[str, Any]:
@@ -338,6 +382,179 @@ def no_context(state: AgentState) -> dict[str, Any]:
         "abstained": True,
         "answer_labels": [],
         "generation": {},
+    }
+
+
+def _egress_record(
+    tool: str, query: str, decision: str, *, tainted: bool, reason: str
+) -> EgressRecord:
+    return EgressRecord(tool=tool, query=query, decision=decision, tainted=tainted, reason=reason)
+
+
+_APPROVAL_ACTIONS: Final = frozenset({"approve", "edit", "deny"})
+
+
+def _approval_answer(reply: object) -> tuple[str, str]:
+    """``(action, text)`` from what the user sent back; anything unreadable is a denial.
+
+    The gate fails closed: a reply that is not ``{"action": approve|edit|deny, "query": text}`` (a
+    client bug, a hand-made request) must never count as consent.
+    """
+    if isinstance(reply, dict):
+        action, text = reply.get("action"), reply.get("query", "")
+        if isinstance(action, str) and action in _APPROVAL_ACTIONS and isinstance(text, str):
+            return action, text
+    return "deny", ""
+
+
+def egress_gate(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any]:
+    """Decide whether this turn's web query may leave the machine, asking the user if it must (G2).
+
+    The query is what the knowledge-base search used: the user's words, or on a follow-up their
+    rewrite. ``clean_query`` fixes the exact text (one line, no control characters, no silent
+    shortening), ``query_labels`` says what it was built from and ``GatedTool.check`` applies the rule
+    (``agent.taint.egress_decision``):
+
+    - the user's own words go out (``allowed``);
+    - a query a model rewrote in a thread that has carried documents, web text or tool output is
+      **tainted**: the gate calls ``interrupt()`` with the exact query and waits. The reply is
+      ``approve`` (that exact text goes), ``edit`` (the user's own new text goes: it is theirs, so it
+      is untainted) or ``deny`` (nothing is sent; the turn goes on with the knowledge base alone);
+    - no web tool (it is off, the default) or nobody to ask (a turn that is not saved in a thread
+      cannot wait for an answer) is a refusal, never a quiet pass.
+
+    Every decision is written to ``egress_log`` (also the refusals), which is what the injection
+    evaluation counts. The step leaves ``web_query`` empty when nothing may be sent, and the edge after
+    it (``route_after_gate``) reads that. LangGraph runs this step again from its first line when the
+    answer arrives, so everything before ``interrupt()`` is a pure function of the state.
+    """
+    context = runtime.context
+    tool = context.web
+    name = tool.name if tool is not None else "web_search"
+    log = list(state.get("egress_log", []))
+    asked = _search_text(state)
+
+    def stop(decision: str, query: str, reason: str, *, tainted: bool = False) -> dict[str, Any]:
+        log.append(_egress_record(name, query[:300], decision, tainted=tainted, reason=reason))
+        return {"web_query": "", "web_labels": [], "web_approved": "", "egress_log": log}
+
+    if tool is None:
+        return stop("blocked", asked, "web search is off on this server")
+    try:
+        query = clean_query(asked)
+    except WebQueryError as error:
+        return stop("blocked", asked, str(error))
+    labels = query_labels(state["question"], query, state.get("thread_taint", []))
+    decision = tool.check(query, labels)
+    tainted = decision.tainted
+    if decision.action is EgressAction.DENY:
+        return stop("blocked", query, decision.reason, tainted=tainted)
+    outcome, approved = "allowed", ""
+    if decision.action is EgressAction.ASK:
+        if not context.approvals:
+            return stop("denied", query, "no one could be asked to approve it", tainted=tainted)
+        reply = interrupt(
+            {
+                "kind": APPROVAL_KIND,
+                "tool": tool.name,
+                "question": state["question"],  # what the user typed (the turn is not saved yet)
+                "query": query,
+                "labels": label_names(labels),
+                "reason": decision.reason,
+            }
+        )
+        action, text = _approval_answer(reply)
+        if action == "deny":
+            return stop("denied", query, "the user denied it", tainted=tainted)
+        if action == "edit":
+            try:
+                query = clean_query(text)
+            except WebQueryError as error:
+                return stop(
+                    "denied", text, f"the edited query cannot be sent: {error}", tainted=tainted
+                )
+            labels, outcome = frozenset({Label.USER}), "edited"  # typed by the user: theirs to send
+        else:
+            outcome, approved = "approved", query
+        decision = tool.check(query, labels, approved=approved or None)
+        if decision.action is not EgressAction.ALLOW:  # unreachable unless the rule changes
+            return stop("denied", query, decision.reason, tainted=tainted)
+    log.append(_egress_record(name, query, outcome, tainted=tainted, reason=decision.reason))
+    return {
+        "web_query": query,
+        "web_labels": label_names(labels),
+        "web_approved": approved,
+        "egress_log": log,
+    }
+
+
+def web_source_refs(hits: Sequence[WebHit], *, first_n: int) -> list[SourceRef]:
+    """Search results as numbered sources (``origin`` ``WEB``), after the ``first_n - 1`` that exist.
+
+    ``path`` is the address, ``section`` its host, ``chunk_id`` a short hash of the address (the same
+    page is the same source). The score is 0.0: a search engine's order is the only ranking there is.
+    The snippet is the source's text; with no snippet the title stands in, so a source is never empty.
+    """
+    return [
+        SourceRef(
+            n=first_n + offset,
+            chunk_id="web:" + hashlib.sha256(hit.url.encode()).hexdigest()[:12],
+            title=hit.title,
+            path=hit.url,
+            page=None,
+            section=urlsplit(hit.url).netloc,
+            text=hit.snippet or hit.title,
+            score=0.0,
+            origin=Label.WEB.value,
+        )
+        for offset, hit in enumerate(hits)
+    ]
+
+
+def web_search(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any]:
+    """Run the search the gate allowed and add its results to the turn's sources (label ``WEB``).
+
+    The tool is called through its gate again (``GatedTool.call`` asks the rule a second time, with
+    the labels and the approved text the gate step left in the state), so this step cannot send
+    anything the rule would not have allowed, whatever route the turn took to get here. The results
+    come after the knowledge-base sources, numbered on from them. A refusal is logged and the turn
+    goes on without the web; a search that fails (no network, a service that answered badly) is
+    reported in ``web_error`` and the turn goes on too: a worse answer is better than none, and the
+    reader is told. The search is not retried: it sends text out, and sending it twice is a second
+    egress nobody approved.
+    """
+    context = runtime.context
+    tool = context.web
+    query = state.get("web_query", "")
+    if tool is None or not query:
+        return {}
+    log = list(state.get("egress_log", []))
+    labels = [label_of(name) for name in state.get("web_labels", [])]
+    _announce(runtime, STEP_WEB)
+    started = time.perf_counter()
+    try:
+        hits = tool.call(query, labels=labels, approved=state.get("web_approved") or None)
+    except EgressRefused as refused:
+        log.append(
+            _egress_record(
+                tool.name,
+                query,
+                "blocked",
+                tainted=refused.decision.tainted,
+                reason=refused.decision.reason,
+            )
+        )
+        return {"egress_log": log, "web_query": ""}
+    except (WebSearchError, WebQueryError) as error:
+        reason = _one_line(f"{type(error).__name__}: {error}")
+        log.append(_egress_record(tool.name, query, "failed", tainted=False, reason=reason))
+        return {"egress_log": log, "web_error": reason}
+    known = list(state.get("sources", []))
+    timings = dict(state.get("retrieval_ms", {}))
+    timings["web"] = (time.perf_counter() - started) * 1000
+    return {
+        "sources": [*known, *web_source_refs(hits, first_n=len(known) + 1)],
+        "retrieval_ms": timings,
     }
 
 
@@ -555,6 +772,21 @@ def csv_ask(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any]
     }
 
 
+def _history_source(source: SourceRef) -> HistorySource:
+    """A source's reference for the thread's memory: no text, and its origin when it is not a document."""
+    kept = HistorySource(
+        n=source["n"],
+        chunk_id=source["chunk_id"],
+        title=source["title"],
+        path=source["path"],
+        page=source["page"],
+        section=source["section"],
+    )
+    if source.get("origin"):
+        kept["origin"] = source["origin"]
+    return kept
+
+
 def remember(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any]:
     """Write this turn into the thread's memory: the question, the answer, their labels, the taint.
 
@@ -586,15 +818,7 @@ def remember(state: AgentState, runtime: Runtime[AgentContext]) -> dict[str, Any
     if used:
         answered["cited"] = [int(n) for n in state.get("cited", [])]
         answered["sources"] = [
-            HistorySource(
-                n=source["n"],
-                chunk_id=source["chunk_id"],
-                title=source["title"],
-                path=source["path"],
-                page=source["page"],
-                section=source["section"],
-            )
-            for source in state.get("sources", [])[:used]
+            _history_source(source) for source in state.get("sources", [])[:used]
         ]
     kept = [*state.get("history", []), asked, answered]
     keep = max(2, runtime.context.history_keep_messages)

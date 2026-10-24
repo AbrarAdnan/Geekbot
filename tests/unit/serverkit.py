@@ -42,6 +42,7 @@ from geekbot.server.security import (
     Perimeter,
 )
 from geekbot.sse import SseEvent, parse_text
+from geekbot.tools.egress import GatedTool
 
 MODEL = "fake-model:1b"
 # The test client sends "Host: testserver" and the async one in the heartbeat tests "Host: test".
@@ -115,6 +116,7 @@ def make_app(
     max_body_bytes: int = MAX_BODY_BYTES,
     max_upload_bytes: int = MAX_UPLOAD_BYTES,
     staged: bool = False,
+    web: GatedTool | None = None,
 ) -> FastAPI:
     """An app over a fake-embedder workspace with scripted models.
 
@@ -144,6 +146,7 @@ def make_app(
             top_k=settings.answer_top_k,
             context_budget_tokens=settings.context_budget_tokens,
             condenser=fakes.condenser,
+            web=web,  # S5.3: a gated web tool over a fake backend, or none (the server's default)
         )
 
         def make_llm(think: bool) -> ChatModel:

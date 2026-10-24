@@ -28,13 +28,16 @@ title, path and passage, and what the user typed, is shown with ``st.text``: pla
 interpreted (``server/schemas.py`` says why).
 """
 
+from collections.abc import Callable, Iterator
 from typing import Any, Final
 
 import streamlit as st
 
+from geekbot.sse import SseEvent
 from geekbot.ui.client import ApiError, ClientError, GeekbotClient
 from geekbot.ui.display import (
     TurnView,
+    approval_lines,
     assistant_message_id,
     csv_upload_lines,
     passages_key,
@@ -48,6 +51,7 @@ __all__ = ["render"]
 THREAD_PARAM: Final = "thread"  # the query parameter that carries the thread id
 THREAD_KEY: Final = "geekbot_thread"  # the same id in the session, for coming back from other pages
 THINK_KEY: Final = "geekbot_think"
+WEB_KEY: Final = "geekbot_web"  # the sidebar toggle "Search the web too" (S5.3)
 PASSAGES_KEY: Final = "geekbot_passages"  # {thread/message id: {n: passage}} for this session
 START_KEY: Final = "geekbot_start_with"  # the radio of a blank conversation
 CSV_LOADED_KEY: Final = "geekbot_csv_loaded"  # {thread id: the upload summary} until it is saved
@@ -81,8 +85,13 @@ def render(client: GeekbotClient) -> None:
     except ClientError as error:
         st.error(str(error))
         return
+    pending = (thread or {}).get("pending_approval")
+    if thread_id is not None and isinstance(pending, dict):
+        _approval_card(client, thread_id, pending)
     prompt = f"Ask about {csv_file}" if csv_file is not None else "Ask about your documents"
-    question = st.chat_input(prompt)
+    # A web search waiting for the user's answer holds the conversation: the server refuses a new
+    # question until it is answered, so the box says so instead of letting the user type into a 409.
+    question = st.chat_input(prompt, disabled=isinstance(pending, dict))
     if question:
         _ask(client, thread_id, question, csv=csv_file is not None)
 
@@ -193,6 +202,15 @@ def _sidebar(client: GeekbotClient, current: str | None) -> None:
             "and only a model with a thinking mode can do it (the target model gemma4:12b can; "
             "gemma3:4b cannot).",
         )
+        if _web_available(client):
+            st.toggle(
+                "Search the web too",
+                key=WEB_KEY,
+                help="Send your question to a web search as well (document conversations only). "
+                "Your own words are sent as you typed them. If the question was rewritten from "
+                "earlier answers that used documents or web pages, you are shown the exact text "
+                "and asked first.",
+            )
         st.subheader("Conversations")
         threads = client.threads()
         if not threads:
@@ -207,6 +225,14 @@ def _sidebar(client: GeekbotClient, current: str | None) -> None:
             )
         if current and any(summary["thread_id"] == current for summary in threads):
             _delete_button(client, current)
+
+
+def _web_available(client: GeekbotClient) -> bool:
+    """Whether the server has a web search at all (off by default): the toggle is only shown then."""
+    try:
+        return bool(client.health().get("web_enabled"))
+    except ClientError:
+        return False
 
 
 def _delete_button(client: GeekbotClient, thread_id: str) -> None:
@@ -287,34 +313,55 @@ def _ask(client: GeekbotClient, thread_id: str | None, question: str, *, csv: bo
         return
     with st.chat_message("user"):
         st.text(question)
+    waiting = False
     with st.chat_message("assistant"):
-        # The CSV model is not asked to reason, whatever the toggle says.
+        # The CSV model is not asked to reason, and never searches the web, whatever the toggles say.
         think = bool(st.session_state.get(THINK_KEY)) and not csv
-        view = _stream(client, thread_id, question, think=think, csv=csv)
-        if view is not None and view.done is not None:
+        web = bool(st.session_state.get(WEB_KEY)) and not csv
+        view = _stream(client, thread_id, question, think=think, csv=csv, web=web)
+        if view is not None and view.approval is not None:
+            waiting = True
+        elif view is not None and view.done is not None:
             _fresh_sources(thread_id, view.done)
             with st.expander("Details"):
                 st.text("\n".join(turn_details(view.done)))
+    if waiting:
+        st.rerun()  # the page now reads the waiting turn from the server and shows its question
 
 
 def _stream(
-    client: GeekbotClient, thread_id: str, question: str, *, think: bool, csv: bool = False
+    client: GeekbotClient,
+    thread_id: str,
+    question: str,
+    *,
+    think: bool,
+    csv: bool = False,
+    web: bool = False,
 ) -> TurnView | None:
     """Send the question and paint the answer as it arrives. ``None`` if no answer came.
 
     A CSV question says so (``mode="csv"``): if the server has lost the conversation's file it then
     answers 409 and says to upload it again, and does not answer from the documents instead. A
     document question asks for step events (``steps=True``), so the line under the question says
-    "Searching ...", "Ranking ...", "Writing ..." before the first word arrives (S3.6).
+    "Searching ...", "Ranking ...", "Writing ..." before the first word arrives (S3.6). A turn that
+    stops at the web search's question comes back as a view with ``approval`` set and no answer.
     """
+    return _paint_events(
+        lambda: client.ask(
+            thread_id, question, think=think, mode="csv" if csv else None, steps=not csv, web=web
+        ),
+        think=think,
+    )
+
+
+def _paint_events(events: Callable[[], Iterator[SseEvent]], *, think: bool) -> TurnView | None:
+    """Read a stream of events and paint it; shared by a question and the answer to the web question."""
     view = TurnView()
     status = st.empty()
     reasoning = _reasoning_box() if think else None
     answer = st.empty()
     try:
-        for event in client.ask(
-            thread_id, question, think=think, mode="csv" if csv else None, steps=not csv
-        ):
+        for event in events():
             view.feed(event)
             _paint(view, status, answer, reasoning)
     except ApiError as error:
@@ -330,8 +377,51 @@ def _stream(
         answer.empty()  # the failed turn is not remembered by the server; nothing of it stays here
         st.error(view.error)
         return None
+    if view.approval is not None:
+        answer.empty()  # nothing was answered yet: the question under the page is what is next
+        return view
     answer.markdown(view.answer)
     return view
+
+
+def _approval_card(client: GeekbotClient, thread_id: str, question: dict[str, Any]) -> None:
+    """The web search's question: the exact text that would leave the machine, and three ways out.
+
+    All of it is plain text (``st.text``, ``st.code``): the query was written by a model that had read
+    untrusted text. "Send as shown" sends that exact text; "Send my edit" sends the user's own;
+    "Do not search" sends nothing and the turn goes on without the web. The question is read from the
+    server on every rerun, so a reload or another browser tab shows the same card until it is answered.
+    """
+    with st.chat_message("assistant"):
+        st.warning("A web search is waiting for your answer.")
+        st.text("\n".join(approval_lines(question)))
+        query = str(question.get("query", ""))
+        edited = st.text_input(
+            "Edit the text first (optional)", value=query, key=f"edit-{thread_id}"
+        )
+        send, edit, deny = st.columns(3)
+        action: tuple[str, str] | None = None
+        if send.button("Send as shown", key=f"send-{thread_id}"):
+            action = ("approve", query)
+        if edit.button(
+            "Send my edit",
+            key=f"sendedit-{thread_id}",
+            disabled=edited.strip() in {"", query.strip()},
+        ):
+            action = ("edit", edited)
+        if deny.button("Do not search", key=f"deny-{thread_id}"):
+            action = ("deny", "")
+        if action is None:
+            return
+        chosen, text = action
+        think = bool(st.session_state.get(THINK_KEY))
+        view = _paint_events(
+            lambda: client.approve(thread_id, chosen, text, think=think, steps=True), think=think
+        )
+        if view is not None and view.done is not None:
+            _fresh_sources(thread_id, view.done)
+            with st.expander("Details"):
+                st.text("\n".join(turn_details(view.done)))
 
 
 def _reasoning_box() -> Placeholder:

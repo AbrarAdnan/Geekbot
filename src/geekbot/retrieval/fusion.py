@@ -15,6 +15,7 @@ original paper and in this plan) flattens the curve: with a small ``k`` rank 1 d
 a large one the ranks matter less and agreement between lists matters more.
 """
 
+import math
 from collections.abc import Sequence
 from typing import Final
 
@@ -50,7 +51,7 @@ def fuse_ranks(
         raise ValueError(f"k must not be negative, got {k}")
     if limit is not None and limit < 1:
         raise ValueError(f"limit must be at least 1, got {limit}")
-    fused: dict[str, float] = {}
+    terms: dict[str, list[float]] = {}
     best_rank: dict[str, int] = {}
     first_list: dict[str, int] = {}
     for list_index, ranking in enumerate(rankings):
@@ -61,18 +62,22 @@ def fuse_ranks(
                 continue
             seen.add(chunk_id)
             rank += 1
-            fused[chunk_id] = fused.get(chunk_id, 0.0) + 1.0 / (k + rank)
+            terms.setdefault(chunk_id, []).append(1.0 / (k + rank))
             if chunk_id not in best_rank:
                 best_rank[chunk_id] = rank
                 first_list[chunk_id] = list_index
             else:
                 best_rank[chunk_id] = min(best_rank[chunk_id], rank)
-    # Sums of reciprocals that are equal on paper can differ in the last bits when they are added in
-    # another order (floating point addition is not associative), so the sort looks at the score
-    # rounded to 12 places: a tie on paper is then a tie in the code and the tie-breakers apply.
+    # Sums of reciprocals that are equal on paper differ in the last bits when they are added in another
+    # order (floating point addition is not associative). ``math.fsum`` is exactly rounded, so the same
+    # terms in any order give the same float: a tie on paper is a tie in the code, the tie-breakers
+    # apply, and the scores that are returned never increase down the list. (An earlier version
+    # sorted on the sum rounded to 12 places but returned the raw sum, and a hypothesis run found
+    # two chunks tied on paper that came back one unit in the last place out of order.)
+    fused = {chunk_id: math.fsum(values) for chunk_id, values in terms.items()}
     ordered = sorted(
         fused,
-        key=lambda cid: (-round(fused[cid], 12), best_rank[cid], first_list[cid], cid),
+        key=lambda cid: (-fused[cid], best_rank[cid], first_list[cid], cid),
     )
     result = [(cid, fused[cid]) for cid in ordered]
     return result if limit is None else result[:limit]

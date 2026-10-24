@@ -22,6 +22,19 @@ list-form edge (``["search_dense", "search_lexical"] → "fuse"``) makes ``fuse`
 ``rerank`` the turn takes the same decision as after a whole-retriever search (``has_sources``). Any
 other retriever never enters the four staged steps.
 
+**Web search (S5.3).** When the caller asked for a search on this turn (``use_web``), the decision after
+the knowledge base is not ``has_sources`` but ``egress_gate``; otherwise nothing changes::
+
+    (sources found or not) ─ use_web ─► egress_gate ─┬ a query may go ─► web ─► (sources? as above)
+                                                     └ nothing may go ──────► (sources? as above)
+
+``egress_gate`` is the one place where a question's words can be sent out (G2, ``agent.taint``): the
+user's own words go; a query a model rewrote after reading documents, web text or tool output waits for
+the user (``interrupt()``: approve, edit or deny); no web tool, or nobody to ask, is a refusal. ``web``
+calls the tool through its gate once more and adds the results to the sources with the label ``WEB``,
+so an answer built from them taints the thread. The CSV branch never visits either step: CSV data never
+reaches the web tool (PLAN.md §8.1).
+
 **Retries (S3.6).** The steps that call Ollama and change nothing (``retrieve``, ``search_dense`` and
 ``generate``) carry a ``RetryPolicy`` that retries transient failures only (``agent.resilience``).
 ``csv_ask`` has none: a CSV question can run for a minute and the package has its own retry logic.
@@ -61,10 +74,12 @@ from langgraph.types import RetryPolicy
 
 from geekbot.agent.mode import route_after_begin, route_after_condense
 from geekbot.agent.nodes import (
+    after_search,
     begin_turn,
     cite_check,
     condense,
     csv_ask,
+    egress_gate,
     fuse,
     generate,
     has_sources,
@@ -72,11 +87,13 @@ from geekbot.agent.nodes import (
     remember,
     rerank,
     retrieve,
+    route_after_gate,
     route_after_retrieve,
     sanitize,
     search_dense,
     search_lexical,
     validate_citations,
+    web_search,
 )
 from geekbot.agent.resilience import transient_retry
 from geekbot.agent.runtime import AgentContext
@@ -107,6 +124,10 @@ def build_graph(
     builder.add_node("search_lexical", search_lexical)
     builder.add_node("fuse", fuse)
     builder.add_node("rerank", rerank)
+    # S5.3. No retry policy on either: the gate asks a person, and a search sends text out (a second
+    # attempt would be a second egress nobody approved).
+    builder.add_node("egress_gate", egress_gate)
+    builder.add_node("web", web_search)
     builder.add_node("generate", generate, retry_policy=policy)
     builder.add_node("validate_citations", validate_citations)
     builder.add_node("cite_check", cite_check)
@@ -129,6 +150,7 @@ def build_graph(
         {
             "generate": "generate",
             "no_context": "no_context",
+            "egress_gate": "egress_gate",
             "search_dense": "search_dense",
             "search_lexical": "search_lexical",
         },
@@ -136,7 +158,17 @@ def build_graph(
     builder.add_edge(["search_dense", "search_lexical"], "fuse")
     builder.add_edge("fuse", "rerank")
     builder.add_conditional_edges(
-        "rerank", has_sources, {"generate": "generate", "no_context": "no_context"}
+        "rerank",
+        after_search,
+        {"egress_gate": "egress_gate", "generate": "generate", "no_context": "no_context"},
+    )
+    builder.add_conditional_edges(
+        "egress_gate",
+        route_after_gate,
+        {"web": "web", "generate": "generate", "no_context": "no_context"},
+    )
+    builder.add_conditional_edges(
+        "web", has_sources, {"generate": "generate", "no_context": "no_context"}
     )
     builder.add_edge("generate", "validate_citations")
     builder.add_edge("validate_citations", "cite_check")
