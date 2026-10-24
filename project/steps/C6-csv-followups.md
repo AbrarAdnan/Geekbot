@@ -3,7 +3,7 @@
 - **Phase / Gate:** Track C, evidence for Gate B. Built and run by Claude in autopilot run 5 (D-097, 2026-10-24).
 - **Chat date(s):** 2026-10-24
 - **Status:** **built, verified and run by Claude under D-097**: `ruff`, `mypy src`, `lint-imports` clean, `pytest` 2979 passed (72 more than S5.2's 2907), one real run on the target model (`evals/results/c6-run1/`). **Not reviewed by you. The 15 items and their expected results are Claude-authored and provisional (D-067); two of the three failing items fail on a shape question in the item, not on the model (see "What failed").**
-- **Commit:** branch `step/C6-csv-followups` (stacked on `step/S5.2-answer-eval`); the pull request waits for a GitHub sign-in
+- **Commit:** branch `step/C6-csv-followups` (stacked on `step/S5.2-answer-eval`); merged into `v2` as PR #47 (squash `a387e40`), branch deleted
 - **Lesson note:** deferred (prototyping mode, D-047)
 
 ## Goal
