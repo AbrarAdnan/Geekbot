@@ -175,6 +175,7 @@ NETWORK_MODULES: dict[str, str] = {
     "geekbot.index.workspace": "the local Ollama (model checks)",
     "geekbot.llm.chat": "the local Ollama through langchain-ollama",
     "geekbot.llm.models": "the local Ollama",
+    "geekbot.mcp_stdio": "this program's own server on 127.0.0.1 (the stdio relay of MCP, S6.1)",
     "geekbot.retrieval.rerank": "fastembed: downloads the reranker's weights once (no user text)",
     "geekbot.tools": "httpx type of a test transport",
     "geekbot.tools.web": "the web search: the one place a query leaves the machine (G2)",
