@@ -1,4 +1,4 @@
-# Geekbot v2 — implementation plan (rev 21)
+# Geekbot v2 — implementation plan (rev 22)
 
 > **The measured results are the product; the architecture exists to make them credible.**
 > (This line also opens the v2 README.)
@@ -199,6 +199,11 @@ project/
   - The path sandbox also refuses network and device paths before touching the disk, never reads the data folder, and checks every file of a folder walk again (a Windows junction can lead outside an allowed folder); with no `GEEKBOT_ALLOWED_ROOTS` set, only uploaded files can be ingested
   - **A knowledge-base upload route, `POST /v1/kb/upload`, is added to S4.3** (raw body, stored as `<sha16>-<safe-name>` in `data/uploads`, type and size checked, then ingested). The user said to make it as needed; C5's CSV upload reuses its code
   - Cost, stated: nothing in this revision is verified until the user's runs of S4.3; the limits (1 MB JSON, 100 MB a file, 2,000 PDF pages) are unmeasured starting points
+- **rev 22** (2026-10-24, user decisions at Gate A; D-096): **the OpenAI-compatible endpoint is parked for good, and two Gate A lines and two §14 lines say what can really be checked** (§6, §8, §10, §11, §14):
+  - **The OpenAI-compatible endpoint (`/v1/chat/completions`), its client SDK snippet and the OpenAI-SDK contract test are parked, not deferred** (user: no extra API endpoint, nothing for cloud providers). They join the Parked list (§10), so standing rule 7 forbids building them, and D-084's "they come back when other programs need to talk to Geekbot" no longer holds. Geekbot's API is its own `/v1/threads/*`, `/v1/kb/*` and `/v1/jobs/*` routes. For the record, the endpoint would have been a local door on `127.0.0.1` speaking OpenAI's message format, not a call to any cloud; nothing in the plan calls a cloud model provider (hosted providers were already parked, §10 and §6.7). The Gate A line "The OpenAI SDK works" becomes the perimeter checks that §14 item 6 already listed (401, 400, 403); §14 item 6 names the SSE route instead; §6's diagram loses the "OpenAI SDK / Open WebUI" client; §8's two lines about "the stateless endpoint" say it is parked; the S4.2 and S4.3 rows and the integration-test list are worded to match. The MCP server (S6.1, Gate C, local `/mcp`) is not touched
+  - **"The SLO smoke run passes" now says what it checks:** it runs to the end with 0 model loads during questions and the steps present, and it prints its readings next to the §6.5 targets; a target it misses is reported, not hidden (rule 5, claims discipline). The test asserts no latency (S3.6, D-095); a miss becomes a to-do for S5.1's idle-GPU measurement
+  - **§14 item 5's two web lines** ("Web off: no egress", "A tainted web query shows the approval prompt") are marked as S5.3 / Gate B: the web tool, the taint gate and the egress gate do not exist before S5.3, so Gate A cannot check them
+  - Cost, stated: no code changes (the endpoint was never built); Gate A can now be green with a latency target missed, as long as the miss is reported
 
 ## 5. v1 findings (verified; all fixed by v2)
 
@@ -228,7 +233,7 @@ project/
 Streamlit UI ──┐                                    ┌─ SQLite (WAL) = source of truth: documents, chunks,
 CLI (client) ──┼─► geekbot.client (httpx) ─► FastAPI │   chunks_fts (FTS5), jobs, threads, labels, feedback
 MCP stdio proxy┘   (Gate C)                  server  ├─ Chroma = derived dense index (cosine; vectors + doc_id)
-OpenAI SDK / Open WebUI ──────────────────►  (ONE   ├─ Ollama GPU, one chat model at a time (100% resident, warm, keep_alive):
+                                             (ONE   ├─ Ollama GPU, one chat model at a time (100% resident, warm, keep_alive):
 Claude Code / Cursor ── /mcp (Gate C) ────►  storage│   gemma4:12b in chat mode ⇄ qwen2.5-coder:7b in CSV mode (§6.7)
                                               owner) ├─ Ollama CPU: embedder (num_gpu=0) ── 0 VRAM
                                                      ├─ fastembed ONNX cross-encoder (CPU) ─ 0 VRAM
@@ -486,7 +491,7 @@ START → mode? ─ chat ─► (the RAG graph above)
   - The model emits only `[n]`; the app validates and renders the citations.
 - **`cite_check`:** a citation *relevance* check (cross-encoder), not entailment. Groundedness is measured offline by the judge.
 - **Abstain (rev 20, D-082):** the model's own refusal plus the post-stream citation check; no score threshold as a gate. Measured on the unanswerable golden questions; a grading call or another signal is added only if too many of them get an answer. (Before rev 20: a threshold calibrated F1-optimally on the golden set; it measured weak, see `evals/results/s26-run1/abstain.json`.)
-- **API semantics:** `/v1/chat/completions` is stateless; the UI uses `/v1/threads/*`.
+- **API semantics:** the UI and the CLI use the stateful `/v1/threads/*` routes (and `/v1/kb/*`, `/v1/jobs/*`). A stateless OpenAI-compatible `/v1/chat/completions` is parked for good (rev 22, D-096).
 
 ## 8. Security model (`docs/security.md`, ADR-0004)
 
@@ -517,7 +522,7 @@ START → mode? ─ chat ─► (the RAG graph above)
   - Citations are labeled `KB`.
   - Streaming: labels are fixed before the call.
   - Serialization keeps labels as fields.
-  - Client-supplied assistant messages on the stateless OpenAI endpoint are labeled `UNKNOWN`.
+  - Client-supplied assistant messages are labeled `UNKNOWN`. (The stateless OpenAI-compatible endpoint this rule was written for is parked, rev 22, D-096; the rule applies to any route that ever accepts a client-written assistant message.)
   - MCP outputs are labeled `KB`.
   - CSV-mode outputs (answer, SQL, result table) are labeled `TOOL`.
 - **Monotonic, no declassification.** Covered by property tests, an `UNKNOWN`-labeling test and a registry test.
@@ -597,10 +602,10 @@ A simulated user denies every approval. The report gives bypasses k/N (target 0)
 | 1 Ingestion & storage | A | incremental, crash-safe indexing into SQLite + Chroma |
 | 2 Retrieval & first evidence | A | hybrid retrieval + rerank, the metrics, golden v0; ⛳ **first ablation table** (S2.6) + the one-time v1 reference run (CP2), which **run after S3.4 and before S3.5** (rev 19) |
 | 3 Answering with LangGraph | A | fast streaming answers with memory, citations, abstention; **C4** mode router + CSV branch; S3.1 to S3.4 come first, S2.6 and CP2 before S3.5 (rev 19) |
-| 4 Server & UI | A | single-owner API, OpenAI-compatible endpoint, Streamlit client; **C5** CSV upload + mode picker; ⛳ **Gate A review** |
+| 4 Server & UI | A | single-owner API with streamed answers (no OpenAI-compatible endpoint: parked for good, rev 22), Streamlit client; **C5** CSV upload + mode picker; ⛳ **Gate A review** |
 | 5 Evidence | B | bench/VRAM/latency, answer eval + judge, **C6** CSV-mode eval, web + taint, injection eval, README; ⛳ **Gate B review** |
 | 6 Integration | C | MCP server; ⛳ **Gate C review** |
-| Parked | — | Docker, OpenTelemetry/Phoenix, multimodal ingestion, folder watch, time-travel, LLM contextual retrieval, `Send` multi-hop, nightly GPU CI, any model over 12B; **CSV mode:** XLSX files, joins across several CSVs, hosted model providers, Gigalogy's fine-tuned model (only after a measured decision) |
+| Parked | — | Docker, OpenTelemetry/Phoenix, multimodal ingestion, folder watch, time-travel, LLM contextual retrieval, `Send` multi-hop, nightly GPU CI, any model over 12B, **the OpenAI-compatible endpoint (`/v1/chat/completions`), its client SDK snippet and the OpenAI-SDK contract test (rev 22, D-096: parked for good; no extra API endpoint, nothing for cloud providers)**; **CSV mode:** XLSX files, joins across several CSVs, hosted model providers, Gigalogy's fine-tuned model (only after a measured decision) |
 
 ## 11. Step-by-step roadmap (each step follows the §2 loop and needs your green light)
 
@@ -699,8 +704,8 @@ A simulated user denies every approval. The report gives bypasses k/N (target 0)
 | Step | 🧠 Learn | 🛠 Build | ✍️ You write | ▶ You run |
 |---|---|---|---|---|
 | **S4.1 FastAPI core** | ASGI, lifespan, event-loop blocking, single-owner process | `server/app.py`, kb/jobs/health routes, writer lock at startup, heartbeat test | the `/healthz` route + the heartbeat test | `geekbot serve` · `pytest` |
-| **S4.2 Threads + streamed answers** (OpenAI-compatible API left out for now, rev 20, D-084) | SSE, stateless vs stateful | thread routes, the streamed question-and-answer route (SSE: answer pieces, sources, readings) under `/v1/threads`; **not** `/v1/chat/completions`, the client SDK or the OpenAI-SDK contract test (they come back when other programs need to talk to Geekbot) | the SSE event formatter | `pytest` |
-| **S4.3 Perimeter security** (outside-client items left out for now, rev 20, D-084) | threat modeling, auth, path traversal, upload hygiene | `server/security.py`, allowlist, limits, the UI's own API key, 127.0.0.1 only; the upload route `POST /v1/kb/upload` and `server/uploads.py` (rev 21) | the path allowlist check (no symlink escape) | `pytest` |
+| **S4.2 Threads + streamed answers** (OpenAI-compatible API left out, rev 20, D-084; parked for good, rev 22, D-096) | SSE, stateless vs stateful | thread routes, the streamed question-and-answer route (SSE: answer pieces, sources, readings) under `/v1/threads`; **not** `/v1/chat/completions`, the client SDK or the OpenAI-SDK contract test (parked, D-096) | the SSE event formatter | `pytest` |
+| **S4.3 Perimeter security** (outside-client items left out, rev 20, D-084; parked with the endpoint, rev 22, D-096) | threat modeling, auth, path traversal, upload hygiene | `server/security.py`, allowlist, limits, the UI's own API key, 127.0.0.1 only; the upload route `POST /v1/kb/upload` and `server/uploads.py` (rev 21) | the path allowlist check (no symlink escape) | `pytest` |
 | **S4.4 Streamlit UI** | Streamlit's rerun model (the root of v1 bug #1), API-client UIs | chat / knowledge / settings / evals pages; v1 files removed | the knowledge page | `geekbot up` → try it in the browser |
 | **C5 CSV mode in the API + UI** | stateful sessions in a single-owner server, upload hygiene, memory limits | `POST /v1/threads` with `mode`, the CSV upload route (S4.3 limits, `data/uploads/`), `csv_mode/sessions.py`, the UI mode picker + upload + evidence view (SQL + result table), import-linter rule (§6.7); heartbeat test with a CSV question running | the session registry (one per thread, LRU eviction, size cap) | `pytest` · `geekbot up` → pick CSV mode, upload, ask |
 | ⛳ **Gate A review** | — | DoD checklist below; Phase 4 look-back | — | You run the checklist and we review together |
@@ -712,11 +717,11 @@ A simulated user denies every approval. The report gives bypasses k/N (target 0)
 - A second storage process is refused.
 - The heartbeat test passes.
 - gemma4 is 100% GPU-resident with 0 loads during queries.
-- The SLO smoke run passes.
+- The SLO smoke run passes, and prints its readings next to the §6.5 targets; a target it misses is reported, not hidden (rule 5).
 - A follow-up resolves.
 - An unanswerable question abstains.
 - Citations persist.
-- The OpenAI SDK works.
+- The perimeter holds: a request without the API key is refused (401), one with a foreign `Host` header too (400), an ingest outside the allowlist returns 403.
 - A planted image is stripped.
 - **CSV mode (rev 11):**
   - `geekbot csv ask` answers with the SQL and a result table, and an unanswerable CSV question is refused with a reason.
@@ -785,7 +790,7 @@ A simulated user denies every approval. The report gives bypasses k/N (target 0)
   - A second writer is refused
   - Heartbeat
   - Graph paths (zero-LLM first turn, condense, abstain, taint interrupt → resume)
-  - OpenAI-SDK contract; injection regression
+  - Injection regression (the OpenAI-SDK contract test is parked, D-096)
   - CSV branch of the graph (fake LLM): upload → ask → follow-up → refusal
   - MCP (Gate C)
 - **Live** (`pytest -m live`, needs Ollama + GPU 🎮): smoke tests, residency assertion (both modes, after a swap), SLO smoke.
@@ -810,10 +815,10 @@ A simulated user denies every approval. The report gives bypasses k/N (target 0)
    - No re-indexing or model loads.
    - Citations and the think-harder expander survive a reload.
    - Follow-up resolves; unanswerable abstains.
-   - Web off: no egress.
-   - A tainted web query shows the approval prompt.
+   - Web off: no egress. (From S5.3, Gate B: before it there is no web path to test.)
+   - A tainted web query shows the approval prompt. (From S5.3, Gate B.)
    - CSV mode: pick it, upload a CSV, ask; the answer shows the SQL and the result table; a follow-up resolves; an unanswerable question is refused with a reason.
-6. The API: the OpenAI SDK streams; a request without the API key is refused (401) and one with a foreign `Host` header too (400); an out-of-allowlist ingest returns 403; a planted image is stripped.
+6. The API: a streamed answer arrives over server-sent events (`POST /v1/threads/{id}/messages`); a request without the API key is refused (401) and one with a foreign `Host` header too (400); an out-of-allowlist ingest returns 403; a planted image is stripped.
 7. Evidence:
    - `geekbot bench --config evals/configs/bench.toml` 🎮 on an idle GPU: SLO + VRAM tables.
    - `geekbot eval injection`.
