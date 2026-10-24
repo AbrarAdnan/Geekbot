@@ -2,7 +2,7 @@
 
 - **Phase / Gate:** the review at the end of Phase 5 (PLAN §11 row "Gate B review"). Run by Claude in autopilot run 5 (D-097, 2026-10-24); **the verdict is Claude's, not yours: you decide whether Gate B is passed.**
 - **Status:** the checklist below; one part is not done and cannot be by Claude (your labels).
-- **Commit:** branch `step/GB-gate-b-review` (stacked on `step/S5.5-writeup`)
+- **Commit:** branch `step/GB-gate-b-review` (stacked on `step/S5.5-writeup`); merged into `v2` as PR #51 (squash `531e4d3`), branch deleted
 
 ## The definition of done (PLAN §11, with §14 items 5 and 7)
 
@@ -40,7 +40,7 @@
 4. The judge: pull `qwen3:8b`, label about 60 answers, read κ.
 5. Your own golden questions and CSV items; reword C6's F-006 and F-010.
 6. A real web backend (SearXNG you run, or DuckDuckGo after a live check) or none.
-7. Whether the pull requests, in order, are merged: Gate A, S5.1, S5.2, C6, S5.3, S5.4, S5.5, GB (each stacked on the one before; they wait for a GitHub sign-in in the built-in browser).
+7. The ten pull requests (#44 to #53) were merged in order on 2026-10-24 at your instruction, after the three checks were green on each; whether the content is what you want is for your review.
 
 ## Slips (told straight)
 - The `@(@(a,b))` flattening that rewrote three ADR files (S5.4 log). No other.

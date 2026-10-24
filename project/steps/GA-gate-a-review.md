@@ -3,7 +3,7 @@
 - **Phase / Gate:** Gate A, the review that closes Phases 0 to 4, Track C up to C5, and S3.6 (PLAN §11, "⛳ Gate A review"). One step per chat (D-085).
 - **Chat date(s):** 2026-10-24
 - **Status:** **verify**: the checklist, the commands and the Phase 4 look-back were written first (no-run policy); the seven parts were then **run by Claude under D-097 (autopilot run 5, 2026-10-24)**: all 17 items pass, with two small findings fixed, one latency target missed by 8.4 ms and the abstention and swap numbers reported below. Awaiting the merge.
-- **Commit:** (the squash commit of this step's pull request is recorded in STATUS.md after the merge)
+- **Commit:** merged into `v2` as PR #44 (squash `272b500`), branch deleted
 - **Lesson note:** deferred (prototyping mode, D-047)
 
 ## Goal

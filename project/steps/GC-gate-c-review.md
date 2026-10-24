@@ -1,7 +1,7 @@
 # GC — Gate C review (the final review)
 
 - **Phase / Gate:** the review at the end of Phase 6 (PLAN §11 "Gate C review", §14 item 9), and the end of autopilot run 5 (D-097, 2026-10-24). Done by Claude; **the verdict is yours.**
-- **Commit:** branch `step/GC-gate-c-review` (stacked on `step/S6.1-mcp`)
+- **Commit:** branch `step/GC-gate-c-review` (stacked on `step/S6.1-mcp`); merged into `v2` as PR #53 (squash `5a76d90`), branch deleted
 
 ## Gate C's definition: the MCP server (PLAN §3, §11, §14 item 9)
 
@@ -14,7 +14,7 @@
 
 ## The final look-back (the whole project against the plan)
 
-- **Delivered, to Gate C:** Gate A (17 of 17 items, run by Claude), S5.1, S5.2 (the judge unvalidated), C6, S5.3, S5.4, S5.5, Gate B, S6.1. Everything is built, measured on the target models, committed and pushed on **ten stacked branches**; **no pull request exists yet** (the GitHub sign-in was lost in the built-in browser).
+- **Delivered, to Gate C:** Gate A (17 of 17 items, run by Claude), S5.1, S5.2 (the judge unvalidated), C6, S5.3, S5.4, S5.5, Gate B, S6.1. Everything is built, measured on the target models, committed and pushed on **ten stacked branches**; **all ten were squash-merged into `v2` the same day as pull requests #44 to #53** (GitHub was signed in again in the built-in browser; the three CI checks were green on each; the branches are deleted).
 - **What the project can now say about itself** (README, `docs/`): a measured retrieval ladder with its unflattering parts, speed targets met on a 10 GB GPU with one named miss, an answer evaluation with an honestly unvalidated judge, a CSV mode whose follow-up rewrite caused none of three failures in 15 items, and a security story in two parts: guarantees with their tests, and 0 of 129 bypasses plus 15 of 129 hijacks, with an effective N of 43 attacks and three filter holes found and fixed on the way.
 - **What the run did that you did not ask for:** found and fixed nine holes in the output filter across two steps (D-100, D-103); fixed a tie-order bug in rank fusion (a float sum's last bit); added a dev dependency (`mcp`) and regenerated the lock; created ten branches.
 
@@ -30,7 +30,7 @@ PLAN.md was **not** edited in this run (it changes only with your approval, CLAU
 
 ## What is yours (the end of the run, D-097)
 
-1. **Sign in to GitHub in the built-in browser**, then open the pull requests **in this order, each with base `v2`** (never `main`), wait for the three checks and squash-merge, deleting the branch after each (D-056): `step/GA-gate-a-review`, `step/S5.1-bench-sweep`, `step/S5.2-answer-eval`, `step/C6-csv-followups`, `step/S5.3-web-taint`, `step/S5.4-injection-eval`, `step/S5.5-writeup`, `step/GB-gate-b-review`, `step/S6.1-mcp`, `step/GC-gate-c-review`. (Each branch was cut from the one before; after a squash merge of one, the next one's pull request shows only its own commit once GitHub re-bases the comparison, or merge them in order and resolve the repeated history if GitHub does not.)
+1. **The pull requests: done (2026-10-24, at your instruction).** #44 to #53 were opened in order with base `v2`, each squash-merged after the three checks were green, the branches deleted (remote and local). Because a squash merge rewrites history, each next branch was brought up to date with a plain merge of `v2` (no force-push); on every merge the tree was checked equal to the branch tip before pushing. Nothing for you to do here; `git log --oneline v2` shows the ten squash commits.
 2. **The judge:** label about 60 answers on the Labels page and read κ (or pull `qwen3:8b` first). Until then it supports no claim.
 3. **Your own golden questions and CSV items**; reword C6's F-006 and F-010.
 4. **The decisions listed in the Gate B log** (the reranker, the 400 ms target, q8_0, top-k, the embedder, a real web backend).
