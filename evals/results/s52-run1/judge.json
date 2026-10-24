@@ -1,0 +1,411 @@
+{
+ "name": "s52-run1",
+ "judge": {
+  "model": "qwen2.5-coder:7b",
+  "family": "qwen",
+  "generator_family": "gemma",
+  "judged": 75,
+  "skipped_refusals": 25,
+  "supported": 69,
+  "answers_question": 67,
+  "by_type": {
+   "single_hop": {
+    "judged": 46,
+    "supported": 45,
+    "answers_question": 46
+   },
+   "multi_hop": {
+    "judged": 13,
+    "supported": 12,
+    "answers_question": 13
+   },
+   "multi_turn": {
+    "judged": 15,
+    "supported": 11,
+    "answers_question": 7
+   },
+   "unanswerable": {
+    "judged": 1,
+    "supported": 1,
+    "answers_question": 1
+   }
+  }
+ },
+ "verdicts": {
+  "S-001": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states the graphics card has 12 GB of video memory, which is supported by source [1]."
+  },
+  "S-002": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states the assistant's text production rate of 38 tokens per second, which is supported by source [1]."
+  },
+  "S-003": {
+   "supported": false,
+   "answers_question": true,
+   "reason": "The answer states a fact not supported by the sources."
+  },
+  "S-004": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states that Priya shortened the context length to 4,096 tokens to bring the 95th percentile response time down to 2.8 seconds, which is supported by source [1]."
+  },
+  "S-005": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly quotes the source [1] that states the UPS is rated to keep the workstation running for about 20 minutes at normal load."
+  },
+  "S-006": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states the required acknowledgment time for S1 incidents as 15 minutes, which is supported by source [1]."
+  },
+  "S-007": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly quotes the source that states the deadline for telling a client about a medium-severity incident (S2) involving their data is within 72 hours."
+  },
+  "S-008": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer is directly supported by sources [1] and [2]."
+  },
+  "S-010": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer correctly states that an S3 incident, which includes an outage or a small breach with no data exposed, is discussed at the weekly project meeting."
+  },
+  "S-011": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer is directly supported by source [3], which states that during the retention job test, files aged 91 days were deleted and files aged 89 days were kept."
+  },
+  "S-012": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states the workstation ran for 21 minutes on battery during the pre-launch test, which is supported by source [1]."
+  },
+  "S-013": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states that all 12 staff members attended a training session on 5 and 6 May, which is supported by source [1]."
+  },
+  "S-014": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer is directly supported by source [1], which states that a second person should learn the runbook and will attend the first review meeting."
+  },
+  "S-015": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states the log file location from source [1]."
+  },
+  "S-016": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer is directly supported by the source code in log_cleanup.py, which states that the job deletes only files older than the limit."
+  },
+  "S-017": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer is directly supported by the fields listed in source [2]."
+  },
+  "S-018": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states that the `hours_to_resolve` column is of the decimal type, which is supported by the source."
+  },
+  "S-019": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states the sheets in the workbook based on the information provided in the sources."
+  },
+  "S-020": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states that the owner column shows who looks after each tool, which is supported by source [1]."
+  },
+  "S-021": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states that Daniel Reyes is the owner of the AI use policy, which is supported by source [1]."
+  },
+  "S-022": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer is directly supported by source [1], which states that the policy applies to all 12 members of staff and to contractors."
+  },
+  "S-023": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states that the AI use policy is reviewed every six months, which is supported by source [4]."
+  },
+  "S-024": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly quotes the sources for both the address and the fact that it doesn't work from home."
+  },
+  "S-025": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer is directly supported by source [1], which states that after a 45-minute training session, the operations lead creates the account within one working day."
+  },
+  "S-026": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly quotes the source [1] that the onboarding letter suggests trying a summary of last week's meeting notes as a small first task."
+  },
+  "S-027": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly quotes the sources to list the three data folders."
+  },
+  "S-028": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer is directly supported by source [1], which states 'Lantern keeps no recycle bin.'"
+  },
+  "S-029": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "Sources [1] and [3] explicitly state that backups are not edited when a workspace is deleted."
+  },
+  "S-030": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states that the key for the encrypted copy of the backup to cloud storage is kept in the office safe, which is supported by source [2]."
+  },
+  "S-031": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer correctly states that the longest a chat can survive anywhere is 120 days, which is supported by the sources."
+  },
+  "S-032": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer is directly supported by source [1], which states 'Presenter: Daniel Reyes'."
+  },
+  "S-035": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly quotes the source that explains why a designer argued against a 30-day limit for chat logs."
+  },
+  "S-036": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer is directly supported by the sources and addresses the question."
+  },
+  "S-038": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer is directly supported by source [3], which states that Tomasz Lewandowski reviewed the case and found no client data left the studio in a form that could be read by others, although the rule had still been broken."
+  },
+  "S-039": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states that the refresher session was planned to be 20 minutes long, which is supported by source [1]."
+  },
+  "S-040": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly quotes the source stating that Corvid Foods would have to agree to a change in its NDA before using the hosted private instance."
+  },
+  "S-041": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states that Option C costs £14,090 more than Option A in the first year, which is supported by source [3]."
+  },
+  "S-042": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states the cost of running the local option in its second year as £14,928, which is supported by source [1]."
+  },
+  "S-043": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states the limit based on source [1]."
+  },
+  "S-044": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer is directly supported by source [1]."
+  },
+  "S-045": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states that about four characters make up one token in English, which is supported by source [1]."
+  },
+  "S-046": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states the busiest weekday and hour according to the sources."
+  },
+  "S-047": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states the share of prompts for drafting client emails as 27 percent, which is supported by source [1]."
+  },
+  "S-048": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly cites a source that states Hannah Frost chose the pilot users, and all four are heavy computer users, which explains why the pilot's usage figures are higher than the studio average."
+  },
+  "S-049": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states the RAM and storage specifications from the sources."
+  },
+  "S-050": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states the latest version and issue date from source [1]."
+  },
+  "M-001": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer correctly identifies Maya Okafor as the person who approved the AI use policy and provides her phone number from source [3]."
+  },
+  "M-002": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly compares the battery run-time during the power cut (22 minutes) with the pre-launch test (21 minutes)."
+  },
+  "M-003": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer is directly supported by the sources, which state that the workstation was ordered on 17 March and the AI use policy was approved on 21 March, with a 4-day difference."
+  },
+  "M-004": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "Sources [1] and [3] state that up to three people can chat at once without a noticeable slowdown, and a fourth must wait in a queue."
+  },
+  "M-005": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer correctly states that the incident must be acknowledged within 4 hours, which is directly supported by the sources."
+  },
+  "M-006": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer correctly states that for an S2 incident, the client must be told within 72 hours if their data was involved."
+  },
+  "M-008": {
+   "supported": false,
+   "answers_question": true,
+   "reason": "The answer states the restore size and time, but does not address whether it would fit on the disk."
+  },
+  "M-009": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer correctly states the monthly backup cost (£9) and the region where it is stored (EU) based on the sources provided."
+  },
+  "M-011": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer is fully supported by the sources and directly addresses the question."
+  },
+  "M-012": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states the durations of the training session and refresher based on the sources."
+  },
+  "M-013": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer correctly identifies Priya Nair and Tomasz Lewandowski as administrators and accurately states that the first step when an incident starts is to disable the affected account in the admin console."
+  },
+  "M-014": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer correctly identifies Daniel Reyes as the presenter at the kickoff and Leo Park as not being present at the kickoff meeting, which is supported by the sources."
+  },
+  "M-015": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer is directly supported by sources [3] and [5]."
+  },
+  "T-001": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states that audit logs, which contain no conversation text, are kept for 365 days."
+  },
+  "T-002": {
+   "supported": false,
+   "answers_question": false,
+   "reason": "The answer does not address the question about incident levels or notification timelines."
+  },
+  "T-003": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states that Priya Nair is on call on Mondays and Thursdays, which is supported by sources [1], [2], and [3]."
+  },
+  "T-004": {
+   "supported": true,
+   "answers_question": false,
+   "reason": "The answer does not address why the studio chose a computer in its own office instead of a cloud subscription."
+  },
+  "T-005": {
+   "supported": true,
+   "answers_question": false,
+   "reason": "The answer does not address the question about the cost of the battery unit."
+  },
+  "T-006": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states 'Four people took part in the pilot' and this claim is supported by source [4], which explicitly mentions 'The pilot runs for four weeks, from 7 April to 2 May.'"
+  },
+  "T-007": {
+   "supported": false,
+   "answers_question": false,
+   "reason": "The answer does not address the question about file types and instead provides information about file size limits."
+  },
+  "T-008": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer is directly supported by source [1], which states that the cleanup job deletes nothing when a legal hold is in place."
+  },
+  "T-009": {
+   "supported": false,
+   "answers_question": false,
+   "reason": "The answer does not address who is in charge when an incident happens."
+  },
+  "T-010": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states the 95th percentile wait for the first word after the fix was 2.8 seconds, which is inside the target of 3 seconds."
+  },
+  "T-011": {
+   "supported": true,
+   "answers_question": false,
+   "reason": "The answer does not address the question about using an outside AI website for client work."
+  },
+  "T-012": {
+   "supported": false,
+   "answers_question": false,
+   "reason": "The answer does not address the question about the number of incidents or which one was serious."
+  },
+  "T-013": {
+   "supported": true,
+   "answers_question": false,
+   "reason": "The answer does not address when the AI use policy was approved."
+  },
+  "T-014": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states the support retainer is £1,200, which is supported by source [5]."
+  },
+  "T-015": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer directly states that the weekly backup is sent to cloud storage in an EU region every Sunday at 03:00, which is consistent with source [1]."
+  },
+  "U-003": {
+   "supported": true,
+   "answers_question": true,
+   "reason": "The answer is directly supported by source [4], which states 'The assistant is an open-weight language model with 8 billion parameters.'"
+  }
+ }
+}

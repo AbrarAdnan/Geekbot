@@ -183,6 +183,7 @@ source_modules = [
     "geekbot.fsutil",
     "geekbot.index",
     "geekbot.ingest",
+    "geekbot.labelling",
     "geekbot.llm",
     "geekbot.log",
     "geekbot.retrieval",

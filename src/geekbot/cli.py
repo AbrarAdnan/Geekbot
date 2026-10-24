@@ -716,6 +716,100 @@ def eval_abstention(
     typer.echo(f"wrote {target}")
 
 
+@eval_app.command("answers")
+def eval_answers(
+    name: Annotated[
+        str, typer.Option("--name", help="The run's name: its files go to <results>/<name>/.")
+    ] = "answers",
+    phase: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--phase",
+            help="generate (answer every golden question), judge (the judge model grades them) "
+            "or report; repeat the option for several. Default: all three, in that order.",
+        ),
+    ] = None,
+    judge_model: Annotated[
+        str | None,
+        typer.Option(
+            "--judge-model",
+            help="The judge: a model of 12B or fewer from a family other than the chat model's "
+            "(GEEKBOT_JUDGE_MODEL; the default is the plan's qwen3:8b). It must already be pulled.",
+        ),
+    ] = None,
+    golden: Annotated[
+        Path, typer.Option("--golden", help="The golden questions (JSON Lines).")
+    ] = DEFAULT_GOLDEN_JSONL,
+    corpus: Annotated[
+        Path, typer.Option("--corpus", help="The golden corpus folder.")
+    ] = DEFAULT_CORPUS,
+    results_dir: Annotated[
+        Path, typer.Option("--results-dir", help="Where result folders are made.")
+    ] = Path("evals/results"),
+    labels_file: Annotated[
+        Path,
+        typer.Option("--labels-file", help="The human labels (JSON Lines), written by the UI."),
+    ] = Path("evals/labels/labels.jsonl"),
+    data_dir: Annotated[
+        Path,
+        typer.Option(
+            "--data-dir",
+            help="A scratch data folder for the golden corpus (never your real data folder).",
+        ),
+    ] = Path("scratch/answers/data"),
+    limit: Annotated[
+        int, typer.Option("--limit", min=0, help="Only the first N questions (a trial); 0 = all.")
+    ] = 0,
+) -> None:
+    """Answer every golden question, have a second model judge the answers, and report (uses the GPU).
+
+    PLAN.md section 9: the deterministic checks (abstention, must-include recall, citation hit,
+    invalid citations) are the primary evidence; the judge (a different family from the chat model,
+    12B or fewer) is supporting evidence, and only usable if its agreement with ~60 human labels,
+    made blind in the UI's Labels page, reaches kappa 0.6. The phases run one model at a time: all
+    answers first, then the judge. Nothing here writes a label.
+    """
+    from geekbot.evals.answers_run import PHASES, AnswerRun, run_answers
+    from geekbot.evals.datasets import GoldenFormatError
+    from geekbot.evals.judge import JudgeConfigError
+    from geekbot.index.lock import StorageLockedError
+    from geekbot.llm.chat import ChatError
+    from geekbot.retrieval.rerank import RerankError
+
+    settings = Settings().model_copy(update={"data_dir": data_dir})
+    setup_logging(settings.log_level)
+    phases = tuple(phase) if phase else PHASES
+    unknown = [item for item in phases if item not in PHASES]
+    if unknown:
+        _fail(f"unknown phase {', '.join(unknown)}; the phases are {', '.join(PHASES)}")
+    if not golden.is_file():
+        _fail(f"{golden} does not exist; run `geekbot eval import` first")
+    run = AnswerRun(name=name, results_dir=results_dir, labels_file=labels_file)
+    try:
+        report = run_answers(
+            run,
+            settings,
+            phases=phases,
+            golden=golden,
+            corpus=corpus,
+            judge_model=judge_model or settings.judge_model,
+            limit=limit,
+            log=lambda line: typer.echo(line, err=True),
+        )
+    except (
+        OllamaError,
+        RerankError,
+        ChatError,
+        GoldenFormatError,
+        JudgeConfigError,
+        StorageLockedError,
+        ValueError,
+    ) as error:
+        _fail(str(error))
+    if report is not None:
+        typer.echo(report)
+
+
 @eval_app.command("fetch")
 def eval_fetch(
     datasets: Annotated[

@@ -77,6 +77,12 @@ class Settings(BaseSettings):
     chat_model: str | None = None
     csv_model: str | None = None
 
+    # The answer judge (step S5.2, PLAN §9): a model of 12 billion parameters or fewer from a family
+    # other than the chat model's (``evals.judge.check_judge_family`` refuses a Gemma judge of a
+    # Gemma generator). The plan names a Qwen3 8B-class model; it is not pulled by default here, so
+    # a run names one that is (``geekbot eval answers --judge-model``).
+    judge_model: str = "qwen3:8b"
+
     ollama_host: str = "http://127.0.0.1:11434"
     # Context sizes (PLAN §6.5: 8k for chat, 16k for the CSV package). Warm-up and real queries
     # must send the same value, or Ollama reloads the model. keep_alive: how long it stays loaded.

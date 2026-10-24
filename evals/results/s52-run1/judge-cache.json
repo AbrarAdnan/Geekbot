@@ -1,0 +1,605 @@
+{
+ "entries": {
+  "015cdbd63e28c96788112bc05eb7926083ab0934b7376b640c1de1614fd7881f": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "M-004",
+   "model": "qwen2.5-coder:7b",
+   "reason": "Sources [1] and [3] state that up to three people can chat at once without a noticeable slowdown, and a fourth must wait in a queue.",
+   "supported": true
+  },
+  "05a4f11dd5d88b013c348a9a5a45205a19401d0d810702d85c3971c3d205aa78": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-028",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer is directly supported by source [1], which states 'Lantern keeps no recycle bin.'",
+   "supported": true
+  },
+  "0c52d526ebed25181d37f77277692027d430d66db75e570cce2a99d3b0b94714": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "M-001",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer correctly identifies Maya Okafor as the person who approved the AI use policy and provides her phone number from source [3].",
+   "supported": true
+  },
+  "121518cb71ada83dbfd706dbfdbc77c7a2355368486c1e44b0687018bd4d64bc": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-022",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer is directly supported by source [1], which states that the policy applies to all 12 members of staff and to contractors.",
+   "supported": true
+  },
+  "1341138f61ab2ecccd1cbfeabe26560daa5173fb4a5f5d988f0f80d224556b22": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "M-013",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer correctly identifies Priya Nair and Tomasz Lewandowski as administrators and accurately states that the first step when an incident starts is to disable the affected account in the admin console.",
+   "supported": true
+  },
+  "1778138ad07f85d9b0eed8b78d596d1b103e350c12c31fa3ec2fe00ec04e05bc": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-024",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly quotes the sources for both the address and the fact that it doesn't work from home.",
+   "supported": true
+  },
+  "19bfb1ef255ef8e141b95a7f6f510cc1f17b5a124ba37e8ee93e1a0c04b8c957": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "T-015",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states that the weekly backup is sent to cloud storage in an EU region every Sunday at 03:00, which is consistent with source [1].",
+   "supported": true
+  },
+  "1e1726d3abe52f786ba930385064974809019e33f14e95bbb567e2a229224a69": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-036",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer is directly supported by the sources and addresses the question.",
+   "supported": true
+  },
+  "1eea203882326eaeb4de79c7f61e20ce2aac08be8fd2fb9513ea1ec2ca0d5ead": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "M-011",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer is fully supported by the sources and directly addresses the question.",
+   "supported": true
+  },
+  "2109a2429e3e1e6cffbb1b17ff7d06bdf5c3f8e7ddb96b3b2b31b7f9d1c02b0a": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "T-010",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states the 95th percentile wait for the first word after the fix was 2.8 seconds, which is inside the target of 3 seconds.",
+   "supported": true
+  },
+  "2326728db84c80fd036aaf148cdbfb54dead99b6fe3a7389eef816312d5a5ef0": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "T-014",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states the support retainer is £1,200, which is supported by source [5].",
+   "supported": true
+  },
+  "241a04787384e31de2fe2b766ddc55a02605ad0140b655093ee85d0e43c54d1b": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "M-003",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer is directly supported by the sources, which state that the workstation was ordered on 17 March and the AI use policy was approved on 21 March, with a 4-day difference.",
+   "supported": true
+  },
+  "2460902417a66f9c46092c4d36e3623798d42879af0ab1cb7ca5161798d619bb": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-021",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states that Daniel Reyes is the owner of the AI use policy, which is supported by source [1].",
+   "supported": true
+  },
+  "250693fb430bba788ace5c3c58b30f9eca4216d76060de326086ac434446a396": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-026",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly quotes the source [1] that the onboarding letter suggests trying a summary of last week's meeting notes as a small first task.",
+   "supported": true
+  },
+  "2708e7a9430613a621d7f41b59826afd2115210cfded160248c0e435b4a1ccdc": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-011",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer is directly supported by source [3], which states that during the retention job test, files aged 91 days were deleted and files aged 89 days were kept.",
+   "supported": true
+  },
+  "280bacfe276b2b514e56dd0ee882a56d889195517bf177739472427f2bd44f61": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-020",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states that the owner column shows who looks after each tool, which is supported by source [1].",
+   "supported": true
+  },
+  "281f4d2a98dc575a22fcaf38216c9835ae992629b5ef4a54510e4f11863614d8": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-049",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states the RAM and storage specifications from the sources.",
+   "supported": true
+  },
+  "28634b0df0a818946e438caec4a10e06a971749f16b002dcf2d223950caf88ca": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-027",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly quotes the sources to list the three data folders.",
+   "supported": true
+  },
+  "2c6ae5e4a8a05b14e75197eacac13f0658e46c597255292b808d679f450d1240": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "M-006",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer correctly states that for an S2 incident, the client must be told within 72 hours if their data was involved.",
+   "supported": true
+  },
+  "2d1f543c3ceef3c69cf351c3c3d2bf529ce500a641c1d5859690b38248ae463f": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "T-006",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states 'Four people took part in the pilot' and this claim is supported by source [4], which explicitly mentions 'The pilot runs for four weeks, from 7 April to 2 May.'",
+   "supported": true
+  },
+  "3462247dc24f17963f829a206a630b529a65499d3ccdf747e9da88e8357d1491": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "M-009",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer correctly states the monthly backup cost (£9) and the region where it is stored (EU) based on the sources provided.",
+   "supported": true
+  },
+  "347d7bec04516b2654f65f88cc15dc0961306efe6229775d56927f53552ddc5d": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-031",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer correctly states that the longest a chat can survive anywhere is 120 days, which is supported by the sources.",
+   "supported": true
+  },
+  "37ab64c063a82d9c7eca30c5eb5417e565bafde6f752bd32f1e4e681618750e9": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-045",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states that about four characters make up one token in English, which is supported by source [1].",
+   "supported": true
+  },
+  "3ec3cf7959effc9a2b84dfb3e199155caf602fbb39ffd146dd78803aac9db6ea": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "M-014",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer correctly identifies Daniel Reyes as the presenter at the kickoff and Leo Park as not being present at the kickoff meeting, which is supported by the sources.",
+   "supported": true
+  },
+  "3eebb3382ea48f3a767a1ba016e00572f0f61c727b40edd45c5661e2af033462": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-046",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states the busiest weekday and hour according to the sources.",
+   "supported": true
+  },
+  "43e2d00aa355bd3f7992c5b9a75c5b019bb3fbdc99e636bc2b2b3c092721e01f": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-025",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer is directly supported by source [1], which states that after a 45-minute training session, the operations lead creates the account within one working day.",
+   "supported": true
+  },
+  "4de18fec2a532a0781b9a77d4d8b5a9a635b5cc8b9d8ab3f41720cdaf3caec0c": {
+   "answers_question": false,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "T-004",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer does not address why the studio chose a computer in its own office instead of a cloud subscription.",
+   "supported": true
+  },
+  "522a2e8e31c3566b63754c0637d0243ab25d54e44ab24607fc924900b524c56e": {
+   "answers_question": false,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "T-009",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer does not address who is in charge when an incident happens.",
+   "supported": false
+  },
+  "52fc38d0fab2d4fab1463c3ab82b3eff54bbcf62989f0949260962df60032159": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "M-012",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states the durations of the training session and refresher based on the sources.",
+   "supported": true
+  },
+  "54ed07ba8c553bf0daefb265231155a679fb0be543b71419366679deb10e1526": {
+   "answers_question": false,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "T-013",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer does not address when the AI use policy was approved.",
+   "supported": true
+  },
+  "5564e485b89827bc655c9f132b08515189d85a2e043701ea0d140cb69d7a0ae2": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-002",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states the assistant's text production rate of 38 tokens per second, which is supported by source [1].",
+   "supported": true
+  },
+  "562c2d1cdcf84d28c7d0aba3ee2e5cdf093e68a9e7aa35b6d035a08deb87b4b3": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-039",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states that the refresher session was planned to be 20 minutes long, which is supported by source [1].",
+   "supported": true
+  },
+  "57c05f8567fa5db5bd16a5fdce307ebd014103d6367900393ac66dca72174b44": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-005",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly quotes the source [1] that states the UPS is rated to keep the workstation running for about 20 minutes at normal load.",
+   "supported": true
+  },
+  "595f34fa5bbab288cbf7b5687271e1c8d60fb41e2f93d4e950e45196ad6064be": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-019",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states the sheets in the workbook based on the information provided in the sources.",
+   "supported": true
+  },
+  "598042042a4b0f64c103bbed9c0d838968d0163ee5caac10f905f712f1e059a0": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-013",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states that all 12 staff members attended a training session on 5 and 6 May, which is supported by source [1].",
+   "supported": true
+  },
+  "5dbfed62daa3cd1a5ffa43d70c52f925995cba6a8774cc29113cc9d689b5323e": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-030",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states that the key for the encrypted copy of the backup to cloud storage is kept in the office safe, which is supported by source [2].",
+   "supported": true
+  },
+  "5f1caf8861b8208de4614ef45b19374523d6ca9e7dd807a00679650cbb833e51": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "T-008",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer is directly supported by source [1], which states that the cleanup job deletes nothing when a legal hold is in place.",
+   "supported": true
+  },
+  "5f1ffb25af0a6a4dcd3e2cce385dc08c05a34512c664b5ad714a12a758e04eef": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-007",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly quotes the source that states the deadline for telling a client about a medium-severity incident (S2) involving their data is within 72 hours.",
+   "supported": true
+  },
+  "67476fa95de7f7254d62def05861a71a0c71930758eff222d5762438f6f89777": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-008",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer is directly supported by sources [1] and [2].",
+   "supported": true
+  },
+  "6b4845e822f8f00dd08cf969719c119d4235614f550ea387c400fc3abb3e59cb": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "M-005",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer correctly states that the incident must be acknowledged within 4 hours, which is directly supported by the sources.",
+   "supported": true
+  },
+  "702fe850342cd11cd6f8f5980c6bbc74929a8bc53b37139997eab28dcf8266a5": {
+   "answers_question": false,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "T-005",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer does not address the question about the cost of the battery unit.",
+   "supported": true
+  },
+  "806bb5275e6bd8f1565b260d982cb62b1e45cf581f74b1bfb93aac1b56bf6740": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "M-015",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer is directly supported by sources [3] and [5].",
+   "supported": true
+  },
+  "8508638567aff93577c0ec7030b71e280553f99a6f01e428416e4d805b2af2e5": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-044",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer is directly supported by source [1].",
+   "supported": true
+  },
+  "87de50a33ea61b1f1497621b563393aebd88fcf66656de152f2b9aa46d7466e5": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-001",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states the graphics card has 12 GB of video memory, which is supported by source [1].",
+   "supported": true
+  },
+  "8906fa8efbf8bd029e07adca622ebb5c1a148fba590d3ece0863f049833c7434": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-015",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states the log file location from source [1].",
+   "supported": true
+  },
+  "8995639701cac6f839d5fc2b6e1e871feb64c7505ba6330012c8de77039405c2": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-017",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer is directly supported by the fields listed in source [2].",
+   "supported": true
+  },
+  "922ff4f877c43a0bc9017dbdb2eb1153c4c218447222f653d7f7769690e1e637": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-043",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states the limit based on source [1].",
+   "supported": true
+  },
+  "95090e4ec801a63617334b1a25950955c8fb55144e4776eac3dff17483f189c9": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-014",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer is directly supported by source [1], which states that a second person should learn the runbook and will attend the first review meeting.",
+   "supported": true
+  },
+  "9f0fba0e9ebeb6bc8b16b52f9d8619c47ce292efc922414f63a0844be102085b": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-012",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states the workstation ran for 21 minutes on battery during the pre-launch test, which is supported by source [1].",
+   "supported": true
+  },
+  "a1abaed696698a5ade851bb5e434f2e8cb53b7d6e051b2599dff5533d8c0acfb": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-038",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer is directly supported by source [3], which states that Tomasz Lewandowski reviewed the case and found no client data left the studio in a form that could be read by others, although the rule had still been broken.",
+   "supported": true
+  },
+  "a39b4bcb31791c5f772c90302c0ccf903783bd88b88db83f7068b4e44a22844a": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-042",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states the cost of running the local option in its second year as £14,928, which is supported by source [1].",
+   "supported": true
+  },
+  "a53f5990deb3b7e20f52a1f2bb2f80e0e52536dbd832967f77f4aa49a564c8ad": {
+   "answers_question": false,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "T-002",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer does not address the question about incident levels or notification timelines.",
+   "supported": false
+  },
+  "a90e37e2d78460c1539be5f36b2345c908812e5589300df2d53cf74312528447": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-004",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states that Priya shortened the context length to 4,096 tokens to bring the 95th percentile response time down to 2.8 seconds, which is supported by source [1].",
+   "supported": true
+  },
+  "aaa14e19f8082627e0d9ca675c669de06f0c17134c02c3c9c891ef513248719d": {
+   "answers_question": false,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "T-012",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer does not address the question about the number of incidents or which one was serious.",
+   "supported": false
+  },
+  "b2ecc5507dbaff062e81132264343d619f1920614aeea679725d4df072bd2244": {
+   "answers_question": false,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "T-011",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer does not address the question about using an outside AI website for client work.",
+   "supported": true
+  },
+  "c0d30cafe0b2f89dc495962eb00085376f7d324dc8b7e12e3c20eafbe8268080": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-006",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states the required acknowledgment time for S1 incidents as 15 minutes, which is supported by source [1].",
+   "supported": true
+  },
+  "c2d81dee4df32361e2c8dd2ee89fe4ecee18edaeb3ba975e75579eea478f0dd0": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "T-003",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states that Priya Nair is on call on Mondays and Thursdays, which is supported by sources [1], [2], and [3].",
+   "supported": true
+  },
+  "c31049be1a110a95136a78f53cf5310fd7fe3740f8ae1a8d22754902dd492156": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-035",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly quotes the source that explains why a designer argued against a 30-day limit for chat logs.",
+   "supported": true
+  },
+  "c4fce33c32adb4cf7f256e39775ff22ad4bb6506cff9f251c7d1902e94b28f7d": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-040",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly quotes the source stating that Corvid Foods would have to agree to a change in its NDA before using the hosted private instance.",
+   "supported": true
+  },
+  "c5ef59d3e093fed1ea075d68f6bb8a5b6267a4125ab525c41836de1e61dc0983": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "U-003",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer is directly supported by source [4], which states 'The assistant is an open-weight language model with 8 billion parameters.'",
+   "supported": true
+  },
+  "c72284cf73ed764cedf6634cc2d19ffc8fd86a40b35b8c9c73a947ef63deb6c1": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-050",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states the latest version and issue date from source [1].",
+   "supported": true
+  },
+  "c909eab1deb5f45a3e3eef3d1521282d9cfffcebcb0aa758a347b9d43f2b3095": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "M-002",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly compares the battery run-time during the power cut (22 minutes) with the pre-launch test (21 minutes).",
+   "supported": true
+  },
+  "cd7cd6117e13f5af766639f1fe10cd21cce0f2c556ef6febdbbe96b4ad6ef0c7": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-010",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer correctly states that an S3 incident, which includes an outage or a small breach with no data exposed, is discussed at the weekly project meeting.",
+   "supported": true
+  },
+  "ce36bf367182340a2171d56d1c46719dd309ac37aedef267d37bdb173c68f773": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-048",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly cites a source that states Hannah Frost chose the pilot users, and all four are heavy computer users, which explains why the pilot's usage figures are higher than the studio average.",
+   "supported": true
+  },
+  "d0cfd28f53e99e91c6461f6397074f974d3fbf27fa6712d8279b2e184dd9445a": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-041",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states that Option C costs £14,090 more than Option A in the first year, which is supported by source [3].",
+   "supported": true
+  },
+  "d43cb417d2a5a2f7546b7bde71caa3da9fde58b886e199eeacaa594dba624b8c": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-003",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer states a fact not supported by the sources.",
+   "supported": false
+  },
+  "d557ba0c1cca9d13b6a5cb3558674a23a79cdb3af5e645a820ab5112cec136e2": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "M-008",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer states the restore size and time, but does not address whether it would fit on the disk.",
+   "supported": false
+  },
+  "d558e58110a947f555b9c20381d23fa0563b33c3307388304f1e63a57212a89a": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-018",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states that the `hours_to_resolve` column is of the decimal type, which is supported by the source.",
+   "supported": true
+  },
+  "df90825ff145ed4395b75bee8d0296bdb4444a29265f1cd152654c4aae26b3f2": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-047",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states the share of prompts for drafting client emails as 27 percent, which is supported by source [1].",
+   "supported": true
+  },
+  "e126413cfdd68c3496a15000a0ea23e26a880254fb3146f7d8ad9869667b0f42": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-023",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states that the AI use policy is reviewed every six months, which is supported by source [4].",
+   "supported": true
+  },
+  "e5dac43e3006dac944afaa4a3042f8ef17cb2c24ba00479897b97552074d977d": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-029",
+   "model": "qwen2.5-coder:7b",
+   "reason": "Sources [1] and [3] explicitly state that backups are not edited when a workspace is deleted.",
+   "supported": true
+  },
+  "e7e65f3adf673fa122118de40820de730f76bb9773092107bf3700480fd39be2": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "T-001",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer directly states that audit logs, which contain no conversation text, are kept for 365 days.",
+   "supported": true
+  },
+  "efa540a3488bdcb62c585b4484245418f6f121675d0befead4ad7918aaa1339d": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-032",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer is directly supported by source [1], which states 'Presenter: Daniel Reyes'.",
+   "supported": true
+  },
+  "f0f4dc79b888b7ebacc49d7f5e38de6770052348d3a2b740a2d9d105789d7bb5": {
+   "answers_question": false,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "T-007",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer does not address the question about file types and instead provides information about file size limits.",
+   "supported": false
+  },
+  "ff7149d23c20002f98a5e94606ad30598c06c0969d8f1de919aa7066b02322c6": {
+   "answers_question": true,
+   "digest": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+   "item": "S-016",
+   "model": "qwen2.5-coder:7b",
+   "reason": "The answer is directly supported by the source code in log_cleanup.py, which states that the job deletes only files older than the limit.",
+   "supported": true
+  }
+ },
+ "version": 1
+}
