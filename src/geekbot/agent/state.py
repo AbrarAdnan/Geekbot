@@ -18,9 +18,11 @@ from geekbot.retrieval import SearchHit
 __all__ = [
     "STEP_RANKING",
     "STEP_SEARCHING",
+    "STEP_WEB",
     "STEP_WRITING",
     "AgentState",
     "CitationScore",
+    "EgressRecord",
     "HistoryMessage",
     "HistorySource",
     "SourceRef",
@@ -34,6 +36,7 @@ __all__ = [
 STEP_SEARCHING: Final = "searching"
 STEP_RANKING: Final = "ranking"
 STEP_WRITING: Final = "writing"
+STEP_WEB: Final = "web"  # S5.3: the approved (or untainted) query is going to the search backend
 
 
 class CitationScore(TypedDict):
@@ -68,6 +71,10 @@ class SourceRef(TypedDict):
     section: str  # the heading trail, "A > B"; empty when the chunk has none
     text: str
     score: float
+    # Where the text came from (S5.3): ``"KB"`` (an ingested document, what an absent key means) or
+    # ``"WEB"`` (a search result; ``path`` is its address, ``section`` its host, ``chunk_id`` starts
+    # with ``web:``). ``packing`` turns it into the prompt's labels, so a web source taints the answer.
+    origin: NotRequired[str]
 
 
 class HistorySource(TypedDict):
@@ -85,6 +92,25 @@ class HistorySource(TypedDict):
     path: str
     page: int | None
     section: str
+    origin: NotRequired[str]  # "KB" or "WEB" (S5.3); absent on a message saved before it
+
+
+class EgressRecord(TypedDict):
+    """One decision of the egress gate during a turn (S5.3): what was asked for and what happened.
+
+    ``decision`` is ``allowed`` (the arguments were the user's own words), ``approved`` or ``edited``
+    (the user answered a prompt), ``denied`` (the user said no, or there was nobody to ask), or
+    ``blocked`` (the web is off or not set up: no prompt, no call), ``failed`` (allowed, but the
+    search itself did not work). ``query`` is the text the decision was about: it is what the user
+    was shown. ``tainted`` is whether it was built from text the user did not write, and ``reason``
+    the gate's words. The injection evaluation counts these (S5.4).
+    """
+
+    tool: str
+    query: str
+    decision: str
+    tainted: bool
+    reason: str
 
 
 class HistoryMessage(TypedDict):
@@ -132,6 +158,18 @@ class AgentState(TypedDict, total=False):
     # the same file again after a restart (C5, ``server.csvmode.stored_file``).
     csv_file: str
     csv_status: str  # CSV mode: the package's verdict for this turn: answered, abstained, ...
+    # Web search (S5.3). ``requested_web`` is input only, like ``requested_mode``: the caller asks for a
+    # search on this turn, ``begin_turn`` moves it to ``use_web`` and clears it, so a request never
+    # carries over to the next turn of a saved thread. ``use_web`` is the turn's own switch. The next
+    # three are what the gate hands to the web step: the cleaned query, its labels and, when the user
+    # approved or edited it, the exact text approved (the tool asks the rule again with it).
+    requested_web: bool
+    use_web: bool
+    web_query: str
+    web_labels: list[str]
+    web_approved: str
+    web_error: str  # why a search that was allowed did not give results ("" if it did)
+    egress_log: list[EgressRecord]  # the gate's decisions this turn, in order
     standalone_question: str  # what retrieval searches for: the question, or its rewrite (S3.4)
     condense_seconds: float  # how long the rewrite took (only on a follow-up)
     condense_error: str  # why the rewrite fell back to the user's own words (only if it failed)

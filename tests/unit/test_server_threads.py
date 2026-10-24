@@ -116,7 +116,9 @@ def test_a_thread_is_shown_with_its_messages_and_the_sources_of_each_answer(
     (source, *_) = assistant["sources"]
     assert source["n"] == 1
     assert source["path"].endswith("zebras.txt")
-    assert set(source) == {"n", "chunk_id", "title", "path", "page", "section"}  # no passage text
+    # No passage text; ``origin`` (S5.3) says a document from a search result.
+    assert set(source) == {"n", "chunk_id", "title", "path", "page", "section", "origin"}
+    assert source["origin"] == "KB"
 
 
 def test_a_thread_can_be_deleted(client: TestClient) -> None:

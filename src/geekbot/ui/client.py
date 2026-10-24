@@ -52,7 +52,9 @@ UPLOAD_TIMEOUT_S: Final = 300.0  # up to 100 MB written to the disk by the serve
 # the stream has no keep-alive frames yet (S4.2), so the read timeout has to be long.
 STREAM_READ_TIMEOUT_S: Final = 300.0
 JOB_DONE_STATES: Final = frozenset({"done", "failed"})
-STREAM_END_EVENTS: Final = frozenset({"done", "error"})
+# ``approval`` ends a stream too (S5.3): the turn stopped at the web search's question and the rest of
+# it comes from ``approve``, which is another stream.
+STREAM_END_EVENTS: Final = frozenset({"done", "error", "approval"})
 NOT_FOUND: Final = 404
 UNAUTHORIZED: Final = 401
 DEFAULT_POLL_S: Final = 0.5
@@ -299,28 +301,55 @@ class GeekbotClient:
         think: bool = False,
         mode: str | None = None,
         steps: bool = False,
+        web: bool = False,
     ) -> Iterator[SseEvent]:
         """Ask a question and yield the answer's events as they arrive.
 
-        Ends after a ``done`` or an ``error`` event (the server's own ending). Raises ``ApiError``
-        before the first event for a refusal (422 bad question, 409 another question running or the
-        thread is the other kind of conversation), and ``ServerUnavailableError`` if the connection
-        fails or closes before a final event. Closing the generator early closes the connection,
-        which the server takes as "the client went away". ``mode`` (``"csv"``) says what the page
-        believes the conversation is; left out, the server decides from the thread. ``steps`` asks
-        the server for progress events while a chat question runs (``status`` frames that name the
-        step: searching, ranking, writing; S3.6); left out, the request is what it was before.
+        Ends after a ``done``, an ``error`` or an ``approval`` event (the server's own endings; the
+        last one means the turn stopped at the web search's question, see ``approve``). Raises
+        ``ApiError`` before the first event for a refusal (422 bad question, 409 another question
+        running, the thread is the other kind of conversation, or a web search is waiting for an
+        answer), and ``ServerUnavailableError`` if the connection fails or closes before a final
+        event. Closing the generator early closes the connection, which the server takes as "the
+        client went away". ``mode`` (``"csv"``) says what the page believes the conversation is; left
+        out, the server decides from the thread. ``steps`` asks the server for progress events while a
+        chat question runs (``status`` frames that name the step: searching, ranking, writing; S3.6);
+        left out, the request is what it was before. ``web`` asks for a web search on this question
+        (S5.3; the server refuses it with a 409 when its web search is off).
         """
-        finished = False
         body: dict[str, Any] = {"question": question, "think": think}
         if mode is not None:
             body["mode"] = mode
         if steps:
             body["steps"] = True
+        if web:
+            body["web"] = True
+        yield from self._events(f"/v1/threads/{thread_id}/messages", body)
+
+    def approve(
+        self,
+        thread_id: str,
+        action: str,
+        query: str = "",
+        *,
+        think: bool = False,
+        steps: bool = False,
+    ) -> Iterator[SseEvent]:
+        """Answer the web search's question (``approve``, ``edit`` with ``query``, or ``deny``) and
+        yield the rest of the turn's events, which end with ``done`` or ``error``.
+
+        ``ApiError`` 404 if nothing is waiting in the thread, 409 if another question is running.
+        """
+        body: dict[str, Any] = {"action": action, "query": query, "think": think, "steps": steps}
+        yield from self._events(f"/v1/threads/{thread_id}/approval", body)
+
+    def _events(self, path: str, body: dict[str, Any]) -> Iterator[SseEvent]:
+        """POST ``body`` to a streaming route and yield its events until the server's own ending."""
+        finished = False
         try:
             with self._http.stream(
                 "POST",
-                f"/v1/threads/{thread_id}/messages",
+                path,
                 json=body,
                 headers=self._auth,
                 timeout=httpx.Timeout(

@@ -16,6 +16,7 @@ from collections.abc import Mapping
 from typing import Any, Final
 
 from geekbot.agent.mode import ModeError
+from geekbot.agent.runner import INTERRUPT_KEY, interrupt_question
 from geekbot.csv_mode.errors import CsvLoadError
 from geekbot.csv_mode.sessions import SessionTooLargeError
 from geekbot.index.dense import DenseIndexError
@@ -23,6 +24,7 @@ from geekbot.index.embedder import EmbeddingError
 from geekbot.llm.chat import ChatError
 from geekbot.llm.models import OllamaError
 from geekbot.retrieval.rerank import RerankError
+from geekbot.server.schemas import ApprovalOut
 from geekbot.sse import format_event
 
 __all__ = ["TurnTranslator", "describe_error"]
@@ -55,18 +57,30 @@ class TurnTranslator:
       ``{stage: name}``, but only when the translator was made with ``steps=True``: the request
       asked for progress. Without it they are dropped, and the stream is what it was before S3.6.
     - ``values`` payloads are the whole state after a step; only the latest is kept.
+    - A ``values`` payload that carries ``__interrupt__`` is a turn that **stopped at the egress gate's
+      question** (S5.3): it becomes one ``approval`` frame (the exact text that would be sent, what it
+      was built from, why it is asked), ``approval`` is set, and ``final`` is the state without the
+      interrupt. The turn is not finished: no ``done`` follows, and the answer comes in through
+      ``POST /v1/threads/{id}/approval``.
     - Anything else (a stream mode this does not know, an event of another kind) is ignored.
     """
 
     def __init__(self, *, steps: bool = False) -> None:
         self.final: dict[str, Any] | None = None
+        self.approval: dict[str, Any] | None = None
         self._steps = steps
         self._text_started = False
 
     def feed(self, kind: str, payload: Any) -> list[str]:
         """The frames for one event."""
         if kind == "values":
-            self.final = dict(payload)
+            self.final = {
+                key: value for key, value in dict(payload).items() if key != INTERRUPT_KEY
+            }
+            question = interrupt_question(payload)
+            if question is not None:
+                self.approval = question
+                return [format_event("approval", ApprovalOut.of(question).model_dump())]
             return []
         if kind != "custom" or not isinstance(payload, Mapping):
             return []

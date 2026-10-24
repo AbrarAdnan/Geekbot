@@ -42,17 +42,17 @@ guaranteed to be an upper bound (D-064), so the budget leaves room. The question
 cuts must never be the rules.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from functools import cache
 from importlib.resources import files
-from typing import Final
+from typing import Final, cast
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 from geekbot.agent.citations import check_citations
 from geekbot.agent.state import HistoryMessage, SourceRef
-from geekbot.domain import Label
+from geekbot.domain import Label, label_of
 from geekbot.ingest.chunking import estimate_tokens
 
 __all__ = [
@@ -67,11 +67,13 @@ __all__ = [
     "datamark",
     "history_line",
     "load_prompt",
+    "message_labels",
     "pack_history",
     "pack_prompt",
     "source_block",
     "source_header",
     "source_label",
+    "source_origin",
 ]
 
 DATAMARK: Final = "> "
@@ -163,7 +165,26 @@ def source_label(source: SourceRef) -> str:
     parts = [_one_line(source["title"]), _one_line(source["section"])]
     if source["page"] is not None:
         parts.append(f"page {source['page']}")
+    if source_origin(source) is Label.WEB:
+        parts.insert(0, "web")  # the model and the reader can tell a search result from a document
     return " | ".join(part for part in parts if part)
+
+
+def source_origin(source: SourceRef) -> Label:
+    """Who wrote a source's text: ``KB`` unless it says otherwise (S5.3). An origin that is not a
+    label is ``UNKNOWN`` (``domain.label_of``), never ``KB``."""
+    return label_of(source.get("origin", Label.KB.value))
+
+
+def message_labels(message: HistoryMessage) -> frozenset[Label]:
+    """The labels of an earlier message. A message without any is not "clean": an assistant message
+    is ``UNKNOWN`` (nothing shows it was written by this program), a user message ``USER``."""
+    # ``labels`` is a required key of ``HistoryMessage``, but a thread saved by something other than
+    # ``remember`` (or damaged) may lack it, and a missing label must never read as "no taint".
+    names: object = cast("Mapping[str, object]", message).get("labels")
+    if not isinstance(names, list):
+        return frozenset({Label.USER if message.get("role") == "user" else Label.UNKNOWN})
+    return frozenset(label_of(str(name)) for name in names)
 
 
 def source_header(source: SourceRef) -> str:
@@ -223,7 +244,7 @@ def pack_history(history: Sequence[HistoryMessage], *, budget_tokens: int) -> Pa
     chosen.reverse()
     while chosen and chosen[0]["role"] != "user":
         chosen.pop(0)
-    labels = frozenset(Label(name) for message in chosen for name in message["labels"])
+    labels = frozenset(label for message in chosen for label in message_labels(message))
     return PackedHistory(lines=[history_line(message) for message in chosen], labels=labels)
 
 
@@ -248,6 +269,7 @@ def pack_prompt(
         raise ValueError(f"budget_tokens must be at least 1, got {budget_tokens}")
     check_question(question)
     blocks: list[str] = []
+    origins: set[Label] = set()
     spent = 0
     for source in sources:
         block = source_block(source)
@@ -255,6 +277,7 @@ def pack_prompt(
         if spent + cost > budget_tokens:
             break  # stop, do not skip: skipping would leave a gap in the numbers the model sees
         blocks.append(block)
+        origins.add(source_origin(source))
         spent += cost
     earlier = pack_history(history, budget_tokens=history_budget_tokens)
     conversation = (
@@ -262,7 +285,7 @@ def pack_prompt(
     )
     listing = "\n\n".join(blocks) if blocks else "(no sources)"
     user = f"{conversation}Sources:\n\n{listing}\n\nQuestion: {question}"
-    labels = frozenset({Label.USER, Label.KB}) if blocks else frozenset({Label.USER})
+    labels = frozenset({Label.USER, *origins})  # each source's own label: KB, WEB, ...
     return PackedPrompt(
         messages=[SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=user)],
         used=len(blocks),

@@ -171,6 +171,9 @@ class FakeClient:
         self.asked: list[tuple[str, str, bool]] = []
         self.modes: list[str | None] = []  # the ``mode`` each question was sent with
         self.steps: list[bool] = []  # whether each question asked for step events (S3.6)
+        self.webs: list[bool] = []  # whether each question asked for a web search (S5.3)
+        self.web_enabled = False  # what ``health`` says about the server's web search
+        self.approvals: list[tuple[str, str, str]] = []  # (thread, action, query) of each answer
         self.ingested: list[list[str]] = []
         self.new_threads: list[str] = []  # the mode of each thread id asked for
         self.csv_uploads: list[tuple[str, str, bytes]] = []
@@ -188,6 +191,7 @@ class FakeClient:
             "chat_model": "fake:1b",
             "chat_ready": True,
             "answering": False,
+            "web_enabled": self.web_enabled,
         }
 
     def formats(self) -> list[str]:
@@ -223,10 +227,26 @@ class FakeClient:
         think: bool = False,
         mode: str | None = None,
         steps: bool = False,
+        web: bool = False,
     ) -> Iterator[SseEvent]:
         self.asked.append((thread_id, question, think))
         self.modes.append(mode)
         self.steps.append(steps)
+        self.webs.append(web)
+        if self.ask_error is not None:
+            raise self.ask_error
+        yield from self.events
+
+    def approve(
+        self,
+        thread_id: str,
+        action: str,
+        query: str = "",
+        *,
+        think: bool = False,
+        steps: bool = False,
+    ) -> Iterator[SseEvent]:
+        self.approvals.append((thread_id, action, query))
         if self.ask_error is not None:
             raise self.ask_error
         yield from self.events
@@ -595,3 +615,130 @@ def test_read_result_refuses_a_file_over_the_size_limit(
     monkeypatch.setattr(evals, "MAX_SHOWN_BYTES", 5)
     with pytest.raises(ValueError, match="too large"):
         evals.read_result(results, Path("data.json"))
+
+
+# --- the web search (S5.3) ---------------------------------------------------------------------
+
+QUERY = "How long does Lantern keep audit logs?"
+APPROVAL = {
+    "tool": "web_search",
+    "question": "And what about audit logs?",
+    "query": QUERY,
+    "labels": ["KB", "USER", "WEB"],
+    "reason": "the arguments were built from text the user did not write",
+}
+WAITING_EVENTS = [
+    SseEvent("meta", {"thread_id": "t-new", "turn": 2, "mode": "chat", "model": "fake:1b"}),
+    SseEvent("approval", APPROVAL),
+]
+
+
+def waiting_client() -> FakeClient:
+    """A server whose next question stops at the web search's question."""
+    fake = FakeClient()
+    fake.web_enabled = True
+    fake.events = WAITING_EVENTS
+    fake.saved["t-new"] = {**SAVED, "thread_id": "t-new", "pending_approval": APPROVAL}
+    return fake
+
+
+def button(app: AppTest, label: str) -> Any:
+    return next(b for b in app.button if b.label == label)
+
+
+def test_the_web_toggle_is_only_there_when_the_server_has_a_web_search() -> None:
+    off = run_page("chat", FakeClient())
+    assert len(off.toggle) == 1  # only "Think harder"
+    fake = FakeClient()
+    fake.web_enabled = True
+    on = run_page("chat", fake)
+    assert [t.label for t in on.toggle] == ["Think harder", "Search the web too"]
+
+
+def test_the_web_toggle_is_sent_with_a_document_question_and_never_with_a_csv_one() -> None:
+    fake = FakeClient()
+    fake.web_enabled = True
+    app = run_page("chat", fake)
+    app.toggle[1].set_value(True).run()
+    app.chat_input[0].set_value("How long?").run()
+    assert fake.webs == [True]
+    sheet = FakeClient()
+    sheet.web_enabled = True
+    sheet.saved["t-csv"] = CSV_SAVED
+    sheet.events = CSV_EVENTS
+    sheet.documents_ready = 0
+    csv_app = run_page("chat", sheet, geekbot_thread="t-csv", geekbot_web=True)
+    csv_app.chat_input[0].set_value("And in March?").run()
+    assert sheet.webs == [False]
+
+
+def test_a_question_that_stops_shows_the_exact_text_and_holds_the_conversation() -> None:
+    fake = waiting_client()
+    app = run_page("chat", fake)
+    app.chat_input[0].set_value("And what about audit logs?").run()
+    assert not app.exception
+    assert fake.approvals == []  # nothing was sent: the user has not answered
+    assert any("waiting" in w.value for w in app.warning)
+    text = "\n".join(shown(app, "text"))
+    assert f"The web search would send this text off this machine: {QUERY}" in text
+    assert "You asked: And what about audit logs?" in text
+    assert app.chat_input[0].disabled is True  # the server would refuse a new question (409)
+
+
+def test_the_waiting_question_is_still_there_after_a_plain_rerun() -> None:
+    """The question lives on the server, so a reload or another tab shows the same card."""
+    fake = waiting_client()
+    app = run_page("chat", fake, geekbot_thread="t-new")
+    assert any("waiting" in w.value for w in app.warning)
+    app.run()
+    assert any("waiting" in w.value for w in app.warning)
+    assert fake.approvals == [] and fake.asked == []
+
+
+def test_send_as_shown_approves_the_exact_text_and_shows_the_answer() -> None:
+    fake = waiting_client()
+    app = run_page("chat", fake, geekbot_thread="t-new")
+    fake.events = list(ANSWER_EVENTS)
+    button(app, "Send as shown").click().run()
+    assert not app.exception
+    assert fake.approvals == [("t-new", "approve", QUERY)]
+    assert "Ninety days [1]." in shown(app, "markdown")
+
+
+def test_do_not_search_denies_and_still_shows_the_answer() -> None:
+    fake = waiting_client()
+    app = run_page("chat", fake, geekbot_thread="t-new")
+    fake.events = list(ANSWER_EVENTS)
+    button(app, "Do not search").click().run()
+    assert fake.approvals == [("t-new", "deny", "")]
+    assert "Ninety days [1]." in shown(app, "markdown")
+
+
+def test_an_edit_can_only_be_sent_once_the_text_has_changed() -> None:
+    fake = waiting_client()
+    app = run_page("chat", fake, geekbot_thread="t-new")
+    assert button(app, "Send my edit").disabled is True  # the box holds the shown text
+    app.text_input[0].set_value("my own words").run()
+    assert button(app, "Send my edit").disabled is False
+    fake.events = list(ANSWER_EVENTS)
+    button(app, "Send my edit").click().run()
+    assert fake.approvals == [("t-new", "edit", "my own words")]
+
+
+def test_a_failed_answer_after_the_approval_shows_the_error() -> None:
+    fake = waiting_client()
+    app = run_page("chat", fake, geekbot_thread="t-new")
+    fake.events = [SseEvent("error", {"message": "the chat model failed"})]
+    button(app, "Send as shown").click().run()
+    assert any("the chat model failed" in e.value for e in app.error)
+
+
+def test_the_approval_card_shows_the_query_as_plain_text_never_as_markdown() -> None:
+    fake = waiting_client()
+    fake.saved["t-new"]["pending_approval"] = {
+        **APPROVAL,
+        "query": "![x](http://evil.example/p.png)",
+    }
+    app = run_page("chat", fake, geekbot_thread="t-new")
+    assert any("![x](http://evil.example/p.png)" in text for text in shown(app, "text"))
+    assert all("evil.example" not in text for text in shown(app, "markdown"))

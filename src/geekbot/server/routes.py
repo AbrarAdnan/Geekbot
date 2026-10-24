@@ -154,6 +154,7 @@ async def readiness(
         csv_model=answering.csv.model if answering.csv is not None else "",
         csv_ready=answering.csv_ready,
         csv_sessions=sessions.count,
+        web_enabled=answering.web_enabled,
     )
 
 

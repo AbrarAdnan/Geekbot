@@ -24,33 +24,42 @@ for the model, and it keeps this module free of any state that could outlive a r
 
 import contextlib
 import re
-from collections.abc import AsyncGenerator
-from dataclasses import dataclass
+from collections.abc import AsyncGenerator, Mapping
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Final
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import Command, StateSnapshot
 
 from geekbot.agent.graph import build_graph
+from geekbot.agent.nodes import APPROVAL_KIND
 from geekbot.agent.render import StreamCollector, StreamedAnswer
 from geekbot.agent.runtime import AgentContext
 from geekbot.agent.state import AgentState
 
 __all__ = [
+    "INTERRUPT_KEY",
     "THREADS_DB",
     "ThreadInfo",
     "ThreadNameError",
     "check_thread_name",
     "delete_thread",
+    "interrupt_question",
     "list_threads",
+    "pending_approval",
     "read_thread",
     "read_thread_info",
     "run_turn",
     "stream_turn",
     "thread_config",
 ]
+
+# The key LangGraph adds to the last ``values`` chunk of a turn that stopped at ``interrupt()``: the
+# turn is not finished, it is waiting for an answer (the egress gate's question, S5.3).
+INTERRUPT_KEY: Final = "__interrupt__"
 
 THREADS_DB: Final = "threads.db"  # the file name under the data folder
 
@@ -108,14 +117,26 @@ async def _open_graph(
     return build_graph(saver), config
 
 
-def _turn_input(question: str, mode: str | None, csv_file: str | None) -> AgentState:
-    """What one turn starts from: the question, and (input only) the mode and file asked for."""
-    turn: AgentState = {"question": question}
+def _turn_input(
+    question: str, mode: str | None, csv_file: str | None, web: bool = False
+) -> AgentState:
+    """What one turn starts from: the question, and (input only) the mode, file and search asked for.
+
+    ``requested_web`` is always written, true or false: it is input only and ``begin_turn`` clears it,
+    but a saved thread must never see last turn's request as this turn's.
+    """
+    turn: AgentState = {"question": question, "requested_web": web}
     if mode:
         turn["requested_mode"] = mode
     if csv_file:
         turn["csv_file"] = csv_file
     return turn
+
+
+def _askable(context: AgentContext, thread: str | None) -> AgentContext:
+    """``context`` with approvals on when the turn is saved in a thread (a question needs a checkpoint
+    to wait in); a turn without a thread cannot be asked anything, and the gate then refuses."""
+    return replace(context, approvals=thread is not None)
 
 
 async def run_turn(
@@ -127,8 +148,16 @@ async def run_turn(
     collector: StreamCollector | None = None,
     mode: str | None = None,
     csv_file: str | None = None,
+    web: bool = False,
+    resume: Mapping[str, Any] | None = None,
 ) -> StreamedAnswer:
     """Answer one question; with ``thread`` the conversation before it is remembered and extended.
+
+    ``web`` asks for a web search on this turn (S5.3); the egress gate decides whether it may go. A
+    turn that has to ask the user stops at the question: the result's final state then holds
+    ``__interrupt__`` (``INTERRUPT_KEY``) and no answer, and the thread waits. ``resume`` answers that
+    question (``{"action": "approve" | "edit" | "deny", "query": text}``) and continues the turn; the
+    ``question`` is not read then.
 
     ``threads_db`` is the checkpoint file (required with ``thread``). With a ``collector`` the answer
     is streamed through it as it is written; without one the graph just runs to the end and
@@ -141,9 +170,14 @@ async def run_turn(
     anything runs (``agent.mode.choose_mode``). ``csv_file`` is the name of the CSV file in play,
     kept in the state for display.
     """
+    context = _askable(context, thread)
     async with contextlib.AsyncExitStack() as stack:
         graph, config = await _open_graph(stack, thread, threads_db)
-        turn = _turn_input(question, mode, csv_file)
+        turn: AgentState | Command[Any] = (
+            Command(resume=dict(resume))
+            if resume is not None
+            else _turn_input(question, mode, csv_file, web)
+        )
         if collector is None:
             final = await graph.ainvoke(turn, config, context=context)
             return StreamedAnswer(final=dict(final), streamed="")
@@ -162,8 +196,15 @@ async def stream_turn(
     threads_db: Path,
     mode: str = "chat",
     csv_file: str | None = None,
+    web: bool = False,
+    resume: Mapping[str, Any] | None = None,
 ) -> AsyncGenerator[tuple[str, Any], None]:
     """Run one turn of a saved thread and yield the graph's stream events as they happen (S4.2).
+
+    ``web`` asks for a web search on this turn and ``resume`` answers the egress gate's question of a
+    turn that stopped at it (S5.3, see ``run_turn``). A turn that stops at the question ends its
+    stream with a ``values`` payload holding ``INTERRUPT_KEY``: the server sends the question to the
+    client and the turn continues when the answer comes in through a second call with ``resume``.
 
     Each item is the ``(kind, payload)`` pair that ``graph.astream(..., stream_mode=["custom",
     "values"])`` produces, passed on untouched: a ``"custom"`` payload is a ``StreamEvent`` (a piece
@@ -178,14 +219,15 @@ async def stream_turn(
     to its end; its result is dropped, and because ``remember`` is the last step an interrupted turn
     is never saved as a remembered one. Errors the graph raises propagate to the caller.
     """
+    context = _askable(context, thread)
     async with contextlib.AsyncExitStack() as stack:
         graph, config = await _open_graph(stack, thread, threads_db)
-        events = graph.astream(
-            _turn_input(question, mode, csv_file),
-            config,
-            context=context,
-            stream_mode=["custom", "values"],
+        turn: AgentState | Command[Any] = (
+            Command(resume=dict(resume))
+            if resume is not None
+            else _turn_input(question, mode, csv_file, web)
         )
+        events = graph.astream(turn, config, context=context, stream_mode=["custom", "values"])
         try:
             async for kind, payload in events:
                 yield kind, payload
@@ -207,6 +249,36 @@ class ThreadInfo:
     thread_id: str
     values: dict[str, Any]
     updated_at: str | None
+    pending: dict[str, Any] | None = (
+        None  # the egress gate's open question, if the turn waits (S5.3)
+    )
+
+
+def interrupt_question(final: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The egress gate's question if a turn's final state stopped at it (``INTERRUPT_KEY``), else ``None``.
+
+    ``final`` is the last ``values`` payload of a run. LangGraph puts a tuple of ``Interrupt`` objects
+    under ``INTERRUPT_KEY`` when the turn is waiting; only a payload of this program's own kind counts.
+    """
+    for interrupt in final.get(INTERRUPT_KEY, ()):
+        value = getattr(interrupt, "value", None)
+        if isinstance(value, dict) and value.get("kind") == APPROVAL_KIND:
+            return dict(value)
+    return None
+
+
+def pending_approval(snapshot: StateSnapshot) -> dict[str, Any] | None:
+    """The egress gate's open question in a thread's snapshot, or ``None`` if nothing waits.
+
+    LangGraph keeps the payload of an unanswered ``interrupt()`` on the task that raised it. Only a
+    payload of the kind this program asks (``APPROVAL_KIND``) counts; anything else is ignored.
+    """
+    for task in snapshot.tasks:
+        for interrupt in task.interrupts:
+            value = interrupt.value
+            if isinstance(value, dict) and value.get("kind") == APPROVAL_KIND:
+                return dict(value)
+    return None
 
 
 async def read_thread(threads_db: Path, thread: str) -> dict[str, Any] | None:
@@ -232,7 +304,10 @@ async def read_thread_info(threads_db: Path, thread: str) -> ThreadInfo | None:
     if not snapshot.values:
         return None
     return ThreadInfo(
-        thread_id=thread, values=dict(snapshot.values), updated_at=snapshot.created_at
+        thread_id=thread,
+        values=dict(snapshot.values),
+        updated_at=snapshot.created_at,
+        pending=pending_approval(snapshot),
     )
 
 

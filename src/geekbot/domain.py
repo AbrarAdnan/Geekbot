@@ -46,6 +46,19 @@ def is_tainted(labels: Iterable[Label]) -> bool:
     return not TAINTED_LABELS.isdisjoint(labels)
 
 
+def label_of(name: str) -> Label:
+    """The label called ``name``, or ``UNKNOWN`` if there is none (S5.3).
+
+    A label that cannot be read is not "no label": it is text whose origin cannot be shown, which is
+    exactly what ``UNKNOWN`` means, and it is tainted. Raising instead would turn one damaged record
+    into a thread that cannot be opened; reading it as ``USER`` or dropping it would be laundering.
+    """
+    try:
+        return Label(name)
+    except ValueError:
+        return Label.UNKNOWN
+
+
 @dataclass(frozen=True)
 class RunStats:
     """What one chat-model call cost, in plain numbers (PLAN.md §6.5, step S3.3).
