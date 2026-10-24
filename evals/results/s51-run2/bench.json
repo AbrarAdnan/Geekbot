@@ -1,0 +1,1071 @@
+{
+ "name": "s51-run2",
+ "created": "2026-10-24T12:39:49+06:00",
+ "official": true,
+ "official_notes": [],
+ "machine": {
+  "chat_model": "gemma4:12b",
+  "csv_model": "qwen2.5-coder:7b",
+  "profile": "target",
+  "embedder": "nomic-embed-text",
+  "reranker": "Xenova/ms-marco-MiniLM-L-6-v2",
+  "ollama": "0.34.2"
+ },
+ "guard": {
+  "idle": true,
+  "reasons": [],
+  "reading": {
+   "used_mib": 969,
+   "total_mib": 10240,
+   "utilization_percent": 0.0,
+   "compute_apps_count": 21
+  },
+  "waited_s": 0.0
+ },
+ "sweep": [
+  {
+   "key": "ctx4096-kvf16-batch256-k3",
+   "point": {
+    "num_ctx": 4096,
+    "kv_cache_type": "f16",
+    "num_batch": 256,
+    "top_k": 3
+   },
+   "load_s": 4.34,
+   "gpu_percent": 100,
+   "loaded_context": 4096,
+   "vram_idle_mib": 969,
+   "vram_peak_mib": 9104,
+   "cpu_idle": true,
+   "resident": true,
+   "slo_misses": [],
+   "summary": {
+    "n": 24,
+    "first_token_s": {
+     "n": 24,
+     "p50": 0.6579872499860357,
+     "p95": 0.9170997900160727,
+     "max": 0.92646099999547
+    },
+    "to_first_token_s": {
+     "n": 24,
+     "p50": 0.9694641000241973,
+     "p95": 1.2693550950265489,
+     "max": 1.2814693999825977
+    },
+    "whole_s": {
+     "n": 24,
+     "p50": 1.0093704999890178,
+     "p95": 1.633516774995951,
+     "max": 1.642386700026691
+    },
+    "tokens_per_s": {
+     "n": 24,
+     "p50": 71.10103836184956,
+     "p95": 72.47552972623888,
+     "max": 72.5680111669363
+    },
+    "retrieval_ms": {
+     "n": 24,
+     "p50": 341.99569997144863,
+     "p95": 403.52840502164327,
+     "max": 421.319900022354
+    },
+    "loads": 0,
+    "quality": 0.7083333333333334,
+    "quality_n": 24
+   },
+   "notes": []
+  },
+  {
+   "key": "ctx4096-kvf16-batch256-k5",
+   "point": {
+    "num_ctx": 4096,
+    "kv_cache_type": "f16",
+    "num_batch": 256,
+    "top_k": 5
+   },
+   "load_s": 0.0,
+   "gpu_percent": 100,
+   "loaded_context": 4096,
+   "vram_idle_mib": 9104,
+   "vram_peak_mib": 9104,
+   "cpu_idle": true,
+   "resident": true,
+   "slo_misses": [],
+   "summary": {
+    "n": 24,
+    "first_token_s": {
+     "n": 24,
+     "p50": 0.913887650007382,
+     "p95": 1.2754640149854821,
+     "max": 1.2884432999999262
+    },
+    "to_first_token_s": {
+     "n": 24,
+     "p50": 1.0960298999852967,
+     "p95": 1.6745847349870018,
+     "max": 1.6821181999985129
+    },
+    "whole_s": {
+     "n": 24,
+     "p50": 1.293209850002313,
+     "p95": 1.882876964981551,
+     "max": 1.9283187999972142
+    },
+    "tokens_per_s": {
+     "n": 24,
+     "p50": 70.69030972325403,
+     "p95": 72.13279146211397,
+     "max": 72.8748355521803
+    },
+    "retrieval_ms": {
+     "n": 24,
+     "p50": 335.491700010607,
+     "p95": 401.858865012764,
+     "max": 403.85910001350567
+    },
+    "loads": 0,
+    "quality": 0.7083333333333334,
+    "quality_n": 24
+   },
+   "notes": []
+  },
+  {
+   "key": "ctx4096-kvf16-batch512-k3",
+   "point": {
+    "num_ctx": 4096,
+    "kv_cache_type": "f16",
+    "num_batch": 512,
+    "top_k": 3
+   },
+   "load_s": 5.11,
+   "gpu_percent": 100,
+   "loaded_context": 4096,
+   "vram_idle_mib": 9104,
+   "vram_peak_mib": 9252,
+   "cpu_idle": true,
+   "resident": true,
+   "slo_misses": [],
+   "summary": {
+    "n": 24,
+    "first_token_s": {
+     "n": 24,
+     "p50": 0.5766091000114102,
+     "p95": 0.8050266699952772,
+     "max": 0.8480355000356212
+    },
+    "to_first_token_s": {
+     "n": 24,
+     "p50": 0.8944388499658089,
+     "p95": 1.1568213650316466,
+     "max": 1.195655599993188
+    },
+    "whole_s": {
+     "n": 24,
+     "p50": 0.9565886499767657,
+     "p95": 1.5374698950297898,
+     "max": 1.5800367000047117
+    },
+    "tokens_per_s": {
+     "n": 24,
+     "p50": 70.5772415702009,
+     "p95": 72.31629403427347,
+     "max": 72.4510576803881
+    },
+    "retrieval_ms": {
+     "n": 24,
+     "p50": 336.27634998993017,
+     "p95": 417.01821500319056,
+     "max": 424.71520003164187
+    },
+    "loads": 0,
+    "quality": 0.7083333333333334,
+    "quality_n": 24
+   },
+   "notes": []
+  },
+  {
+   "key": "ctx4096-kvf16-batch512-k5",
+   "point": {
+    "num_ctx": 4096,
+    "kv_cache_type": "f16",
+    "num_batch": 512,
+    "top_k": 5
+   },
+   "load_s": 0.0,
+   "gpu_percent": 100,
+   "loaded_context": 4096,
+   "vram_idle_mib": 9252,
+   "vram_peak_mib": 9252,
+   "cpu_idle": true,
+   "resident": true,
+   "slo_misses": [],
+   "summary": {
+    "n": 24,
+    "first_token_s": {
+     "n": 24,
+     "p50": 0.7919655999867246,
+     "p95": 1.105114899983164,
+     "max": 1.1521184999728575
+    },
+    "to_first_token_s": {
+     "n": 24,
+     "p50": 1.1357412000361364,
+     "p95": 1.4986055049812421,
+     "max": 1.5346616000169888
+    },
+    "whole_s": {
+     "n": 24,
+     "p50": 1.177861350006424,
+     "p95": 1.659475890052272,
+     "max": 1.6861265000188723
+    },
+    "tokens_per_s": {
+     "n": 24,
+     "p50": 69.53164176617409,
+     "p95": 72.06418997678209,
+     "max": 74.01705352913311
+    },
+    "retrieval_ms": {
+     "n": 24,
+     "p50": 329.57729999907315,
+     "p95": 393.4906049980782,
+     "max": 412.28779999073595
+    },
+    "loads": 0,
+    "quality": 0.7083333333333334,
+    "quality_n": 24
+   },
+   "notes": []
+  },
+  {
+   "key": "ctx8192-kvf16-batch256-k3",
+   "point": {
+    "num_ctx": 8192,
+    "kv_cache_type": "f16",
+    "num_batch": 256,
+    "top_k": 3
+   },
+   "load_s": 5.98,
+   "gpu_percent": 100,
+   "loaded_context": 8192,
+   "vram_idle_mib": 9252,
+   "vram_peak_mib": 9252,
+   "cpu_idle": true,
+   "resident": true,
+   "slo_misses": [],
+   "summary": {
+    "n": 24,
+    "first_token_s": {
+     "n": 24,
+     "p50": 0.6589476500230376,
+     "p95": 0.9162734049954451,
+     "max": 0.9212280999636278
+    },
+    "to_first_token_s": {
+     "n": 24,
+     "p50": 0.9614916499995161,
+     "p95": 1.2884150849509752,
+     "max": 1.3010966999572702
+    },
+    "whole_s": {
+     "n": 24,
+     "p50": 1.0189440000103787,
+     "p95": 1.6348930649633984,
+     "max": 1.654361599998083
+    },
+    "tokens_per_s": {
+     "n": 24,
+     "p50": 70.91108961973853,
+     "p95": 72.33662276726862,
+     "max": 72.45251772499094
+    },
+    "retrieval_ms": {
+     "n": 24,
+     "p50": 340.478650003206,
+     "p95": 410.005929984618,
+     "max": 417.4287000205368
+    },
+    "loads": 0,
+    "quality": 0.6875,
+    "quality_n": 24
+   },
+   "notes": []
+  },
+  {
+   "key": "ctx8192-kvf16-batch256-k5",
+   "point": {
+    "num_ctx": 8192,
+    "kv_cache_type": "f16",
+    "num_batch": 256,
+    "top_k": 5
+   },
+   "load_s": 0.0,
+   "gpu_percent": 100,
+   "loaded_context": 8192,
+   "vram_idle_mib": 9170,
+   "vram_peak_mib": 9170,
+   "cpu_idle": true,
+   "resident": true,
+   "slo_misses": [],
+   "summary": {
+    "n": 24,
+    "first_token_s": {
+     "n": 24,
+     "p50": 0.9081881500023883,
+     "p95": 1.283883855023305,
+     "max": 1.298320200003218
+    },
+    "to_first_token_s": {
+     "n": 24,
+     "p50": 1.0998458500253037,
+     "p95": 1.6662449100025696,
+     "max": 1.6841689000139013
+    },
+    "whole_s": {
+     "n": 24,
+     "p50": 1.281131199997617,
+     "p95": 1.9097501699696295,
+     "max": 2.0485394000425003
+    },
+    "tokens_per_s": {
+     "n": 24,
+     "p50": 69.09094833149703,
+     "p95": 71.75640174312275,
+     "max": 72.97616012112569
+    },
+    "retrieval_ms": {
+     "n": 24,
+     "p50": 331.8507500225678,
+     "p95": 389.013759966474,
+     "max": 396.2417999864556
+    },
+    "loads": 0,
+    "quality": 0.7083333333333334,
+    "quality_n": 24
+   },
+   "notes": []
+  },
+  {
+   "key": "ctx8192-kvf16-batch512-k3",
+   "point": {
+    "num_ctx": 8192,
+    "kv_cache_type": "f16",
+    "num_batch": 512,
+    "top_k": 3
+   },
+   "load_s": 6.03,
+   "gpu_percent": 100,
+   "loaded_context": 8192,
+   "vram_idle_mib": 9170,
+   "vram_peak_mib": 9320,
+   "cpu_idle": true,
+   "resident": true,
+   "slo_misses": [],
+   "summary": {
+    "n": 24,
+    "first_token_s": {
+     "n": 24,
+     "p50": 0.5806154999881983,
+     "p95": 0.7878694999730214,
+     "max": 0.8076554000144824
+    },
+    "to_first_token_s": {
+     "n": 24,
+     "p50": 0.8958248999842908,
+     "p95": 1.1589911250281146,
+     "max": 1.166601200005971
+    },
+    "whole_s": {
+     "n": 24,
+     "p50": 0.9502897999773268,
+     "p95": 1.5212069649947806,
+     "max": 1.5434880999964662
+    },
+    "tokens_per_s": {
+     "n": 24,
+     "p50": 70.3894444672305,
+     "p95": 72.13110738841644,
+     "max": 72.34292094953099
+    },
+    "retrieval_ms": {
+     "n": 24,
+     "p50": 339.55125001375563,
+     "p95": 400.93685999454465,
+     "max": 404.8123000538908
+    },
+    "loads": 0,
+    "quality": 0.75,
+    "quality_n": 24
+   },
+   "notes": []
+  },
+  {
+   "key": "ctx8192-kvf16-batch512-k5",
+   "point": {
+    "num_ctx": 8192,
+    "kv_cache_type": "f16",
+    "num_batch": 512,
+    "top_k": 5
+   },
+   "load_s": 0.0,
+   "gpu_percent": 100,
+   "loaded_context": 8192,
+   "vram_idle_mib": 9320,
+   "vram_peak_mib": 9320,
+   "cpu_idle": true,
+   "resident": true,
+   "slo_misses": [],
+   "summary": {
+    "n": 24,
+    "first_token_s": {
+     "n": 24,
+     "p50": 0.7924371499975678,
+     "p95": 1.1273141849902457,
+     "max": 1.1398990000016056
+    },
+    "to_first_token_s": {
+     "n": 24,
+     "p50": 1.1204759500105865,
+     "p95": 1.5375870100077007,
+     "max": 1.5562672999803908
+    },
+    "whole_s": {
+     "n": 24,
+     "p50": 1.1762278500245884,
+     "p95": 1.736456529976567,
+     "max": 1.8362845000228845
+    },
+    "tokens_per_s": {
+     "n": 24,
+     "p50": 69.71300757751038,
+     "p95": 71.80694829747374,
+     "max": 72.28184135581459
+    },
+    "retrieval_ms": {
+     "n": 24,
+     "p50": 336.2786500074435,
+     "p95": 417.429375014035,
+     "max": 422.6302999886684
+    },
+    "loads": 0,
+    "quality": 0.7083333333333334,
+    "quality_n": 24
+   },
+   "notes": []
+  },
+  {
+   "key": "ctx4096-kvq8_0-batch256-k3",
+   "point": {
+    "num_ctx": 4096,
+    "kv_cache_type": "q8_0",
+    "num_batch": 256,
+    "top_k": 3
+   },
+   "load_s": 4.1,
+   "gpu_percent": 100,
+   "loaded_context": 4096,
+   "vram_idle_mib": 969,
+   "vram_peak_mib": 8892,
+   "cpu_idle": true,
+   "resident": true,
+   "slo_misses": [],
+   "summary": {
+    "n": 24,
+    "first_token_s": {
+     "n": 24,
+     "p50": 0.32832475000759587,
+     "p95": 0.6804864599922439,
+     "max": 0.7858681000070646
+    },
+    "to_first_token_s": {
+     "n": 24,
+     "p50": 0.7047124500386417,
+     "p95": 1.0746908100118162,
+     "max": 1.1729293999960646
+    },
+    "whole_s": {
+     "n": 24,
+     "p50": 0.8360553000238724,
+     "p95": 1.229727409983752,
+     "max": 1.5581948999897577
+    },
+    "tokens_per_s": {
+     "n": 24,
+     "p50": 66.94824391990505,
+     "p95": 68.06115363690459,
+     "max": 68.80542911049065
+    },
+    "retrieval_ms": {
+     "n": 24,
+     "p50": 345.3410999791231,
+     "p95": 405.2104699774645,
+     "max": 409.1422000201419
+    },
+    "loads": 0,
+    "quality": 0.7083333333333334,
+    "quality_n": 24
+   },
+   "notes": []
+  },
+  {
+   "key": "ctx4096-kvq8_0-batch256-k5",
+   "point": {
+    "num_ctx": 4096,
+    "kv_cache_type": "q8_0",
+    "num_batch": 256,
+    "top_k": 5
+   },
+   "load_s": 0.0,
+   "gpu_percent": 100,
+   "loaded_context": 4096,
+   "vram_idle_mib": 8892,
+   "vram_peak_mib": 8892,
+   "cpu_idle": true,
+   "resident": true,
+   "slo_misses": [],
+   "summary": {
+    "n": 24,
+    "first_token_s": {
+     "n": 24,
+     "p50": 0.3743907500174828,
+     "p95": 0.5223655300011159,
+     "max": 0.8202237000223249
+    },
+    "to_first_token_s": {
+     "n": 24,
+     "p50": 0.7182341500301845,
+     "p95": 0.8802144049928756,
+     "max": 1.208403799973894
+    },
+    "whole_s": {
+     "n": 24,
+     "p50": 0.8696113999758381,
+     "p95": 1.220288540041656,
+     "max": 1.333254900004249
+    },
+    "tokens_per_s": {
+     "n": 24,
+     "p50": 66.64864134070477,
+     "p95": 67.88763366128613,
+     "max": 69.61236901883197
+    },
+    "retrieval_ms": {
+     "n": 24,
+     "p50": 346.36009999667294,
+     "p95": 400.267969982815,
+     "max": 416.8039999785833
+    },
+    "loads": 0,
+    "quality": 0.8333333333333334,
+    "quality_n": 24
+   },
+   "notes": []
+  },
+  {
+   "key": "ctx4096-kvq8_0-batch512-k3",
+   "point": {
+    "num_ctx": 4096,
+    "kv_cache_type": "q8_0",
+    "num_batch": 512,
+    "top_k": 3
+   },
+   "load_s": 5.35,
+   "gpu_percent": 100,
+   "loaded_context": 4096,
+   "vram_idle_mib": 8892,
+   "vram_peak_mib": 9000,
+   "cpu_idle": true,
+   "resident": true,
+   "slo_misses": [],
+   "summary": {
+    "n": 24,
+    "first_token_s": {
+     "n": 24,
+     "p50": 0.330347899987828,
+     "p95": 0.5377359800157137,
+     "max": 0.6475776999723166
+    },
+    "to_first_token_s": {
+     "n": 24,
+     "p50": 0.6750064500083681,
+     "p95": 0.9169113949988968,
+     "max": 1.0228875000029802
+    },
+    "whole_s": {
+     "n": 24,
+     "p50": 0.7663819000299554,
+     "p95": 1.122229644987965,
+     "max": 1.3992348000174388
+    },
+    "tokens_per_s": {
+     "n": 24,
+     "p50": 67.25496216536672,
+     "p95": 68.80454318387899,
+     "max": 69.59477526381914
+    },
+    "retrieval_ms": {
+     "n": 24,
+     "p50": 343.8736000098288,
+     "p95": 395.750484985183,
+     "max": 441.5134000009857
+    },
+    "loads": 0,
+    "quality": 0.7083333333333334,
+    "quality_n": 24
+   },
+   "notes": []
+  },
+  {
+   "key": "ctx4096-kvq8_0-batch512-k5",
+   "point": {
+    "num_ctx": 4096,
+    "kv_cache_type": "q8_0",
+    "num_batch": 512,
+    "top_k": 5
+   },
+   "load_s": 0.0,
+   "gpu_percent": 100,
+   "loaded_context": 4096,
+   "vram_idle_mib": 9000,
+   "vram_peak_mib": 9000,
+   "cpu_idle": true,
+   "resident": true,
+   "slo_misses": [],
+   "summary": {
+    "n": 24,
+    "first_token_s": {
+     "n": 24,
+     "p50": 0.3741094500001054,
+     "p95": 0.5883173100010026,
+     "max": 0.8716027999762446
+    },
+    "to_first_token_s": {
+     "n": 24,
+     "p50": 0.736129249969963,
+     "p95": 0.9656143300089752,
+     "max": 1.2759404999669641
+    },
+    "whole_s": {
+     "n": 24,
+     "p50": 0.8526593999995384,
+     "p95": 1.2601998749887569,
+     "max": 1.3921016999520361
+    },
+    "tokens_per_s": {
+     "n": 24,
+     "p50": 66.07980800109,
+     "p95": 67.76140562005207,
+     "max": 68.72355047563931
+    },
+    "retrieval_ms": {
+     "n": 24,
+     "p50": 352.72439997061156,
+     "p95": 402.7271699742414,
+     "max": 404.33769999071956
+    },
+    "loads": 0,
+    "quality": 0.75,
+    "quality_n": 24
+   },
+   "notes": []
+  },
+  {
+   "key": "ctx8192-kvq8_0-batch256-k3",
+   "point": {
+    "num_ctx": 8192,
+    "kv_cache_type": "q8_0",
+    "num_batch": 256,
+    "top_k": 3
+   },
+   "load_s": 5.99,
+   "gpu_percent": 100,
+   "loaded_context": 8192,
+   "vram_idle_mib": 9000,
+   "vram_peak_mib": 9000,
+   "cpu_idle": true,
+   "resident": true,
+   "slo_misses": [],
+   "summary": {
+    "n": 24,
+    "first_token_s": {
+     "n": 24,
+     "p50": 0.33849754999391735,
+     "p95": 0.6935707900323904,
+     "max": 0.7956268000416458
+    },
+    "to_first_token_s": {
+     "n": 24,
+     "p50": 0.7086952500103507,
+     "p95": 1.097950055034016,
+     "max": 1.2346215000143275
+    },
+    "whole_s": {
+     "n": 24,
+     "p50": 0.8323336999746971,
+     "p95": 1.2637542650103566,
+     "max": 1.5984276999952272
+    },
+    "tokens_per_s": {
+     "n": 24,
+     "p50": 66.4939050054183,
+     "p95": 68.0962091361352,
+     "max": 68.5648298509617
+    },
+    "retrieval_ms": {
+     "n": 24,
+     "p50": 355.8724500180688,
+     "p95": 434.90071997803165,
+     "max": 446.53969997307286
+    },
+    "loads": 0,
+    "quality": 0.7916666666666666,
+    "quality_n": 24
+   },
+   "notes": []
+  },
+  {
+   "key": "ctx8192-kvq8_0-batch256-k5",
+   "point": {
+    "num_ctx": 8192,
+    "kv_cache_type": "q8_0",
+    "num_batch": 256,
+    "top_k": 5
+   },
+   "load_s": 0.0,
+   "gpu_percent": 100,
+   "loaded_context": 8192,
+   "vram_idle_mib": 8928,
+   "vram_peak_mib": 8982,
+   "cpu_idle": true,
+   "resident": true,
+   "slo_misses": [],
+   "summary": {
+    "n": 24,
+    "first_token_s": {
+     "n": 24,
+     "p50": 0.3888754500367213,
+     "p95": 0.6188750950037499,
+     "max": 0.8024724000133574
+    },
+    "to_first_token_s": {
+     "n": 24,
+     "p50": 0.7631329499708954,
+     "p95": 1.011395905006793,
+     "max": 1.2095649000257254
+    },
+    "whole_s": {
+     "n": 24,
+     "p50": 0.9102303500112612,
+     "p95": 1.3075495300116018,
+     "max": 1.3195732000167482
+    },
+    "tokens_per_s": {
+     "n": 24,
+     "p50": 64.72919250329463,
+     "p95": 68.86638533372337,
+     "max": 69.77539300990112
+    },
+    "retrieval_ms": {
+     "n": 24,
+     "p50": 358.54295000899583,
+     "p95": 429.8350350174587,
+     "max": 433.0144000123255
+    },
+    "loads": 0,
+    "quality": 0.75,
+    "quality_n": 24
+   },
+   "notes": []
+  },
+  {
+   "key": "ctx8192-kvq8_0-batch512-k3",
+   "point": {
+    "num_ctx": 8192,
+    "kv_cache_type": "q8_0",
+    "num_batch": 512,
+    "top_k": 3
+   },
+   "load_s": 6.31,
+   "gpu_percent": 100,
+   "loaded_context": 8192,
+   "vram_idle_mib": 8935,
+   "vram_peak_mib": 9071,
+   "cpu_idle": true,
+   "resident": true,
+   "slo_misses": [],
+   "summary": {
+    "n": 24,
+    "first_token_s": {
+     "n": 24,
+     "p50": 0.33935130000463687,
+     "p95": 0.563510309983394,
+     "max": 0.6782496999949217
+    },
+    "to_first_token_s": {
+     "n": 24,
+     "p50": 0.7109040999785066,
+     "p95": 0.9865739999862853,
+     "max": 1.0728212999529205
+    },
+    "whole_s": {
+     "n": 24,
+     "p50": 0.7971502500004135,
+     "p95": 1.186298615002306,
+     "max": 1.5158072999911383
+    },
+    "tokens_per_s": {
+     "n": 24,
+     "p50": 64.42128889766278,
+     "p95": 66.67316195936029,
+     "max": 67.08737907499922
+    },
+    "retrieval_ms": {
+     "n": 24,
+     "p50": 360.43175001395866,
+     "p95": 425.60179499851074,
+     "max": 438.8426999794319
+    },
+    "loads": 0,
+    "quality": 0.7083333333333334,
+    "quality_n": 24
+   },
+   "notes": []
+  },
+  {
+   "key": "ctx8192-kvq8_0-batch512-k5",
+   "point": {
+    "num_ctx": 8192,
+    "kv_cache_type": "q8_0",
+    "num_batch": 512,
+    "top_k": 5
+   },
+   "load_s": 0.0,
+   "gpu_percent": 100,
+   "loaded_context": 8192,
+   "vram_idle_mib": 9019,
+   "vram_peak_mib": 9019,
+   "cpu_idle": true,
+   "resident": true,
+   "slo_misses": [],
+   "summary": {
+    "n": 24,
+    "first_token_s": {
+     "n": 24,
+     "p50": 0.3630587999941781,
+     "p95": 0.5895372299972224,
+     "max": 0.8713207999826409
+    },
+    "to_first_token_s": {
+     "n": 24,
+     "p50": 0.7373955499788281,
+     "p95": 0.9542443349841051,
+     "max": 1.271023899957072
+    },
+    "whole_s": {
+     "n": 24,
+     "p50": 0.8530254999932367,
+     "p95": 1.2928184499731286,
+     "max": 1.4598998000146821
+    },
+    "tokens_per_s": {
+     "n": 24,
+     "p50": 65.39995392390061,
+     "p95": 67.26835382573752,
+     "max": 67.56780785137927
+    },
+    "retrieval_ms": {
+     "n": 24,
+     "p50": 350.3226500179153,
+     "p95": 398.78064497897867,
+     "max": 400.5444999784231
+    },
+    "loads": 0,
+    "quality": 0.7083333333333334,
+    "quality_n": 24
+   },
+   "notes": []
+  }
+ ],
+ "cpu": {
+  "load_percent": 4.0
+ },
+ "ingest": {
+  "documents": 15,
+  "chunks": 65,
+  "seconds": 6.2,
+  "chunks_per_s": 10.5
+ },
+ "vram": {
+  "total_mib": 10240,
+  "idle_mib": 969,
+  "chat_mib": 9306,
+  "csv_mib": 6556
+ },
+ "shipped_default": "ctx8192-kvf16-batch512-k5",
+ "default_choice": {
+  "key": "ctx8192-kvq8_0-batch256-k3",
+  "reason": "ctx8192-kvq8_0-batch256-k3: 16 of 16 configurations meet every rule; 2 of them are within 0.05 of the best must-include recall (0.833), which is as fine as this question set can tell apart, so the fastest median first token decides (0.71 s), then the smaller VRAM peak",
+  "eligible": [
+   "ctx4096-kvf16-batch256-k3",
+   "ctx4096-kvf16-batch256-k5",
+   "ctx4096-kvf16-batch512-k3",
+   "ctx4096-kvf16-batch512-k5",
+   "ctx8192-kvf16-batch256-k3",
+   "ctx8192-kvf16-batch256-k5",
+   "ctx8192-kvf16-batch512-k3",
+   "ctx8192-kvf16-batch512-k5",
+   "ctx4096-kvq8_0-batch256-k3",
+   "ctx4096-kvq8_0-batch256-k5",
+   "ctx4096-kvq8_0-batch512-k3",
+   "ctx4096-kvq8_0-batch512-k5",
+   "ctx8192-kvq8_0-batch256-k3",
+   "ctx8192-kvq8_0-batch256-k5",
+   "ctx8192-kvq8_0-batch512-k3",
+   "ctx8192-kvq8_0-batch512-k5"
+  ]
+ },
+ "cold_rounds": {
+  "setting": "ctx8192-kvf16-batch512-k5",
+  "summary": {
+   "n": 2,
+   "first_token_s": {
+    "n": 2,
+    "p50": 0.8385508999926969,
+    "p95": 0.8505503299995325,
+    "max": 0.8518836000002921
+   },
+   "to_first_token_s": {
+    "n": 2,
+    "p50": 1.5328835000109393,
+    "p95": 1.5774608600040665,
+    "max": 1.5824139000033028
+   },
+   "whole_s": {
+    "n": 2,
+    "p50": 1.1244351999775972,
+    "p95": 1.1365440699533793,
+    "max": 1.1378894999506883
+   },
+   "tokens_per_s": {
+    "n": 2,
+    "p50": 66.4679717552725,
+    "p95": 66.49036399209446,
+    "max": 66.49285201840802
+   },
+   "retrieval_ms": {
+    "n": 2,
+    "p50": 694.3326000182424,
+    "p95": 750.9093900182052,
+    "max": 757.195700018201
+   },
+   "loads": 0,
+   "quality": 1.0,
+   "quality_n": 2
+  }
+ },
+ "follow_up": {
+  "setting": "ctx8192-kvf16-batch512-k5",
+  "summary": {
+   "n": 6,
+   "first_token_s": {
+    "n": 6,
+    "p50": 0.9252676500182133,
+    "p95": 1.095437999960268,
+    "max": 1.1047206999501213
+   },
+   "to_first_token_s": {
+    "n": 6,
+    "p50": 2.05229714998859,
+    "p95": 2.332410449977033,
+    "max": 2.333932499983348
+   },
+   "whole_s": {
+    "n": 6,
+    "p50": 1.4616635999991558,
+    "p95": 2.0911826499941526,
+    "max": 2.114769999985583
+   },
+   "tokens_per_s": {
+    "n": 6,
+    "p50": 65.8459600038463,
+    "p95": 68.3924795306702,
+    "max": 68.60319469586655
+   },
+   "retrieval_ms": {
+    "n": 6,
+    "p50": 362.0320000045467,
+    "p95": 371.1619999958202,
+    "max": 371.5420999797061
+   },
+   "loads": 0,
+   "quality": 1.0,
+   "quality_n": 6
+  },
+  "note": ""
+ },
+ "thinking": {
+  "setting": "ctx8192-kvf16-batch512-k5",
+  "summary": {
+   "n": 3,
+   "first_token_s": {
+    "n": 3,
+    "p50": 5.625897000019904,
+    "p95": 5.781790590035962,
+    "max": 5.799112100037746
+   },
+   "to_first_token_s": {
+    "n": 3,
+    "p50": 5.890577300044242,
+    "p95": 6.106513400020776,
+    "max": 6.130506300018169
+   },
+   "whole_s": {
+    "n": 3,
+    "p50": 5.926818300038576,
+    "p95": 6.066901680000592,
+    "max": 6.082466499996372
+   },
+   "tokens_per_s": {
+    "n": 3,
+    "p50": 64.9930944837111,
+    "p95": 65.32903113732227,
+    "max": 65.36635743216796
+   },
+   "retrieval_ms": {
+    "n": 3,
+    "p50": 264.68030002433807,
+    "p95": 324.7228099848144,
+    "max": 331.39419998042285
+   },
+   "loads": 0,
+   "quality": 0.6666666666666666,
+   "quality_n": 3
+  },
+  "note": ""
+ },
+ "csv": {
+  "model": "qwen2.5-coder:7b",
+  "question_runs": 40,
+  "suites": "hospital, sales",
+  "p50_s": 2.8,
+  "p95_s": 6.39,
+  "max_s": 9.75,
+  "load_events": 0,
+  "solved": 31,
+  "questions": 40,
+  "residency": "PASS: qwen2.5-coder:7b: 100% GPU, context 16384",
+  "official_notes": [
+   "partial run (not both suites, fewer than 3 runs, or --limit)"
+  ],
+  "swap": {
+   "cycles": 3,
+   "to_csv_median_s": 2.74,
+   "to_csv_max_s": 2.76,
+   "to_chat_median_s": 4.97,
+   "to_chat_max_s": 5.0,
+   "all_ok": true
+  }
+ }
+}

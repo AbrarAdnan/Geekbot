@@ -82,6 +82,11 @@ class Settings(BaseSettings):
     # must send the same value, or Ollama reloads the model. keep_alive: how long it stays loaded.
     chat_num_ctx: int = 8192
     csv_num_ctx: int = 16384
+    # Ollama's batch size for the chat model (step S5.1, a lever of PLAN §6.5: 256 saves compute-buffer
+    # VRAM at some cost in prompt-reading speed). ``None`` leaves Ollama's own default (512). Like
+    # ``chat_num_ctx`` it is a load-time option: the warm-up and every query must send the same value
+    # or Ollama reloads the model, which is why both read it from here.
+    chat_num_batch: int | None = Field(default=None, gt=0)
     keep_alive: str = "30m"
     # CSV mode (step C2, lesson 06 §5). Geekbot owns what touches Ollama and the clock; the
     # package's prompt and pipeline settings stay at the defaults Gigalogy measured. Both values

@@ -19,12 +19,14 @@ passes a fake that has no network and no LangChain base class to fake.
 """
 
 from collections.abc import Iterator
+from functools import cache
 from typing import Any, Protocol
 
 from langchain_core.messages import BaseMessage
 from pydantic import BaseModel
 
 from geekbot.config import Settings
+from geekbot.llm.models import same_model
 
 __all__ = [
     "ChatError",
@@ -64,6 +66,34 @@ class StructuredChat(Protocol):
         ...
 
 
+@cache
+def _ollama_chat_class() -> Any:
+    """``ChatOllama`` with one more option, ``num_batch`` (step S5.1).
+
+    LangChain's class has no field for Ollama's batch size, but the batch size is a load-time option
+    like ``num_ctx``: Ollama reloads the model when a request carries a different one (R-2). So the
+    sweep of PLAN §6.5 (``num_batch`` 256 or 512) needs every call, not only the warm-up, to send it.
+    The subclass adds the value to the ``options`` of each request and does nothing when it is
+    ``None``, so the default behaviour is exactly ``ChatOllama``'s. Built on first use because the
+    LangChain package is slow to import.
+    """
+    from langchain_ollama import ChatOllama  # type: ignore[import-untyped, unused-ignore]
+
+    class BatchedChatOllama(ChatOllama):  # type: ignore[misc, unused-ignore]
+        num_batch: int | None = None
+
+        def _chat_params(
+            self, messages: list[BaseMessage], stop: list[str] | None = None, **kwargs: Any
+        ) -> dict[str, Any]:
+            params: dict[str, Any] = super()._chat_params(messages, stop, **kwargs)
+            options = params.get("options")
+            if self.num_batch is not None and isinstance(options, dict):
+                params["options"] = {**options, "num_batch": self.num_batch}
+            return params
+
+    return BatchedChatOllama
+
+
 def make_structured_model(
     settings: Settings,
     schema: type[BaseModel],
@@ -83,12 +113,14 @@ def make_structured_model(
     CSV model as ``model`` and its context size as ``num_ctx`` (the CSV model is warmed up with
     ``csv_num_ctx``, not ``chat_num_ctx``): the rewrite must use the model that is on the GPU.
     """
-    from langchain_ollama import ChatOllama  # type: ignore[import-untyped, unused-ignore]
-
-    chat = ChatOllama(
-        model=model or settings.resolved_chat_model,
+    chosen = model or settings.resolved_chat_model
+    # Only the chat model is loaded with a batch size; the CSV model is not (see `swap_to_mode`).
+    batch = settings.chat_num_batch if same_model(chosen, settings.resolved_chat_model) else None
+    chat = _ollama_chat_class()(
+        model=chosen,
         base_url=settings.ollama_host,
         num_ctx=num_ctx or settings.chat_num_ctx,
+        num_batch=batch,
         num_predict=num_predict,
         keep_alive=settings.keep_alive,
         temperature=0.0,
@@ -112,14 +144,16 @@ def make_chat_model(
       ``True`` asks for it and the reasoning arrives apart from the answer. A model without a
       thinking mode ignores ``False`` and refuses ``True`` (Ollama answers with an error).
     """
-    # Imported here: LangChain's Ollama package pulls in the ``ollama`` client and pydantic models,
-    # and `geekbot --version` or `geekbot doctor` should not wait for them.
-    from langchain_ollama import ChatOllama  # type: ignore[import-untyped, unused-ignore]
-
-    chat: ChatModel = ChatOllama(
-        model=model or settings.resolved_chat_model,
+    # The class is built on first use (see ``_ollama_chat_class``): LangChain's Ollama package pulls
+    # in the ``ollama`` client and pydantic models, and `geekbot --version` or `geekbot doctor`
+    # should not wait for them.
+    chosen = model or settings.resolved_chat_model
+    batch = settings.chat_num_batch if same_model(chosen, settings.resolved_chat_model) else None
+    chat: ChatModel = _ollama_chat_class()(
+        model=chosen,
         base_url=settings.ollama_host,
         num_ctx=settings.chat_num_ctx,
+        num_batch=batch,
         num_predict=settings.chat_think_num_predict if think else settings.chat_num_predict,
         keep_alive=settings.keep_alive,
         temperature=settings.chat_temperature,

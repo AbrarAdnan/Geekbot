@@ -1258,6 +1258,111 @@ def ask_timing(
     typer.echo(format_latency_report(report, setup=setup))
 
 
+BENCH_PHASES = ("sweep", "extras", "csv")
+
+
+@app.command()
+def bench(
+    config: Annotated[
+        Path, typer.Option("--config", help="The bench's TOML file (PLAN.md section 9).")
+    ] = Path("evals/configs/bench.toml"),
+    phase: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--phase",
+            help="Run only this phase; repeat the option for several. One of sweep (the tuning "
+            "sweep), extras (cold rounds, follow-ups, thinking) or csv (CSV-mode rows). "
+            "Default: all three.",
+        ),
+    ] = None,
+    only: Annotated[
+        str | None,
+        typer.Option(
+            "--only", help="Run only the sweep point with this key, e.g. ctx8192-kvf16-batch512-k5."
+        ),
+    ] = None,
+    quick: Annotated[
+        bool,
+        typer.Option(
+            "--quick",
+            help="A plumbing check: three questions, one pass, no extras. The result is marked "
+            "not official.",
+        ),
+    ] = False,
+    report_only: Annotated[
+        bool,
+        typer.Option(
+            "--report-only", help="Write report.md again from the saved bench.json; run nothing."
+        ),
+    ] = False,
+    name: Annotated[
+        str | None,
+        typer.Option(
+            "--name",
+            help="Save the results under this name instead of the config's (to keep a second "
+            "sitting next to the first).",
+        ),
+    ] = None,
+) -> None:
+    """Measure the speed and the VRAM of the product and sweep its settings (uses the GPU).
+
+    PLAN.md section 9: an idle-GPU guard first (it says why the GPU is not idle and marks the
+    numbers not official), then the VRAM at the product's settings and the ingest speed, then the
+    sweep of context size x KV-cache type x batch size x top-k on the real answer graph (the KV-cache
+    type needs another Ollama server, so the sweep starts a private one on its own loopback port
+    and never touches yours), then cold rounds, follow-ups and thinking at the shipped setting, then
+    the CSV-mode rows. Results go to `evals/results/<name>/bench.json` and `report.md`, saved after
+    every phase. Run it on the target models (`GEEKBOT_PROFILE=target`) with the GPU to yourself;
+    a full run takes about an hour. The sweep only measures: it never changes a default.
+    """
+    from geekbot.evals.bench import format_bench_report, load_bench_config
+
+    settings = Settings()
+    setup_logging(settings.log_level)
+    try:
+        bench_config = load_bench_config(config)
+    except ValueError as error:
+        _fail(str(error))
+    if name is not None:
+        bench_config = bench_config.model_copy(update={"name": name})
+    saved = bench_config.results_path / "bench.json"
+    if report_only:
+        if not saved.is_file():
+            _fail(f"{saved} does not exist; run `geekbot bench` first")
+        target = bench_config.results_path / "report.md"
+        target.write_text(
+            format_bench_report(json.loads(saved.read_text(encoding="utf-8"))), encoding="utf-8"
+        )
+        typer.echo(f"wrote {target}")
+        return
+    phases = tuple(phase) if phase else BENCH_PHASES
+    unknown = [name for name in phases if name not in BENCH_PHASES]
+    if unknown:
+        _fail(f"unknown phase {', '.join(unknown)}; the phases are {', '.join(BENCH_PHASES)}")
+    from geekbot.evals.bench_run import run_bench
+    from geekbot.llm.chat import ChatError
+    from geekbot.retrieval.rerank import RerankError
+
+    try:
+        result = run_bench(
+            bench_config,
+            settings,
+            phases=phases,
+            only=only,
+            quick=quick,
+            log=lambda line: typer.echo(line, err=True),
+        )
+    except (OllamaError, RerankError, ChatError, ValueError) as error:
+        _fail(str(error))
+    typer.echo(f"official: {'yes' if result['official'] else 'NO'}")
+    for note in result["official_notes"]:
+        typer.echo(f"  - {note}")
+    choice = result.get("default_choice")
+    if choice:
+        typer.echo(f"chosen default: {choice['reason']}")
+    typer.echo(f"wrote {bench_config.results_path / 'report.md'}")
+
+
 @app.command()
 def serve(
     port: Annotated[

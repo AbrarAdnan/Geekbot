@@ -28,6 +28,7 @@ class FakeOllama:
         self.pending: dict[str, int] = {}
         self.calls: list[tuple[str, str]] = []
         self.warm_up_args: list[tuple[str, int, str]] = []
+        self.batches: list[int | None] = []
 
     def loaded_models(self) -> list[str]:
         self.calls.append(("ps", ""))
@@ -44,9 +45,12 @@ class FakeOllama:
         if not self.stuck:
             self.pending[model] = self.lag
 
-    def warm_up(self, model: str, *, num_ctx: int, keep_alive: str) -> float:
+    def warm_up(
+        self, model: str, *, num_ctx: int, keep_alive: str, num_batch: int | None = None
+    ) -> float:
         self.calls.append(("warm_up", model))
         self.warm_up_args.append((model, num_ctx, keep_alive))
+        self.batches.append(num_batch)
         self.loaded.append(model)
         return 2.5
 
@@ -158,3 +162,23 @@ def test_swap_to_mode_picks_the_models_and_contexts_from_the_settings() -> None:
     assert (back.loaded, back.unloaded) == (CHAT, (CSV,))
     assert client.warm_up_args[-1] == (CHAT, settings.chat_num_ctx, settings.keep_alive)
     assert client.loaded == [CHAT]
+
+
+def test_only_the_chat_model_is_warmed_up_with_a_batch_size() -> None:
+    """Step S5.1: a batch size is a load-time option, so the warm-up and the questions must agree
+    (R-2); the CSV model is asked with none, and so is warmed up with none."""
+    settings = Settings(_env_file=None, chat_num_batch=256)
+    client, time = FakeOllama([]), FakeTime()
+    swap_to_mode(client, settings, "chat", patience=time.patience())
+    swap_to_mode(client, settings, "csv", patience=time.patience())
+    assert client.batches == [256, None]
+
+
+def test_with_no_batch_size_the_warm_up_is_the_old_call_the_old_fakes_accept() -> None:
+    class OldFake(FakeOllama):
+        def warm_up(self, model: str, *, num_ctx: int, keep_alive: str) -> float:  # type: ignore[override]
+            return super().warm_up(model, num_ctx=num_ctx, keep_alive=keep_alive)
+
+    client, time = OldFake([]), FakeTime()
+    swap_to_mode(client, Settings(_env_file=None), "chat", patience=time.patience())
+    assert client.batches == [None]

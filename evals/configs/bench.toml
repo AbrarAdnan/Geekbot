@@ -1,0 +1,56 @@
+# The bench and tuning sweep of step S5.1 (PLAN.md sections 6.5 and 9).
+#
+#   geekbot bench --config evals/configs/bench.toml              # everything (about an hour)
+#   geekbot bench --phase sweep                                  # one piece
+#   geekbot bench --only ctx8192-kvf16-batch512-k5               # one sweep point
+#   geekbot bench --quick                                        # a plumbing check, not official
+#   geekbot bench --report-only                                  # report.md again from bench.json
+#
+# Run it with GEEKBOT_PROFILE=target and the GPU to yourself: the idle-GPU guard says why the GPU
+# is not idle and marks the numbers "not official" otherwise. Results land in evals/results/<name>/;
+# the golden corpus is ingested into scratch/bench/data (git-ignored). The knowledge base in data/
+# is never opened. The sweep starts its own Ollama on a loopback port of its own (the KV-cache type
+# is a server setting); your Ollama on 11434 is never restarted or reconfigured.
+
+name = "s51-run1"
+results_dir = "evals/results"
+scratch_dir = "scratch/bench"
+
+[guard]
+max_gpu_used_mib = 2048        # GPU memory in use with none of our models loaded (the desktop is ~1,000)
+max_gpu_util_percent = 15
+max_cpu_load_percent = 15      # the CPU gate of D-078: retrieval and the reranker run on the CPU
+attempts = 4
+pause_s = 20
+
+[chat]
+golden = "evals/datasets/golden.jsonl"
+corpus = "evals/corpus"
+questions = 8                  # answerable golden questions, spread evenly, asked under every point
+warm_passes = 3                # every question this many times (one extra, discarded, comes first)
+followups = 3                  # multi-turn items, timed at the shipped setting
+cold_rounds = 2                # unload, load, first question; at the shipped setting
+
+# PLAN.md section 9: num_ctx x KV x num_batch x top-k. The default_* values are what the product
+# ships; thinking and follow-up rows are measured at them, and the report says how the chosen
+# default differs.
+[sweep]
+num_ctx = [4096, 8192]
+kv_cache_type = ["f16", "q8_0"]
+num_batch = [256, 512]
+top_k = [3, 5]
+default_num_ctx = 8192
+default_kv_cache_type = "f16"
+default_num_batch = 512
+default_top_k = 5
+port = 11435
+
+[thinking]
+enabled = true                 # information only; thinking is off by default (PLAN.md section 6.5)
+runs = 3
+
+[csv]
+enabled = true
+source = "scratch/gigalogy-latest"   # Gigalogy's folder, read only (C3)
+runs = 1                       # the C3 reproduction used 3; here only the timings matter
+swap_cycles = 3

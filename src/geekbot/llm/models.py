@@ -15,7 +15,7 @@ import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Protocol, Self
+from typing import Any, Protocol, Self
 
 import httpx
 
@@ -39,6 +39,23 @@ def same_model(a: str, b: str) -> bool:
 def model_is_pulled(model: str, available: list[str]) -> bool:
     """Whether ``model`` is in ``available``. Ollama treats ``name`` as ``name:latest``."""
     return any(same_model(model, name) for name in available)
+
+
+@dataclass(frozen=True)
+class RunningModel:
+    """One model Ollama holds in memory (a row of ``GET /api/ps``), sizes in bytes."""
+
+    name: str
+    size_bytes: int
+    vram_bytes: int
+    context: int | None
+
+    @property
+    def gpu_percent(self) -> int:
+        """The share of the model in video memory, rounded to a whole percent (0 for no size)."""
+        if self.size_bytes <= 0:
+            return 0
+        return round(100 * self.vram_bytes / self.size_bytes)
 
 
 class OllamaClient:
@@ -107,12 +124,18 @@ class OllamaClient:
                 names.append(entry["name"])
         return names
 
-    def warm_up(self, model: str, *, num_ctx: int, keep_alive: str) -> float:
+    def warm_up(
+        self, model: str, *, num_ctx: int, keep_alive: str, num_batch: int | None = None
+    ) -> float:
         """Load ``model`` into memory without generating text; return the seconds it took.
 
-        An empty prompt makes Ollama load the model and stop. ``num_ctx`` must equal what
-        real queries send: a different value makes Ollama reload the model (lesson 03 §4).
+        An empty prompt makes Ollama load the model and stop. ``num_ctx`` (and ``num_batch``, when
+        the chat model is given one) must equal what real queries send: a different value makes
+        Ollama reload the model (lesson 03 §4).
         """
+        options: dict[str, object] = {"num_ctx": num_ctx}
+        if num_batch is not None:
+            options["num_batch"] = num_batch
         started = time.perf_counter()
         self._call(
             "POST",
@@ -122,10 +145,36 @@ class OllamaClient:
                 "prompt": "",
                 "stream": False,
                 "keep_alive": keep_alive,
-                "options": {"num_ctx": num_ctx},
+                "options": options,
             },
         )
         return time.perf_counter() - started
+
+    def running(self) -> list["RunningModel"]:
+        """What Ollama holds in memory and how much of it is on the GPU (``GET /api/ps``).
+
+        ``/api/ps`` reports each model's total size and the part in video memory, which is the
+        same fact as the PROCESSOR column of ``ollama ps`` without parsing its text; the bench
+        reads it from a private Ollama instance, where the command cannot be pointed (step S5.1).
+        """
+        models = self._call("GET", "/api/ps").get("models")
+        if not isinstance(models, list):
+            raise OllamaError("Ollama /api/ps has no model list")
+        found: list[RunningModel] = []
+        for entry in models:
+            if not isinstance(entry, dict) or not isinstance(entry.get("name"), str):
+                continue
+            size, vram = entry.get("size"), entry.get("size_vram")
+            context = entry.get("context_length")
+            found.append(
+                RunningModel(
+                    name=entry["name"],
+                    size_bytes=size if isinstance(size, int) else 0,
+                    vram_bytes=vram if isinstance(vram, int) else 0,
+                    context=context if isinstance(context, int) else None,
+                )
+            )
+        return found
 
     def unload(self, model: str) -> None:
         """Free the model's memory now (``keep_alive: 0``). Used for explicit swaps (R-4)."""
@@ -250,6 +299,7 @@ def swap_to(
     release: Iterable[str],
     num_ctx: int,
     keep_alive: str,
+    num_batch: int | None = None,
     patience: Patience | None = None,
 ) -> SwapResult:
     """Make ``model`` the loaded one: unload the ``release`` models, then warm ``model`` up.
@@ -271,7 +321,13 @@ def swap_to(
     others = [name for name in release if not same_model(name, model)]
     unloaded = unload_and_wait(client, others, patience=wait)
     unload_s = wait.clock() - started
-    warm_up_s = client.warm_up(model, num_ctx=num_ctx, keep_alive=keep_alive)
+    if num_batch is None:  # the common case: a client (or a test's fake) that knows no batch size
+        warm_up_s = client.warm_up(model, num_ctx=num_ctx, keep_alive=keep_alive)
+    else:
+        batched: Any = client  # the real client takes it; the Protocol stays the old, smaller one
+        warm_up_s = batched.warm_up(
+            model, num_ctx=num_ctx, keep_alive=keep_alive, num_batch=num_batch
+        )
     return SwapResult(loaded=model, unloaded=unloaded, unload_s=unload_s, warm_up_s=warm_up_s)
 
 
@@ -299,6 +355,7 @@ def swap_to_mode(
     client: SwapClient, settings: Settings, mode: Mode, *, patience: Patience | None = None
 ) -> SwapResult:
     """Swap to ``mode``'s model (chat or CSV), releasing the other mode's model."""
+    num_batch: int | None = None
     if mode == "csv":
         model, other, num_ctx = (
             settings.resolved_csv_model,
@@ -311,11 +368,13 @@ def swap_to_mode(
             settings.resolved_csv_model,
             settings.chat_num_ctx,
         )
+        num_batch = settings.chat_num_batch  # only the chat model is given a batch size (S5.1)
     return swap_to(
         client,
         model,
         release=[other],
         num_ctx=num_ctx,
         keep_alive=settings.keep_alive,
+        num_batch=num_batch,
         patience=patience,
     )

@@ -45,6 +45,49 @@ def test_warm_up_sends_context_and_keep_alive_and_no_prompt() -> None:
     ]
 
 
+def test_warm_up_sends_a_batch_size_only_when_given_one() -> None:
+    """Step S5.1: the batch size is a load-time option like the context size (R-2)."""
+    seen: list[dict[str, object]] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json={"done": True})
+
+    with _client(httpx.MockTransport(handle)) as client:
+        client.warm_up("gemma3:4b", num_ctx=8192, keep_alive="30m", num_batch=256)
+        client.warm_up("gemma3:4b", num_ctx=8192, keep_alive="30m")
+    assert seen[0]["options"] == {"num_ctx": 8192, "num_batch": 256}
+    assert seen[1]["options"] == {"num_ctx": 8192}
+
+
+def test_running_reads_how_much_of_each_model_is_in_video_memory() -> None:
+    body = {
+        "models": [
+            {
+                "name": "gemma4:12b",
+                "size": 8_100_000_000,
+                "size_vram": 8_100_000_000,
+                "context_length": 8192,
+            },
+            {"name": "nomic-embed-text:latest", "size": 376_000_000, "size_vram": 0},
+            {"name": "split:7b", "size": 1000, "size_vram": 480, "context_length": 4096},
+            {"size": 1},  # no name: skipped
+        ]
+    }
+    with _client(httpx.MockTransport(lambda _r: httpx.Response(200, json=body))) as client:
+        models = client.running()
+    assert [m.name for m in models] == ["gemma4:12b", "nomic-embed-text:latest", "split:7b"]
+    assert [m.gpu_percent for m in models] == [100, 0, 48]
+    assert models[0].context == 8192
+    assert models[1].context is None  # the field is missing in this reply
+
+
+def test_a_model_of_no_size_counts_as_no_gpu_share_not_a_division_by_zero() -> None:
+    body = {"models": [{"name": "odd:1b", "size": 0, "size_vram": 0}]}
+    with _client(httpx.MockTransport(lambda _r: httpx.Response(200, json=body))) as client:
+        assert client.running()[0].gpu_percent == 0
+
+
 def test_unload_sends_keep_alive_zero() -> None:
     seen: list[dict[str, object]] = []
 

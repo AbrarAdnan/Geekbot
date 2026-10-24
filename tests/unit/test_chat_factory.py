@@ -89,6 +89,56 @@ def test_the_rewrite_models_name_can_be_overridden() -> None:
     assert structured.first.bound.model == "other:2b"  # type: ignore[attr-defined]
 
 
+# --- the batch size (step S5.1): a load-time option, so every call must send it -----------------
+
+
+def request_options(chat: object, **overrides: object) -> dict[str, object]:
+    """The ``options`` of the HTTP request the chat model would send (nothing is sent)."""
+    from langchain_core.messages import HumanMessage
+
+    params = chat._chat_params([HumanMessage("hi")], **overrides)  # type: ignore[attr-defined]
+    options: dict[str, object] = params["options"]
+    return options
+
+
+def test_no_batch_size_is_sent_unless_one_is_set() -> None:
+    options = request_options(make_chat_model(settings()))
+    assert "num_batch" not in options
+    assert options["num_ctx"] == 8192
+
+
+def test_a_batch_size_goes_into_every_request_next_to_the_context_size() -> None:
+    config = settings(chat_num_batch=256, chat_num_ctx=4096)
+    options = request_options(make_chat_model(config))
+    assert options["num_batch"] == 256
+    assert options["num_ctx"] == 4096  # the other load-time option is still there
+    thinking = request_options(make_chat_model(config, think=True))
+    assert thinking["num_batch"] == 256
+
+
+def test_the_rewrite_model_gets_the_batch_size_too_but_another_models_does_not() -> None:
+    """A follow-up's rewrite uses the chat model, so it must not make Ollama reload it (R-2); the
+    CSV model is loaded without a batch size and must not be given one."""
+    config = settings(chat_num_batch=256)
+    chat = make_structured_model(config, CondenseOutput, num_predict=96).first.bound  # type: ignore[attr-defined]
+    assert request_options(chat)["num_batch"] == 256
+    other = make_structured_model(config, CondenseOutput, num_predict=96, model="other:2b")
+    assert "num_batch" not in request_options(other.first.bound)  # type: ignore[attr-defined]
+
+
+def test_an_explicit_options_argument_is_not_overwritten() -> None:
+    """LangChain lets a call pass its own ``options`` (then none of the field values are used)."""
+    chat = make_chat_model(settings(chat_num_batch=256))
+    options = request_options(chat, options={"num_ctx": 1234})
+    assert options == {"num_ctx": 1234, "num_batch": 256}
+
+
+@pytest.mark.parametrize("bad", [0, -1])
+def test_a_batch_size_of_zero_or_less_is_refused(bad: int) -> None:
+    with pytest.raises(ValidationError):
+        settings(chat_num_batch=bad)
+
+
 def test_the_conversation_settings_have_starting_values_and_refuse_nonsense() -> None:
     config = settings()
     assert (config.history_budget_tokens, config.history_keep_messages) == (1000, 40)
