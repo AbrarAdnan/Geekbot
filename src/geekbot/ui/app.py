@@ -18,7 +18,7 @@ import streamlit as st
 
 from geekbot.config import Settings
 from geekbot.ui.client import ClientError, GeekbotClient, connect
-from geekbot.ui.views import chat, evals, knowledge, settings
+from geekbot.ui.views import chat, evals, knowledge, labels, settings
 
 CLIENT_KEY = "geekbot_client"
 
@@ -56,6 +56,9 @@ def _run(client: GeekbotClient) -> None:
     def evals_page() -> None:
         evals.render(client)
 
+    def labels_page() -> None:
+        labels.render(client)
+
     st.navigation(
         [
             st.Page(chat_page, title="Chat", url_path="chat", icon=":material/chat:", default=True),
@@ -66,6 +69,7 @@ def _run(client: GeekbotClient) -> None:
                 settings_page, title="Settings", url_path="settings", icon=":material/settings:"
             ),
             st.Page(evals_page, title="Evals", url_path="evals", icon=":material/monitoring:"),
+            st.Page(labels_page, title="Labels", url_path="labels", icon=":material/rule:"),
         ]
     ).run()
 

