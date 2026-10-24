@@ -303,6 +303,56 @@ def test_up_checks_the_model_and_the_key_before_it_starts_anything(
     assert not (tmp_path / "data" / "api-key").exists()
 
 
+# --- `geekbot bench` (step S5.1) -------------------------------------------------------------
+
+
+def test_bench_offers_phases_one_point_a_quick_run_and_a_report_only_mode() -> None:
+    text = re.sub(r"\x1b\[[0-9;]*m", "", runner.invoke(app, ["bench", "--help"]).output)
+    for wanted in ("--config", "--phase", "--only", "--quick", "--report-only", "--name"):
+        assert wanted in text
+
+
+@pytest.mark.usefixtures("clean_geekbot_env")
+def test_bench_report_only_writes_the_report_again_from_the_saved_result(tmp_path: Path) -> None:
+    config = tmp_path / "bench.toml"
+    config.write_text(f'name = "t"\nresults_dir = "{tmp_path.as_posix()}"\n', encoding="utf-8")
+    (tmp_path / "t").mkdir()
+    (tmp_path / "t" / "bench.json").write_text('{"name": "t", "official": false}', encoding="utf-8")
+    result = runner.invoke(app, ["bench", "--config", str(config), "--report-only"])
+    assert result.exit_code == 0, result.output
+    assert "Official: NO" in (tmp_path / "t" / "report.md").read_text(encoding="utf-8")
+
+
+@pytest.mark.usefixtures("clean_geekbot_env")
+def test_bench_name_keeps_a_second_sitting_next_to_the_first(tmp_path: Path) -> None:
+    config = tmp_path / "bench.toml"
+    config.write_text(f'name = "first"\nresults_dir = "{tmp_path.as_posix()}"\n', encoding="utf-8")
+    (tmp_path / "second").mkdir()
+    (tmp_path / "second" / "bench.json").write_text('{"name": "second"}', encoding="utf-8")
+    result = runner.invoke(
+        app, ["bench", "--config", str(config), "--report-only", "--name", "second"]
+    )
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "second" / "report.md").is_file()
+    assert not (tmp_path / "first").exists()
+
+
+@pytest.mark.usefixtures("clean_geekbot_env")
+def test_bench_stops_with_one_line_on_a_missing_result_a_bad_config_or_an_unknown_phase(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "bench.toml"
+    config.write_text(f'name = "t"\nresults_dir = "{tmp_path.as_posix()}"\n', encoding="utf-8")
+    missing = runner.invoke(app, ["bench", "--config", str(config), "--report-only"])
+    assert missing.exit_code == 1 and "run `geekbot bench` first" in missing.output
+    phase = runner.invoke(app, ["bench", "--config", str(config), "--phase", "everything"])
+    assert phase.exit_code == 1 and "unknown phase everything" in phase.output
+    bad = tmp_path / "bad.toml"
+    bad.write_text("name = 3\nunexpected = 1\n", encoding="utf-8")
+    broken = runner.invoke(app, ["bench", "--config", str(bad)])
+    assert broken.exit_code == 1 and "bad.toml" in broken.output
+
+
 @pytest.mark.usefixtures("clean_geekbot_env")
 def test_up_stops_before_the_ui_when_another_process_owns_the_storage(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
